@@ -1,41 +1,16 @@
 {
   "version": 1,
   "settings": {
-    "rollover": true,
+    "rollover": false,
     "seenTip": true,
-    "autoCarryTasks": true,
-    "dailyTemplate": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"
+    "autoCarryTasks": false,
+    "dailyTemplate": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
+    "scratchpad": ""
   },
   "projects": [],
   "notes": [
     {
-      "id": "n1",
-      "title": "2025-01-01 — Daily",
-      "content": "# Top 3\n- [ ] Example task A\n- [ ] Example task B\n\n## Journal\nTried UltraNote Lite.\n",
-      "tags": [],
-      "projectId": null,
-      "dateIndex": "2025-01-01",
-      "type": "daily",
-      "createdAt": "2025-08-13T00:51:15.811Z",
-      "updatedAt": "2025-08-13T00:51:15.811Z",
-      "pinned": false
-    },
-    {
-      "id": "n3",
-      "title": "Idea: Tablet stylus block",
-      "content": "- Add sketch canvas block\n- Save as SVG\n- Optional OCR later",
-      "tags": [
-        "idea"
-      ],
-      "projectId": null,
-      "dateIndex": null,
-      "type": "idea",
-      "createdAt": "2025-08-13T00:51:15.811Z",
-      "updatedAt": "2025-08-13T00:51:15.811Z",
-      "pinned": false
-    },
-    {
-      "id": "tolcbdqh",
+      "id": "rfn667g2",
       "title": "2025-08-13 — Daily",
       "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
       "tags": [],
@@ -43,30 +18,20 @@
       "dateIndex": "2025-08-13",
       "type": "daily",
       "pinned": false,
-      "createdAt": "2025-08-13T00:51:15.920Z",
-      "updatedAt": "2025-08-13T02:55:51.779Z"
+      "createdAt": "2025-08-13T04:20:20.955Z",
+      "updatedAt": "2025-08-13T04:20:20.955Z"
     }
   ],
   "tasks": [
     {
-      "id": "t1",
-      "title": "Try adding a task on Today page",
+      "id": "pvd2bl9e",
+      "title": "Test1",
       "status": "TODO",
       "due": null,
-      "noteId": "n1",
-      "projectId": null,
-      "createdAt": "2025-08-13T00:51:15.811Z",
-      "completedAt": null
-    },
-    {
-      "id": "ym1hcjlv",
-      "title": "Test manipulator",
-      "status": "BACKLOG",
-      "due": null,
-      "noteId": "tolcbdqh",
+      "noteId": "rfn667g2",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-13T02:52:15.689Z",
+      "createdAt": "2025-08-13T04:28:30.775Z",
       "completedAt": null
     }
   ],

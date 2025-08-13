@@ -77,6 +77,11 @@
       <nav id="nav"></nav>
       <div class="card">
         <div class="muted">Today: <span id="todayStr"></span></div>
+        <div class="row" id="dailyDateControls" style="margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap;">
+          <button class="btn" id="prevDay" style="flex:0 0 auto;padding:4px 10px;font-size:14px;">◀</button>
+          <input id="dailyDateNav" type="date" style="flex:1;min-width:0;background:#0f1621;border:1px solid #203041;color:var(--fg);padding:6px 8px;border-radius:8px;" />
+          <button class="btn" id="nextDay" style="flex:0 0 auto;padding:4px 10px;font-size:14px;">▶</button>
+        </div>
         <button id="newDaily" class="btn" style="margin-top:8px;width:100%;">Open/Create Daily</button>
       </div>
       <div class="card">
@@ -142,6 +147,45 @@
 const storeKey = "ultranote-lite"; // kept for compatibility
 const nowISO = () => new Date().toISOString();
 const todayKey = () => new Date().toISOString().slice(0,10);
+// NEW: selected daily date (default today)
+let selectedDailyDate = todayKey();
+function createDailyNoteFor(dateKey){
+  const exists = db.notes.find(n=>n.type==='daily' && n.dateIndex===dateKey);
+  if(exists) return exists;
+  const isToday = dateKey === todayKey();
+  const templateContent = db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n";
+  const daily = createNote({title:`${dateKey} — Daily`, type:'daily', dateIndex:dateKey, content:templateContent});
+  if(isToday){
+    // Rollover
+    if(db.settings.rollover){
+      const y = new Date(); y.setDate(y.getDate()-1); const yKey = y.toISOString().slice(0,10);
+      const yTasks = db.tasks.filter(t=> t.status!=='DONE' && t.status!=='BACKLOG' && t.noteId && db.notes.find(n=>n.id===t.noteId && n.dateIndex===yKey && n.type==='daily'));
+      yTasks.forEach(t=> createTask({title:t.title, noteId:daily.id, priority:t.priority||'medium'}));
+    }
+    // Auto-carry
+    if(db.settings.autoCarryTasks){
+      const priorities={high:3,medium:2,low:1};
+      const projectPool = db.tasks.filter(t=> t.projectId && !t.noteId && t.status==='TODO')
+        .sort((a,b)=>(priorities[b.priority]||2)-(priorities[a.priority]||2))
+        .slice(0,5);
+      projectPool.forEach(t=> createTask({title:t.title, noteId:daily.id, projectId:t.projectId, priority:t.priority}));
+    }
+  }
+  return daily;
+}
+// NEW: unified handler to open or create the selected daily note
+function createOrOpenDaily(){
+  const dateInput = document.getElementById('dailyDateNav');
+  const today = todayKey();
+  let key = (dateInput && dateInput.value) ? dateInput.value : (selectedDailyDate || today);
+  if(key > today) key = today; // prevent future
+  selectedDailyDate = key;
+  if(!db.notes.find(n=> n.type==='daily' && n.dateIndex===key)){
+    createDailyNoteFor(key);
+  }
+  route='today';
+  render();
+}
 
 // Backend persistence helpers
 async function fetchDB(){
@@ -243,42 +287,74 @@ let currentProjectId = null; // NEW: selected project
 
 function renderNav(){
   nav.innerHTML = sections.map(s => `<button data-route="${s.id}" class="${route===s.id?'active':''}">${s.label}</button>`).join("");
-  nav.querySelectorAll("button").forEach(b=> b.onclick = ()=>{ route=b.dataset.route; render(); });
+  nav.querySelectorAll("button").forEach(b=> b.onclick = ()=>{ route=b.dataset.route; if(route==='today') selectedDailyDate = todayKey(); render(); });
 }
 
 function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
 
-// --- Views ---
-function renderToday(){
-  const key = todayKey();
-  let daily = db.notes.find(n=>n.type==="daily" && n.dateIndex===key);
-  if(!daily){
-    let rolloverTasks=[];
-    if(db.settings.rollover){
-      const y = new Date(); y.setDate(y.getDate()-1);
-      const yKey = y.toISOString().slice(0,10);
-      const yTasks = db.tasks.filter(t=> t.status!=="DONE" && t.status!=="BACKLOG" && t.noteId && db.notes.find(n=>n.id===t.noteId && n.dateIndex===yKey && n.type==="daily"));
-      rolloverTasks = yTasks.map(t=> ({title:t.title, priority:t.priority||'medium'}));
-    }
-    daily = createNote({title: `${key} — Daily`, type:"daily", dateIndex:key, content: db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"});
-    // Attach rollover tasks to today's daily note
-    rolloverTasks.forEach(t=> createTask({title:t.title, noteId:daily.id, priority:t.priority}));
-    // Auto-carry top project tasks (clone) if enabled
-    if(db.settings.autoCarryTasks){
-      const projectPool = db.tasks.filter(t=> t.projectId && !t.noteId && t.status==='TODO');
-      const priorities={high:3,medium:2,low:1};
-      projectPool.sort((a,b)=> (priorities[b.priority]||2)-(priorities[a.priority]||2));
-      projectPool.slice(0,5).forEach(t=> createTask({title:t.title, noteId:daily.id, projectId:t.projectId, priority:t.priority}));
+// --- Draft note helper ---
+function openDraftNote({title='', projectId=null, type='note', templateId=''}){
+  // Prepare initial content from template if provided
+  let contentTxt='';
+  if(templateId){
+    const tpl = db.templates.find(t=>t.id===templateId);
+    if(tpl){
+      contentTxt = tpl.content
+        .replace(/\[Title\]/g, title)
+        .replace(/\[Date\]/g, new Date().toLocaleDateString())
+        .replace(/\[Project Name\]/g, projectId? (db.projects.find(p=>p.id===projectId)?.name || '') : '');
     }
   }
-  // Get project tasks (exclude backlog & those already copied into daily)
-  const projectTasks = db.tasks.filter(t=> t.projectId && !t.noteId && t.status!=="BACKLOG").sort((a,b)=> {
-    const priorities = {high:3, medium:2, low:1};
-    return (priorities[b.priority]||2) - (priorities[a.priority]||2);
-  });
   content.innerHTML = `
     <div class="card">
-      <div class="row"><input id="dailyTitle" type="text" value="${htmlesc(daily.title)}"/></div>
+      <div class="muted" style="margin-bottom:6px;">Draft (not saved yet)</div>
+      <input id="draftTitle" type="text" value="${htmlesc(title)}" placeholder="Title" />
+      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
+        <input id="draftTags" type="text" placeholder="Tags (space separated)" />
+        <label style="margin-left:8px;"><input id="draftPinned" type="checkbox"> Pin</label>
+        <button id="draftAddSketch" class="btn" style="font-size:12px;">Add Sketch</button>
+      </div>
+      <div style="margin-top:8px;"><textarea id="draftContent" style="min-height:300px;">${htmlesc(contentTxt)}</textarea></div>
+      <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;">
+        <button id="draftSave" class="btn acc">Save</button>
+        <button id="draftCancel" class="btn">Cancel</button>
+      </div>
+    </div>`;
+  document.getElementById('draftSave').onclick = ()=>{
+    const t = document.getElementById('draftTitle').value.trim() || 'Untitled';
+    const tags = (document.getElementById('draftTags').value||'').split(/\s+/).map(x=>x.startsWith('#')?x.slice(1):x).filter(Boolean);
+    const n = createNote({title:t, content:document.getElementById('draftContent').value, tags, projectId, type, pinned: document.getElementById('draftPinned').checked});
+    openNote(n.id);
+  };
+  document.getElementById('draftCancel').onclick = ()=>{ if(projectId){ route='projects'; render(); } else { route='vault'; render(); } };
+  const addSketchBtn = document.getElementById('draftAddSketch');
+  if(typeof openSketchModal==='function') addSketchBtn.onclick = ()=>{
+    // Insert sketch at caret later; for draft we reuse existing sketch logic by temporarily creating an off-screen note? Simplest: open modal and after insert we append to textarea.
+    const originalInsert = window.openSketchModal;
+    // Use existing openSketchModal but pass a temporary note id not used; after export we just append.
+    openSketchModal('__draft__');
+    // Monkey patch insertion handler after modal opens handled in existing code (not perfect, kept simple)
+  };
+}
+
+// --- Views ---
+function renderToday(){
+  const key = selectedDailyDate || todayKey();
+  const daily = db.notes.find(n=>n.type==='daily' && n.dateIndex===key) || null;
+  const projectTasks = db.tasks.filter(t=> t.projectId && !t.noteId && t.status!=='BACKLOG').sort((a,b)=> { const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); });
+  if(!daily){
+    content.innerHTML = `
+      <div class="card">
+        <strong>No daily entry for ${key}</strong>
+        <div class="muted" style="margin-top:6px;">Click "Open/Create Daily" to create one${key===todayKey()? ' for today (includes rollover / auto-carry).':''}</div>
+      </div>`;
+    return;
+  }
+  content.innerHTML = `
+    <div class="card">
+      <div class="row" style="gap:8px;flex-wrap:wrap;">
+        <input id="dailyTitle" type="text" value="${htmlesc(daily.title)}"/>
+      </div>
       <div style="margin-top:8px;"><textarea id="dailyContent">${htmlesc(daily.content)}</textarea></div>
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
         <button id="saveDaily" class="btn acc">Save</button>
@@ -288,18 +364,19 @@ function renderToday(){
         </select>
         <button id="toggleBacklog" class="btn" style="font-size:12px;">Backlog ▾</button>
       </div>
+      <div class="muted" style="margin-top:6px;font-size:11px;">${key===todayKey()? 'Current day' : 'Viewing: '+ new Date(key+"T00:00:00").toDateString()}</div>
     </div>
     <div class="grid-2">
       <div class="card">
         <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
-          <strong>Today's Tasks</strong>
+          <strong>${key===todayKey()?"Today's Tasks":"Tasks"}</strong>
           <div class="row" style="gap:6px;">
             <button id="showProjectTasks" class="btn" style="font-size:12px;">${projectTasks.length} project tasks</button>
           </div>
         </div>
         <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap;">
-          <input id="taskTitle" type="text" placeholder="Quick task (Enter to add)"/>
-          <select id="taskPriority" style="padding:8px;background:#122134;border:1px solid #274768;color:var(--fg);border-radius:6px;">
+          <input id="taskTitle" type="text" placeholder="Quick task (Enter to add)" ${key!==todayKey()? 'disabled title="Add tasks only on current day"':''}/>
+          <select id="taskPriority" style="padding:8px;background:#122134;border:1px solid #274768;color:var(--fg);border-radius:6px;" ${key!==todayKey()? 'disabled':''}>
             <option value="low">Low</option>
             <option value="medium" selected>Medium</option>
             <option value="high">High</option>
@@ -310,10 +387,10 @@ function renderToday(){
         <div id="projectTaskList" class="list" style="margin-top:8px;display:none;"></div>
       </div>
       <div class="card">
-        <div class="muted">Quick Capture</div>
+        <div class="muted">Quick Capture (today only)</div>
         <div class="row" style="margin-top:8px;">
-          <input id="quickCapture" type="text" placeholder="⌘/Ctrl+Shift+K for quick add"/>
-          <button id="captureBtn" class="btn">Add</button>
+          <input id="quickCapture" type="text" placeholder="⌘/Ctrl+Shift+K for quick add" ${key!==todayKey()? 'disabled':''}/>
+          <button id="captureBtn" class="btn" ${key!==todayKey()? 'disabled':''}>Add</button>
         </div>
         <div class="muted" style="margin-top:12px;">Scratchpad</div>
         <textarea id="scratch" placeholder="Temporary notes..."></textarea>
@@ -322,64 +399,49 @@ function renderToday(){
   $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); };
   $("#templateSelect").onchange = (e)=> { if(!e.target.value) return; const template = db.templates.find(t=>t.id===e.target.value); if(template && confirm(`Apply "${template.name}" template? This will replace current content.`)){ $("#dailyContent").value = template.content.replace(/\[Date\]/g, new Date().toLocaleDateString()).replace(/\[Title\]/g, ''); } e.target.value=''; };
   const taskInput = $("#taskTitle"); const quickCapture = $("#quickCapture");
-  taskInput.onkeydown = (e)=>{ if(e.key==="Enter" && taskInput.value.trim()){ createTask({title:taskInput.value.trim(), noteId: daily.id, priority: $("#taskPriority").value}); taskInput.value = ""; drawTasks(); } };
-  const handleQuickCapture = ()=>{ const text = quickCapture.value.trim(); if(!text) return; if(text.startsWith('!')){ createTask({title:text.slice(1), noteId:daily.id, priority:"high"}); } else if(text.includes('#')){ const tags = extractTags(text); createNote({title:text, type:"idea", tags}); } else { createTask({title:text, noteId:daily.id, priority:"medium"}); } quickCapture.value=""; drawTasks(); };
-  quickCapture.onkeydown = (e)=> { if(e.key==="Enter") handleQuickCapture(); }; $("#captureBtn").onclick = handleQuickCapture;
-  $("#showProjectTasks").onclick = ()=>{ const list = $("#projectTaskList"); const isVisible = list.style.display !== "none"; list.style.display = isVisible?"none":"block"; drawProjectTasks(); };
+  taskInput?.addEventListener('keydown', e=>{ if(e.key==='Enter' && taskInput.value.trim()){ createTask({title:taskInput.value.trim(), noteId: daily.id, priority: $("#taskPriority").value}); taskInput.value=''; drawTasks(); }});
+  const handleQuickCapture = ()=>{ if(!quickCapture) return; const text = quickCapture.value.trim(); if(!text) return; if(text.startsWith('!')){ createTask({title:text.slice(1), noteId:daily.id, priority:'high'}); } else if(text.includes('#')) { const tags = extractTags(text); createNote({title:text, type:'idea', tags}); } else { createTask({title:text, noteId:daily.id, priority:'medium'}); } quickCapture.value=''; drawTasks(); };
+  quickCapture?.addEventListener('keydown', e=>{ if(e.key==='Enter') handleQuickCapture(); });
+  $("#captureBtn")?.addEventListener('click', handleQuickCapture);
+  $("#showProjectTasks").onclick = ()=>{ const list = $("#projectTaskList"); const isVisible = list.style.display !== 'none'; list.style.display = isVisible? 'none':'block'; drawProjectTasks(); };
   $("#toggleBacklog").onclick = ()=>{ const bl = $("#backlogList"); bl.style.display = bl.style.display==='none'? 'block':'none'; drawBacklog(); };
   function drawTasks(){
-    const list = $("#taskList");
-    const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=="BACKLOG").sort((a,b)=> { if(a.status !== b.status) return a.status==="DONE" ? 1 : -1; const priorities = {high:3, medium:2, low:1}; return (priorities[b.priority]||2) - (priorities[a.priority]||2); });
-    list.innerHTML = tasks.map(t=> { const priorityColors = {high:"#ff6b6b", medium:"#4ea1ff", low:"#64748b"}; return `
-      <div class="row" style="justify-content:space-between;">
-        <label class="row" style="gap:8px;">
-          <input type="checkbox" ${t.status==="DONE"?"checked":""} data-id="${t.id}"/>
-          <span class="${t.status==='DONE'?'muted':''}" style="border-left:3px solid ${priorityColors[t.priority||'medium']};padding-left:8px;">${htmlesc(t.title)}</span>
-        </label>
-        <div class="row" style="gap:6px;">
-          ${t.status!=='DONE'?`<button class="btn" data-b="${t.id}" title="Move to backlog" style="font-size:11px;">Backlog</button>`:''}
-          <button class="btn" data-del="${t.id}" title="Delete">✕</button>
-        </div>
-      </div>`; }).join("");
-    list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=> { setTaskStatus(cb.dataset.id, cb.checked?"DONE":"TODO"); drawTasks(); drawBacklog(); });
-    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> { db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(db); drawTasks(); drawProjectTasks(); drawBacklog(); });
-    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=> { moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
+    const list = $("#taskList"); if(!list) return;
+    const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG')
+      .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
+    list.innerHTML = tasks.map(t=> { const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;'>
+      <label class='row' style='gap:8px;'>
+        <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
+        <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;'>${htmlesc(t.title)}</span>
+      </label>
+      <div class='row' style='gap:6px;'>
+        ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
+        <button class='btn' data-del='${t.id}' title='Delete'>✕</button>
+      </div>
+    </div>`; }).join('');
+    list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawTasks(); drawBacklog(); });
+    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(); drawTasks(); drawProjectTasks(); drawBacklog(); });
+    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
   }
-  function drawBacklog(){
-    const list = $("#backlogList"); if(list.style.display==='none') return;
-    const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status==='BACKLOG');
-    list.innerHTML = tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;'>
+  function drawBacklog(){ const list = $("#backlogList"); if(!list || list.style.display==='none') return; const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status==='BACKLOG'); list.innerHTML = tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;'>
       <span class='muted' style='font-size:12px;'>${htmlesc(t.title)}</span>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-r='${t.id}' style='font-size:11px;'>Restore</button>
         <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
       </div>
-    </div>`).join("") : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`;
-    list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=> { setTaskStatus(b.dataset.r, 'TODO'); drawTasks(); drawBacklog(); });
-    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> { db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(db); drawBacklog(); });
+    </div>`).join('') : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`; list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=>{ setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(); drawBacklog(); }); }
+  function drawProjectTasks(){ const list = $("#projectTaskList"); if(!list) return; const tasks = projectTasks.slice(0,10); list.innerHTML = tasks.map(t=> { const proj=db.projects.find(p=>p.id===t.projectId); const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;'>
+      <label class='row' style='gap:8px;'>
+        <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
+        <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;'>${htmlesc(t.title)} <span class='pill'>${proj?htmlesc(proj.name):'Unknown'}</span></span>
+      </label>
+      <div class='row' style='gap:6px;'>
+        ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
+        <button class='btn' data-del='${t.id}'>✕</button>
+      </div>
+    </div>`; }).join(''); list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawProjectTasks(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(); drawProjectTasks(); }); list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawProjectTasks(); });
   }
-  function drawProjectTasks(){
-    const list = $("#projectTaskList");
-    const tasks = projectTasks.slice(0,10);
-    list.innerHTML = tasks.map(t=> { const proj = db.projects.find(p=>p.id===t.projectId); const priorityColors = {high:"#ff6b6b", medium:"#4ea1ff", low:"#64748b"}; return `
-      <div class="row" style="justify-content:space-between;">
-        <label class="row" style="gap:8px;">
-          <input type="checkbox" ${t.status==="DONE"?"checked":""} data-id="${t.id}"/>
-          <span class="${t.status==='DONE'?'muted':''}" style="border-left:3px solid ${priorityColors[t.priority||'medium']};padding-left:8px;">${htmlesc(t.title)} <span class="pill">${proj?htmlesc(proj.name):'Unknown'}</span></span>
-        </label>
-        <div class='row' style='gap:6px;'>
-          ${t.status!=='DONE'?`<button class="btn" data-b="${t.id}" style="font-size:11px;">Backlog</button>`:''}
-          <button class="btn" data-del="${t.id}">✕</button>
-        </div>
-      </div>`; }).join("");
-    list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=> { setTaskStatus(cb.dataset.id, cb.checked?"DONE":"TODO"); drawProjectTasks(); });
-    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> { db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(db); drawProjectTasks(); });
-    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=> { moveToBacklog(b.dataset.b); drawProjectTasks(); });
-  }
-  drawTasks();
-  drawNotes();
-  drawBacklog();
-  refreshStats();
+  drawTasks(); drawBacklog();
 }
 function renderProjects(){
   const selectedProject = db.projects.find(p=>p.id===currentProjectId) || null;
@@ -391,7 +453,7 @@ function renderProjects(){
       </div>`;
     return;
   }
-  let sortBy = "date";
+  let sortBy = 'date';
   content.innerHTML = `
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center;">
@@ -474,7 +536,11 @@ function renderProjects(){
     const progEl = document.getElementById("projTaskProgress"); if(progEl) progEl.textContent = `${completed}/${tasks.length} tasks (${progress}%)`;
     const inline = document.getElementById("projProgressInline"); if(inline) inline.textContent = `${progress}% complete`;
   }
-  document.getElementById("addNote").onclick = ()=>{ const t = document.getElementById("noteTitle").value.trim(); if(!t){ alert("Type a title first."); return; } const templateId = document.getElementById("noteTemplate").value; let contentTxt=""; if(templateId){ const template = db.templates.find(tp=>tp.id===templateId); if(template) contentTxt = template.content.replace(/\[Title\]/g, t).replace(/\[Date\]/g, new Date().toLocaleDateString()).replace(/\[Project Name\]/g, selectedProject.name); } const n = createNote({title:t, projectId:currentProjectId, content:contentTxt}); document.getElementById("noteTitle").value=""; drawNotes(); refreshStats(); openNote(n.id); };
+  document.getElementById("addNote").onclick = ()=>{
+    const t = document.getElementById("noteTitle").value.trim();
+    const templateId = document.getElementById("noteTemplate").value;
+    openDraftNote({title:t, projectId:currentProjectId, type:'note', templateId});
+  };
   document.getElementById("addTask").onclick = ()=>{ const title = document.getElementById("taskTitle").value.trim(); if(!title) return; createTask({title, projectId:currentProjectId, priority:document.getElementById("taskPriority").value}); document.getElementById("taskTitle").value=""; drawTasks(); refreshStats(); };
   document.getElementById("taskTitle").onkeydown = e=>{ if(e.key==="Enter") document.getElementById("addTask").click(); };
   document.getElementById("sortTitle").onclick = ()=>{ sortBy="title"; drawNotes(); };
@@ -495,14 +561,109 @@ function renderProjects(){
         <button class='btn' data-r='${t.id}' style='font-size:11px;'>Restore</button>
         <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
       </div>
-    </div>`).join("") : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`); list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=> { setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); refreshStats(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> { db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(db); drawBacklog(); refreshStats(); }); }
+    </div>`).join("") : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`); list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=> { setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> { db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(db); drawBacklog(); refreshStats(); });
+  }
   drawTasks();
   drawNotes();
   drawBacklog();
   refreshStats();
 }
+function renderIdeas(){
+  content.innerHTML = `
+  <div class="card">
+    <div class="row"><input id="idea" type="text" placeholder="Capture an idea… (Enter to add)" style="flex:1;"/></div>
+  </div>
+  <div id="ideaList" class="list"></div>`;
+  const idea = $("#idea");
+  idea.onkeydown = (e)=> { if(e.key==="Enter" && idea.value.trim()){ const n=createNote({title:idea.value.trim(), content:"", type:"idea"}); idea.value=""; draw(); openNote(n.id); } };
+  function draw(){
+    const notes = db.notes.filter(n=> n.type==="idea").sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
+    $("#ideaList").innerHTML = notes.map(n=> `
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center;">
+          <span style="flex:1;cursor:pointer;" data-open="${n.id}">${htmlesc(n.title)}</span>
+          <div class="row" style="gap:6px;">
+            <button class="btn" data-open="${n.id}" style="font-size:12px;">Open</button>
+            <button class="btn" data-del="${n.id}" style="font-size:12px;">✕</button>
+          </div>
+        </div>
+      </div>`).join("");
+    document.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> openNote(b.dataset.open));
+    document.querySelectorAll('[data-del]').forEach(b=> b.onclick=()=>{ if(confirm('Delete idea?')){ db.notes=db.notes.filter(x=>x.id!==b.dataset.del); save(); draw(); } });
+  }
+  draw();
+}
+
+function renderReview(){
+  const done = db.tasks.filter(t=> t.status==='DONE');
+  const activeTasks = db.tasks.filter(t=> t.status!=='BACKLOG');
+  const total = activeTasks.length; // fix 0/1 bug
+  const pct = total? Math.round(done.length/total*100) : 0;
+  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
+  const weekTasks = db.tasks.filter(t=> t.completedAt && new Date(t.completedAt) > weekAgo);
+  const weekNotes = db.notes.filter(n=> new Date(n.createdAt) > weekAgo);
+  const projectStats = db.projects.map(p=>{ const tasks = db.tasks.filter(t=>t.projectId===p.id); const completed = tasks.filter(t=>t.status==="DONE").length; return {project: p, total: tasks.length, completed, progress: tasks.length ? Math.round(completed/tasks.length*100) : 0}; }).filter(s=>s.total>0);
+  const pendingAll = db.tasks.filter(t=> t.status==='TODO' && t.status!=='BACKLOG');
+  const backlogAll = db.tasks.filter(t=> t.status==='BACKLOG');
+  const pPriority = {high:3,medium:2,low:1};
+  pendingAll.sort((a,b)=> (pPriority[b.priority]||2)-(pPriority[a.priority]||2));
+  backlogAll.sort((a,b)=> (pPriority[b.priority]||2)-(pPriority[a.priority]||2));
+  content.innerHTML = `
+    <div class="grid-2">
+      <div class="card">
+        <strong>📊 Analytics</strong>
+        <div class="muted" style="margin-top:6px;">Tasks completed: ${done.length}/${total||0} (${pct}%)</div>
+        <div class="muted">This week: ${weekTasks.length} tasks, ${weekNotes.length} notes</div>
+      </div>
+      <div class="card">
+        <strong>🎯 Project Progress</strong>
+        <div class="list" style="margin-top:8px;">
+          ${projectStats.map(s=>`<div class='row' style='justify-content:space-between;'><span>${htmlesc(s.project.name)}</span><span class='muted'>${s.completed}/${s.total} (${s.progress}%)</span></div>`).join('') || '<div class="muted">No project tasks yet</div>'}
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <strong>🕒 Pending Tasks (${pendingAll.length})</strong>
+      <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
+        ${pendingAll.map(t=>{ const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null; const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null; const label = htmlesc(t.title); const ctx = proj? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily'? `<span class='pill'>${note.dateIndex}</span>` : ''); const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;align-items:center;'>
+          <span style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:6px;'>${label} ${ctx}</span>
+          <div class='row' style='gap:4px;'>
+            ${note? `<button class='btn' data-open-note='${note.id}' style='font-size:11px;'>Open</button>`:''}
+            <button class='btn' data-done='${t.id}' style='font-size:11px;'>✓</button>
+          </div>
+        </div>`; }).join('') || '<div class="muted">No pending tasks</div>'}
+      </div>
+    </div>
+    <div class="card">
+      <strong>📦 Backlog Tasks (${backlogAll.length})</strong>
+      <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
+        ${backlogAll.map(t=>{ const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null; const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null; const label = htmlesc(t.title); const ctx = proj? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily'? `<span class='pill'>${note.dateIndex}</span>` : ''); return `<div class='row' style='justify-content:space-between;align-items:center;'>
+          <span class='muted' style='padding-left:6px;'>${label} ${ctx}</span>
+          <div class='row' style='gap:4px;'>
+            ${note? `<button class='btn' data-open-note='${note.id}' style='font-size:11px;'>Open</button>`:''}
+            <button class='btn' data-restore='${t.id}' style='font-size:11px;'>Restore</button>
+          </div>
+        </div>`; }).join('') || '<div class="muted">No backlog tasks</div>'}
+      </div>
+    </div>
+    <div class="card">
+      <strong>📅 Recent Daily Logs</strong>
+      <div class="list" style="margin-top:8px;">${db.notes.filter(n=>n.type==='daily').slice(-7).reverse().map(n=> `<div class='row' style='justify-content:space-between;'><span>${htmlesc(n.title)}</span><button class='btn' data-open='${n.id}'>Open</button></div>`).join('')}</div>
+    </div>
+    <div class="card">
+      <strong>🏷️ Tag Cloud</strong>
+      <div style="margin-top:8px;">${getAllTags().slice(0,20).map(tag=>{ const count = db.notes.filter(n=>(n.tags||[]).includes(tag)).length; return `<button class='pill' data-tag='${tag}' style='cursor:pointer;margin:2px;'>#${htmlesc(tag)} (${count})</button>`; }).join('') || '<div class="muted">No tags yet</div>'}</div>
+    </div>`;
+  content.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> openNote(b.dataset.open));
+  content.querySelectorAll('[data-open-note]').forEach(b=> b.onclick=()=> openNote(b.dataset.openNote));
+  content.querySelectorAll('[data-done]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.done,'DONE'); renderReview(); });
+  content.querySelectorAll('[data-restore]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.restore,'TODO'); renderReview(); });
+  content.querySelectorAll('[data-tag]').forEach(b=> b.onclick=()=>{ route='vault'; document.getElementById('q').value='#'+b.dataset.tag; render(); });
+}
+
+// --- Note editor ---
 function openNote(id){
-  const n = db.notes.find(x=>x.id===id); if(!n) return;
+  const n = db.notes.find(x=>x.id===id); if(!n){ alert('Note not found'); return; }
   content.innerHTML = `
     <div class="card">
       <input id="title" type="text" value="${htmlesc(n.title)}" />
@@ -511,218 +672,101 @@ function openNote(id){
         <label style="margin-left:8px;"><input id="pinned" type="checkbox" ${n.pinned?'checked':''}> Pin</label>
         <button id="addSketch" class="btn" style="font-size:12px;">Add Sketch</button>
       </div>
-      <div style="margin-top:8px;"><textarea id="contentBox">${htmlesc(n.content||"")}</textarea></div>
+      <div style="margin-top:8px;"><textarea id="contentBox" style="min-height:300px;">${htmlesc(n.content||'')}</textarea></div>
       <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;">
         <button id="save" class="btn acc">Save</button>
         <button id="back" class="btn">Back</button>
         <button id="duplicate" class="btn">Duplicate</button>
         <button id="export" class="btn">Export</button>
+        <button id="delete" class="btn" style="border-color:#ff6b6b;color:#ff6b6b;">Delete</button>
       </div>
     </div>`;
-  $("#save").onclick = ()=> { 
-    const tagText = $("#tags").value;
+  const saveBtn = document.getElementById('save');
+  saveBtn.onclick = ()=>{
+    const tagText = document.getElementById('tags').value;
     const tags = tagText ? tagText.split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean) : [];
-    updateNote(n.id, { 
-      title: $("#title").value, 
-      content: $("#contentBox").value, 
+    updateNote(n.id, {
+      title: document.getElementById('title').value,
+      content: document.getElementById('contentBox').value,
       tags,
-      pinned: $("#pinned").checked
+      pinned: document.getElementById('pinned').checked
     });
   };
-  $("#back").onclick = ()=> {
-    if(n.type==="daily") { route="today"; render(); }
-    else if(n.projectId) { route="projects"; render(); }
-    else { route="vault"; render(); }
+  document.getElementById('back').onclick = ()=>{
+    if(n.type==='daily'){ route='today'; render(); }
+    else if(n.projectId){ route='projects'; render(); }
+    else if(n.type==='idea'){ route='ideas'; render(); }
+    else { route='vault'; render(); }
   };
-  $("#duplicate").onclick = ()=> {
+  document.getElementById('duplicate').onclick = ()=>{
     const copy = createNote({
-      title: $("#title").value + " (Copy)",
-      content: $("#contentBox").value,
-      tags: ($("#tags").value||"").split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean),
+      title: document.getElementById('title').value + ' (Copy)',
+      content: document.getElementById('contentBox').value,
+      tags: (document.getElementById('tags').value||'').split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean),
       projectId: n.projectId,
       type: n.type
     });
     openNote(copy.id);
   };
-  $("#export").onclick = ()=> {
-    const blob = new Blob([$("#contentBox").value], {type:'text/plain'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${$("#title").value.replace(/[^a-z0-9]/gi, '_')}.txt`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+  document.getElementById('export').onclick = ()=>{
+    const blob = new Blob([document.getElementById('contentBox').value], {type:'text/plain'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${n.title.replace(/[^a-z0-9]/gi,'_')}.txt`; a.click(); URL.revokeObjectURL(a.href);
   };
-  document.getElementById('addSketch').onclick = ()=> openSketchModal(n.id);
+  document.getElementById('delete').onclick = ()=>{
+    if(!confirm('Delete this note and its tasks? This cannot be undone.')) return;
+    // Remove tasks linked to this note
+    db.tasks = db.tasks.filter(t=> t.noteId !== n.id);
+    // Remove the note
+    db.notes = db.notes.filter(x=> x.id !== n.id);
+    save();
+    if(n.type==='daily'){ route='today'; render(); }
+    else if(n.projectId){ route='projects'; render(); }
+    else if(n.type==='idea'){ route='ideas'; render(); }
+    else { route='vault'; render(); }
+  };
+  const addSketchBtn = document.getElementById('addSketch');
+  if(typeof openSketchModal === 'function') addSketchBtn.onclick = ()=> openSketchModal(n.id);
 }
 
-function renderIdeas(){
-  content.innerHTML = `
-  <div class="card">
-    <div class="row"><input id="idea" type="text" placeholder="Capture an idea… (Enter to add)"/></div>
-  </div>
-  <div id="ideaList" class="list"></div>`;
-  const idea = $("#idea");
-  idea.onkeydown = (e)=> { if(e.key==="Enter" && idea.value.trim()){ createNote({title:idea.value.trim(), content:"", type:"idea"}); idea.value=""; draw(); } };
-  function draw(){
-    const notes = db.notes.filter(n=> n.type==="idea").sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
-    $("#ideaList").innerHTML = notes.map(n=> `
-      <div class="card row" style="justify-content:space-between;">
-        <span>${htmlesc(n.title)}</span>
-        <button class="btn" data-del="${n.id}">Delete</button>
-      </div>`).join("");
-    document.querySelectorAll("[data-del]").forEach(b=> b.onclick=()=>{ db.notes=db.notes.filter(x=>x.id!==b.dataset.del); save(db); draw(); });
-  }
-  draw();
-}
-
-function renderVault(){
-  const q = $("#q").value.toLowerCase();
-  const allTags = getAllTags();
-  let filtered = db.notes;
-  
-  if(q){
-    if(q.startsWith('#')){
-      const tag = q.slice(1);
-      filtered = db.notes.filter(n=> (n.tags||[]).some(t=>t.toLowerCase().includes(tag)));
-    } else {
-      filtered = db.notes.filter(n=> (n.title+(n.content||"")).toLowerCase().includes(q));
-    }
-  }
-  
-  const pinned = filtered.filter(n=>n.pinned).sort((a,b)=> b.updatedAt.localeCompare(a.updatedAt));
-  const others = filtered.filter(n=>!n.pinned).sort((a,b)=> b.updatedAt.localeCompare(a.updatedAt));
-  const all = [...pinned, ...others];
-  
-  content.innerHTML = `
-    <div class="card">
-      <div class="row" style="justify-content:space-between;">
-        <div class="muted">${all.length} results</div>
-        <div class="row">
-          <button id="sortDate" class="btn" style="font-size:12px;">Date</button>
-          <button id="sortTitle" class="btn" style="font-size:12px;">A-Z</button>
-        </div>
-      </div>
-      ${allTags.length ? `<div style="margin-top:8px;">${allTags.slice(0,15).map(tag=>`<button class="pill" data-tag="${tag}" style="cursor:pointer;">#${htmlesc(tag)}</button>`).join("")}</div>` : ""}
-    </div>
-    <div class="list" id="noteList">${renderNoteList(all)}</div>`;
-    
-  document.querySelectorAll("[data-open]").forEach(b=> b.onclick=()=> openNote(b.dataset.open));
-  document.querySelectorAll("[data-tag]").forEach(b=> b.onclick=()=> { $("#q").value = '#' + b.dataset.tag; renderVault(); });
-  
-  let sortBy = "date";
-  document.getElementById("sortDate").onclick = ()=>{ sortBy="date"; redraw(); };
-  document.getElementById("sortTitle").onclick = ()=>{ sortBy="title"; redraw(); };
-  
-  function redraw(){
-    const sorted = sortBy==="title" ? all.sort((a,b)=>a.title.localeCompare(b.title)) : all.sort((a,b)=> b.updatedAt.localeCompare(a.updatedAt));
-    document.getElementById("noteList").innerHTML = renderNoteList(sorted);
-    document.querySelectorAll("[data-open]").forEach(b=> b.onclick=()=> openNote(b.dataset.open));
-  }
-  
-  function renderNoteList(notes){
-    return notes.map(n=> `
-      <div class="card">
-        <div class="row" style="justify-content:space-between;">
-          <strong>${n.pinned ? '📌 ' : ''}${htmlesc(n.title)}</strong>
-          <span class="muted">${new Date(n.updatedAt).toLocaleDateString()}</span>
-        </div>
-        ${n.tags && n.tags.length ? `<div style="margin-top:4px;">${n.tags.map(tag=>`<span class="pill">#${htmlesc(tag)}</span>`).join("")}</div>` : ""}
-        <div class="muted">${htmlesc((n.content||'').slice(0,140))}${n.content && n.content.length > 140 ? '…' : ''}</div>
-        <div style="margin-top:8px;"><button class="btn" data-open="${n.id}">Open</button></div>
-      </div>`).join("");
-  }
-}
-
-function renderReview(){
-  const done = db.tasks.filter(t=> t.status==="DONE");
-  const activeTasks = db.tasks.filter(t=> t.status!=="BACKLOG");
-  const total = activeTasks.length || 1;
-  const pct = Math.round(done.length/total*100);
-  // Weekly stats
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
-  const weekTasks = db.tasks.filter(t=> t.completedAt && new Date(t.completedAt) > weekAgo);
-  const weekNotes = db.notes.filter(n=> new Date(n.createdAt) > weekAgo);
-  
-  // Project progress
-  const projectStats = db.projects.map(p=>{
-    const tasks = db.tasks.filter(t=>t.projectId===p.id);
-    const completed = tasks.filter(t=>t.status==="DONE").length;
-    return {project: p, total: tasks.length, completed, progress: tasks.length ? Math.round(completed/tasks.length*100) : 0};
-  }).filter(s=>s.total>0);
-  
-  content.innerHTML = `
-    <div class="grid-2">
-      <div class="card">
-        <strong>📊 Analytics</strong>
-        <div class="muted" style="margin-top:6px;">Tasks completed: ${done.length}/${total} (${pct}%)</div>
-        <div class="muted">This week: ${weekTasks.length} tasks, ${weekNotes.length} notes</div>
-      </div>
-      
-      <div class="card">
-        <strong>🎯 Project Progress</strong>
-        <div class="list" style="margin-top:8px;">
-          ${projectStats.map(s=>`
-            <div class="row" style="justify-content:space-between;">
-              <span>${htmlesc(s.project.name)}</span>
-              <span class="muted">${s.completed}/${s.total} (${s.progress}%)</span>
-            </div>
-          `).join("") || '<div class="muted">No project tasks yet</div>'}
-        </div>
-      </div>
-    </div>
-    
-    <div class="card">
-      <strong>📅 Recent Daily Logs</strong>
-      <div class="list" style="margin-top:8px;">${db.notes.filter(n=>n.type==="daily").slice(-7).reverse().map(n=> `
-        <div class="row" style="justify-content:space-between;">
-          <span>${htmlesc(n.title)}</span>
-          <button class="btn" data-open="${n.id}">Open</button>
-        </div>`).join("")}</div>
-    </div>
-    
-    <div class="card">
-      <strong>🏷️ Tag Cloud</strong>
-      <div style="margin-top:8px;">
-        ${getAllTags().slice(0,20).map(tag=>{
-          const count = db.notes.filter(n=>(n.tags||[]).includes(tag)).length;
-          return `<button class="pill" data-tag="${tag}" style="cursor:pointer;margin:2px;">#${htmlesc(tag)} (${count})</button>`;
-        }).join("") || '<div class="muted">No tags yet</div>'}
-      </div>
-    </div>`;
-    
-  document.querySelectorAll("[data-open]").forEach(b=> b.onclick=()=> openNote(b.dataset.open));
-  document.querySelectorAll("[data-tag]").forEach(b=> b.onclick=()=> { 
-    route="vault"; 
-    $("#q").value = '#' + b.dataset.tag; 
-    render(); 
-  });
-}
-
+// --- Global app logic ---
 function render(){
   renderNav();
-  if(route==="today") renderToday();
-  else if(route==="projects") renderProjects();
-  else if(route==="ideas") renderIdeas();
-  else if(route==="vault") renderVault();
-  else if(route==="review") renderReview();
-  document.getElementById("todayStr").textContent = new Date().toDateString();
+  if(route==='today') renderToday();
+  else if(route==='projects') renderProjects();
+  else if(route==='ideas') renderIdeas();
+  else if(route==='vault') renderVault();
+  else if(route==='review') renderReview();
+  // Show selected daily date (or today) in sidebar
+  const todayDisplayEl = document.getElementById('todayStr');
+  if(todayDisplayEl){
+    const sel = selectedDailyDate || todayKey();
+    if(sel===todayKey()) todayDisplayEl.textContent = new Date().toDateString();
+    else todayDisplayEl.textContent = new Date(sel+'T00:00:00').toDateString();
+  }
   document.getElementById("dailyRollover").checked = !!db.settings.rollover;
   document.getElementById("dailyRollover").onchange = ()=>{ db.settings.rollover = document.getElementById("dailyRollover").checked; save(db); };
-  
   const autoCarryEl = document.getElementById("autoCarryTasks");
   if(autoCarryEl){
     autoCarryEl.checked = !!db.settings.autoCarryTasks;
     autoCarryEl.onchange = ()=>{ db.settings.autoCarryTasks = autoCarryEl.checked; save(db); };
   }
-  
-  // Auto-save scratch content
+  const dateInput = document.getElementById('dailyDateNav');
+  if(dateInput){
+    dateInput.value = selectedDailyDate;
+    const prevBtn = document.getElementById('prevDay');
+    const nextBtn = document.getElementById('nextDay');
+    const today = todayKey();
+    prevBtn.onclick = ()=>{ const d=new Date(selectedDailyDate); d.setDate(d.getDate()-1); selectedDailyDate = d.toISOString().slice(0,10); route='today'; render(); };
+    nextBtn.onclick = ()=>{ if(selectedDailyDate===today) return; const d=new Date(selectedDailyDate); d.setDate(d.getDate()+1); const newKey=d.toISOString().slice(0,10); if(newKey>today) return; selectedDailyDate=newKey; route='today'; render(); };
+    dateInput.onchange = ()=>{ const v=dateInput.value; if(v){ const today=todayKey(); selectedDailyDate = v>today? today : v; route='today'; render(); } };
+    nextBtn.disabled = (selectedDailyDate===today);
+    nextBtn.style.opacity = nextBtn.disabled? .4 : 1;
+  }
   const scratchEl = document.getElementById("scratch");
   if(scratchEl){
     scratchEl.value = db.settings.scratchpad || "";
     scratchEl.oninput = ()=>{ db.settings.scratchpad = scratchEl.value; save(db); };
   }
-  
-  // Tip
   if(!db.settings.seenTip){ const t = document.getElementById("tip"); t.style.display="block"; document.getElementById("closeTip").onclick = ()=>{ db.settings.seenTip=true; save(db); t.style.display="none"; }; }
 }
 
@@ -772,7 +816,7 @@ function drawProjectsSidebar(){
   }
 }
 document.getElementById("addProject").onclick = ()=> { const name = document.getElementById("newProjectName").value.trim(); if(!name) return; const p = createProject(name); document.getElementById("newProjectName").value=""; currentProjectId = p.id; route='projects'; render(); drawProjectsSidebar(); };
-document.getElementById("newDaily").onclick = ()=> { route="today"; render(); };
+document.getElementById("newDaily").onclick = createOrOpenDaily;
 document.getElementById("newNoteBtn").onclick = ()=> {
   const t = prompt("New note title"); if(!t) return;
   const n = createNote({title:t}); openNote(n.id);
@@ -876,6 +920,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
       }; reader.readAsText(file);
     });
   }
+  // Bind daily button after DOM ready & before init to ensure handler persists
+  const dailyBtn = document.getElementById('newDaily');
+  if(dailyBtn){ dailyBtn.onclick = createOrOpenDaily; }
   initApp();
 });
 </script>
