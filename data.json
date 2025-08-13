@@ -2,17 +2,11 @@
   "version": 1,
   "settings": {
     "rollover": true,
-    "seenTip": false,
+    "seenTip": true,
     "autoCarryTasks": true,
     "dailyTemplate": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"
   },
-  "projects": [
-    {
-      "id": "yb3zt7yi",
-      "name": "Tes for storage",
-      "createdAt": "2025-08-13T00:58:34.378Z"
-    }
-  ],
+  "projects": [],
   "notes": [
     {
       "id": "n1",
@@ -50,7 +44,7 @@
       "type": "daily",
       "pinned": false,
       "createdAt": "2025-08-13T00:51:15.920Z",
-      "updatedAt": "2025-08-13T00:51:15.920Z"
+      "updatedAt": "2025-08-13T02:55:51.779Z"
     }
   ],
   "tasks": [
@@ -65,26 +59,15 @@
       "completedAt": null
     },
     {
-      "id": "cxdf7p4f",
-      "title": "Quick test of the modules",
-      "status": "DONE",
+      "id": "ym1hcjlv",
+      "title": "Test manipulator",
+      "status": "BACKLOG",
       "due": null,
       "noteId": "tolcbdqh",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-13T00:56:13.668Z",
-      "completedAt": "2025-08-13T00:57:23.798Z"
-    },
-    {
-      "id": "92z3gea0",
-      "title": "Nothing important",
-      "status": "DONE",
-      "due": null,
-      "noteId": "tolcbdqh",
-      "projectId": null,
-      "priority": "medium",
-      "createdAt": "2025-08-13T00:56:25.252Z",
-      "completedAt": "2025-08-13T00:57:24.608Z"
+      "createdAt": "2025-08-13T02:52:15.689Z",
+      "completedAt": null
     }
   ],
   "templates": [
