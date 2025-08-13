@@ -44,6 +44,7 @@
     #sketchModal.show{display:flex;}
     #sketchModal .sketchInner{background:#121924;border:1px solid #1e2938;border-radius:16px;padding:12px;max-width:100%;}
     #sketchPad{background:#0f1621;border:1px solid #274768;border-radius:12px;touch-action:none;max-width:100%;height:auto;}
+    #mobileBar .btn.active{border-color:var(--acc);background:#182330;}
     @media (max-width:900px){
       main{grid-template-columns:1fr;}
       aside{position:fixed;top:0;left:0;height:100dvh;transform:translateX(-100%);transition:transform .25s;background:var(--card);width:260px;z-index:200;box-shadow:0 0 30px rgba(0,0,0,.4);}
@@ -888,6 +889,13 @@ function render(){
   else if(route==='links') renderLinks(); // NEW
   else if(route==='vault') renderVault();
   else if(route==='review') renderReview();
+  // Update mobile bar active states
+  const mb = document.getElementById('mobileBar');
+  if(mb){
+    mb.querySelectorAll('button[data-nav]').forEach(b=>{
+      if(b.dataset.nav===route) b.classList.add('active'); else b.classList.remove('active');
+    });
+  }
   // Show selected daily date (or today) in sidebar
   const todayDisplayEl = document.getElementById('todayStr');
   if(todayDisplayEl){
@@ -920,54 +928,6 @@ function render(){
     scratchEl.oninput = ()=>{ db.settings.scratchpad = scratchEl.value; save(db); };
   }
   if(!db.settings.seenTip){ const t = document.getElementById("tip"); t.style.display="block"; document.getElementById("closeTip").onclick = ()=>{ db.settings.seenTip=true; save(db); t.style.display="none"; }; }
-}
-
-// Sidebar projects
-function drawProjectsSidebar(){
-  // Render project buttons
-  projectList.innerHTML = db.projects.map(p=> `
-    <button class="projBtn ${currentProjectId===p.id?"active":""}" data-proj="${p.id}" title="Select project">
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${htmlesc(p.name)}</span>
-      <span class="projDel" data-del="${p.id}" title="Delete project">✕</span>
-    </button>`).join("");
-  // Attach a single event listener once (delegation)
-  if(!projectList.dataset.bound){
-    projectList.addEventListener('click', (e)=>{
-      const delEl = e.target.closest('.projDel');
-      if(delEl){
-        e.stopPropagation();
-        const pid = delEl.dataset.del;
-        const proj = db.projects.find(p=>p.id===pid);
-        if(!proj) return;
-        // Provide a clearer confirm message with counts
-        const noteCount = db.notes.filter(n=>n.projectId===pid).length;
-        const taskCount = db.tasks.filter(t=>t.projectId===pid).length;
-        const msg = `Delete project "${proj.name}"${noteCount||taskCount?` (and its ${noteCount} notes / ${taskCount} tasks)`:""}? This cannot be undone.`;
-        if(!confirm(msg)) return;
-        db.notes = db.notes.filter(n=> n.projectId!==pid);
-        db.tasks = db.tasks.filter(t=> t.projectId!==pid);
-        db.projects = db.projects.filter(p=> p.id!==pid);
-       
-       
-        if(currentProjectId===pid) currentProjectId = null;
-        save(db);
-        drawProjectsSidebar();
-        if(route==='projects') render();
-        return;
-      }
-      const btn = e.target.closest('.projBtn');
-      if(btn){
-        const pid = btn.dataset.proj;
-        if(currentProjectId!==pid){
-          currentProjectId = pid;
-          route='projects';
-          render();
-          drawProjectsSidebar();
-        }
-      }
-    });
-    projectList.dataset.bound = '1';
-  }
 }
 document.getElementById("addProject").onclick = ()=> { const name = document.getElementById("newProjectName").value.trim(); if(!name) return; const p = createProject(name); document.getElementById("newProjectName").value=""; currentProjectId = p.id; route='projects'; render(); drawProjectsSidebar(); };
 document.getElementById("newDaily").onclick = createOrOpenDaily;
@@ -1074,9 +1034,29 @@ document.addEventListener('DOMContentLoaded', ()=>{
       }; reader.readAsText(file);
     });
   }
-  // Bind daily button after DOM ready & before init to ensure handler persists
-  const dailyBtn = document.getElementById('newDaily');
-  if(dailyBtn){ dailyBtn.onclick = createOrOpenDaily; }
+  // Mobile nav & drawer bindings
+  const mobileBar = document.getElementById('mobileBar');
+  if(mobileBar && !mobileBar.dataset.bound){
+    mobileBar.addEventListener('click', e=>{
+      const btn = e.target.closest('button[data-nav]');
+      if(!btn) return;
+      route = btn.dataset.nav;
+      if(route==='today') selectedDailyDate = todayKey();
+      render();
+    });
+    mobileBar.dataset.bound='1';
+  }
+  const menuBtn = document.getElementById('menuToggle');
+  if(menuBtn && !menuBtn.dataset.bound){
+    menuBtn.onclick = ()=>{ document.body.classList.toggle('drawer-open'); };
+    menuBtn.dataset.bound='1';
+  }
+  // Close drawer when navigating (desktop or mobile)
+  document.addEventListener('click', e=>{
+    if(document.body.classList.contains('drawer-open')){
+      if(e.target.matches('main, main *')){ document.body.classList.remove('drawer-open'); }
+    }
+  });
   initApp();
 });
 </script>
