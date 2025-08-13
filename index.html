@@ -298,6 +298,47 @@ function renderNav(){
 
 function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
 
+// Restored: drawProjectsSidebar (was missing causing project UI break)
+function drawProjectsSidebar(){
+  if(!projectList) return;
+  projectList.innerHTML = db.projects.map(p=> `
+    <button class="projBtn ${currentProjectId===p.id?"active":""}" data-proj="${p.id}" title="Select project">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${htmlesc(p.name)}</span>
+      <span class="projDel" data-del="${p.id}" title="Delete project">✕</span>
+    </button>`).join("");
+  if(!projectList.dataset.bound){
+    projectList.addEventListener('click', (e)=>{
+      const del = e.target.closest('.projDel');
+      if(del){
+        e.stopPropagation();
+        const pid = del.dataset.del;
+        const proj = db.projects.find(p=>p.id===pid);
+        if(!proj) return;
+        const noteCount = db.notes.filter(n=>n.projectId===pid).length;
+        const taskCount = db.tasks.filter(t=>t.projectId===pid).length;
+        const msg = `Delete project "${proj.name}"${noteCount||taskCount?` (and its ${noteCount} notes / ${taskCount} tasks)`:''}? This cannot be undone.`;
+        if(!confirm(msg)) return;
+        db.notes = db.notes.filter(n=> n.projectId!==pid);
+        db.tasks = db.tasks.filter(t=> t.projectId!==pid);
+        db.projects = db.projects.filter(p=> p.id!==pid);
+        if(currentProjectId===pid) currentProjectId = null;
+        save();
+        drawProjectsSidebar();
+        if(route==='projects') render();
+        return;
+      }
+      const btn = e.target.closest('.projBtn');
+      if(btn){
+        const pid = btn.dataset.proj;
+        if(currentProjectId!==pid){ currentProjectId = pid; route='projects'; render(); drawProjectsSidebar(); }
+      }
+    });
+    projectList.dataset.bound='1';
+  }
+}
+
+function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
+
 // --- Draft note helper ---
 function openDraftNote({title='', projectId=null, type='note', templateId=''}){
   // Prepare initial content from template if provided
