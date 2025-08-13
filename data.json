@@ -19,22 +19,10 @@
       "type": "daily",
       "pinned": false,
       "createdAt": "2025-08-13T04:20:20.955Z",
-      "updatedAt": "2025-08-13T04:20:20.955Z"
+      "updatedAt": "2025-08-13T15:07:03.068Z"
     }
   ],
-  "tasks": [
-    {
-      "id": "pvd2bl9e",
-      "title": "Test1",
-      "status": "TODO",
-      "due": null,
-      "noteId": "rfn667g2",
-      "projectId": null,
-      "priority": "medium",
-      "createdAt": "2025-08-13T04:28:30.775Z",
-      "completedAt": null
-    }
-  ],
+  "tasks": [],
   "templates": [
     {
       "id": "tpl1",
@@ -50,6 +38,28 @@
       "id": "tpl3",
       "name": "Weekly Review",
       "content": "# Week of [Date]\n\n## Wins\n- \n\n## Challenges\n- \n\n## Lessons Learned\n- \n\n## Next Week Focus\n- [ ] \n"
+    }
+  ],
+  "links": [
+    {
+      "id": "u8o69pqs",
+      "title": "MolmoAct: An Action Reasoning Model that reasons in 3D space",
+      "url": "https://allenai.org/blog/molmoact",
+      "tags": [],
+      "pinned": false,
+      "status": "NEW",
+      "createdAt": "2025-08-13T16:14:54.249Z",
+      "updatedAt": "2025-08-13T16:14:54.249Z"
+    },
+    {
+      "id": "7fxrnsg7",
+      "title": "Custom Controller for ROS2",
+      "url": "https://github.com/masum919/my_custom_controller",
+      "tags": [],
+      "pinned": false,
+      "status": "NEW",
+      "createdAt": "2025-08-13T16:15:35.656Z",
+      "updatedAt": "2025-08-13T16:15:35.656Z"
     }
   ]
 }
