@@ -149,20 +149,18 @@ const nowISO = () => new Date().toISOString();
 const todayKey = () => new Date().toISOString().slice(0,10);
 // NEW: selected daily date (default today)
 let selectedDailyDate = todayKey();
-function createDailyNoteFor(dateKey){
+function createDailyNoteFor(dateKey, contentOverride){
   const exists = db.notes.find(n=>n.type==='daily' && n.dateIndex===dateKey);
   if(exists) return exists;
   const isToday = dateKey === todayKey();
-  const templateContent = db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n";
+  const templateContent = contentOverride !== undefined ? contentOverride : (db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n");
   const daily = createNote({title:`${dateKey} — Daily`, type:'daily', dateIndex:dateKey, content:templateContent});
   if(isToday){
-    // Rollover
     if(db.settings.rollover){
       const y = new Date(); y.setDate(y.getDate()-1); const yKey = y.toISOString().slice(0,10);
       const yTasks = db.tasks.filter(t=> t.status!=='DONE' && t.status!=='BACKLOG' && t.noteId && db.notes.find(n=>n.id===t.noteId && n.dateIndex===yKey && n.type==='daily'));
       yTasks.forEach(t=> createTask({title:t.title, noteId:daily.id, priority:t.priority||'medium'}));
     }
-    // Auto-carry
     if(db.settings.autoCarryTasks){
       const priorities={high:3,medium:2,low:1};
       const projectPool = db.tasks.filter(t=> t.projectId && !t.noteId && t.status==='TODO')
@@ -173,16 +171,14 @@ function createDailyNoteFor(dateKey){
   }
   return daily;
 }
-// NEW: unified handler to open or create the selected daily note
+// NEW: unified handler to open or create the selected daily note (deferred creation)
 function createOrOpenDaily(){
   const dateInput = document.getElementById('dailyDateNav');
   const today = todayKey();
   let key = (dateInput && dateInput.value) ? dateInput.value : (selectedDailyDate || today);
   if(key > today) key = today; // prevent future
   selectedDailyDate = key;
-  if(!db.notes.find(n=> n.type==='daily' && n.dateIndex===key)){
-    createDailyNoteFor(key);
-  }
+  // Do NOT auto-create daily note here; only render view; creation happens on user Save
   route='today';
   render();
 }
@@ -219,6 +215,10 @@ const seed = {
     {id:"tpl1", name:"Meeting Notes", content:"# Meeting: [Title]\n**Date:** [Date]\n**Attendees:** \n\n## Agenda\n- \n\n## Notes\n\n## Action Items\n- [ ] \n\n## Next Steps\n"},
     {id:"tpl2", name:"Project Plan", content:"# [Project Name]\n\n## Objective\n\n## Goals\n- \n\n## Milestones\n- [ ] \n\n## Resources\n\n## Risks\n\n## Success Metrics\n"},
     {id:"tpl3", name:"Weekly Review", content:"# Week of [Date]\n\n## Wins\n- \n\n## Challenges\n- \n\n## Lessons Learned\n- \n\n## Next Week Focus\n- [ ] \n"}
+  ],
+  // NEW collection for saved links
+  links:[
+    {id:"l1", title:"UltraNote Example", url:"https://example.com", tags:["ref"], pinned:true, status:"NEW", createdAt:nowISO(), updatedAt:nowISO()}
   ]
 };
 const defaults = seed;
@@ -242,8 +242,8 @@ async function initApp(){
     if(!db) db = JSON.parse(JSON.stringify(defaults));
     await persistDB();
   }
-  // Defensive: ensure collections exist
-  ['notes','tasks','projects','templates','settings'].forEach(k=>{ if(!db[k]) db[k] = Array.isArray(defaults[k])?[]:{}; });
+  // Defensive: ensure collections exist (added links)
+  ['notes','tasks','projects','templates','settings','links'].forEach(k=>{ if(!db[k]) db[k] = Array.isArray(seed[k])?[]:{}; });
   // Draw initial UI
   drawProjectsSidebar();
   render();
@@ -268,6 +268,10 @@ function createTemplate(name, content){ const t={id:uid(), name, content, create
 function addTag(text){ const tags = extractTags(text); if(tags.length) { const uniqueTags = [...new Set([...getAllTags(), ...tags])]; } return tags; }
 function getAllTags(){ return [...new Set(db.notes.flatMap(n=>n.tags||[]).filter(Boolean))]; }
 function extractTags(text){ return (text.match(/#[\w-]+/g) || []).map(tag => tag.slice(1)); }
+// --- Links helpers ---
+function createLink({title,url,tags=[],pinned=false,status="NEW"}){ const l={id:uid(), title, url, tags, pinned, status, createdAt:nowISO(), updatedAt:nowISO()}; db.links.push(l); save(); return l; }
+function updateLink(id, patch){ const l=db.links.find(x=>x.id===id); if(!l) return; Object.assign(l, patch, {updatedAt:nowISO()}); save(); return l; }
+function deleteLink(id){ db.links = db.links.filter(l=> l.id!==id); save(); }
 
 // --- UI helpers ---
 const $ = sel => document.querySelector(sel);
@@ -279,6 +283,7 @@ const sections = [
   {id:"today", label:"📅 Today"},
   {id:"projects", label:"📁 Projects"},
   {id:"ideas", label:"💡 Ideas"},
+  {id:"links", label:"🔗 Links"}, // NEW
   {id:"vault", label:"🔍 Vault"},
   {id:"review", label:"📊 Review"},
 ];
@@ -343,11 +348,22 @@ function renderToday(){
   const daily = db.notes.find(n=>n.type==='daily' && n.dateIndex===key) || null;
   const projectTasks = db.tasks.filter(t=> t.projectId && !t.noteId && t.status!=='BACKLOG').sort((a,b)=> { const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); });
   if(!daily){
+    const tpl = db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n";
     content.innerHTML = `
-      <div class="card">
-        <strong>No daily entry for ${key}</strong>
-        <div class="muted" style="margin-top:6px;">Click "Open/Create Daily" to create one${key===todayKey()? ' for today (includes rollover / auto-carry).':''}</div>
+      <div class='card'>
+        <strong>Create Daily for ${key}</strong>
+        <div class='muted' style='margin-top:4px;font-size:12px;'>Not yet in vault. Editing below won't save until you click Create.</div>
+        <div style='margin-top:8px;'><textarea id='dailyNewContent' style='min-height:300px;'>${htmlesc(tpl)}</textarea></div>
+        <div class='row' style='margin-top:8px;gap:8px;flex-wrap:wrap;'>
+          <button id='createDailyBtn' class='btn acc'>Create & Save</button>
+        </div>
+        <div class='muted' style='margin-top:6px;font-size:11px;'>Rollover / auto-carry will occur only after creation (today only).</div>
       </div>`;
+    document.getElementById('createDailyBtn').onclick = ()=>{
+      const contentVal = document.getElementById('dailyNewContent').value;
+      createDailyNoteFor(key, contentVal);
+      renderToday();
+    };
     return;
   }
   content.innerHTML = `
@@ -661,6 +677,142 @@ function renderReview(){
   content.querySelectorAll('[data-tag]').forEach(b=> b.onclick=()=>{ route='vault'; document.getElementById('q').value='#'+b.dataset.tag; render(); });
 }
 
+// --- Added: Vault & Links views (previously missing) ---
+function renderVault(){
+  const query = (document.getElementById('q')?.value || '').trim();
+  const tagFilters = (query.match(/#[\w-]+/g)||[]).map(t=>t.slice(1).toLowerCase());
+  const text = query.replace(/#[\w-]+/g,'').trim().toLowerCase();
+  let notes = db.notes.slice();
+  if(tagFilters.length){ notes = notes.filter(n=> tagFilters.every(t=> (n.tags||[]).map(x=>x.toLowerCase()).includes(t))); }
+  if(text){ notes = notes.filter(n=> n.title.toLowerCase().includes(text) || (n.content||'').toLowerCase().includes(text)); }
+  notes.sort((a,b)=> (b.pinned?1:0)-(a.pinned?1:0) || b.updatedAt.localeCompare(a.updatedAt));
+  const pinned = notes.filter(n=> n.pinned);
+  const others = notes.filter(n=> !n.pinned);
+  const highlight = (s)=>{ if(!text) return htmlesc(s); return htmlesc(s).replace(new RegExp(text.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'),'ig'), m=>`<mark style='background:#274768;color:inherit;'>${m}</mark>`); };
+  content.innerHTML = `
+    <div class='card'>
+      <div class='row' style='justify-content:space-between;flex-wrap:wrap;gap:8px;'>
+        <strong>🔍 Vault</strong>
+        <div class='muted' style='font-size:12px;'>${notes.length} result${notes.length!==1?'s':''}${query? ' for "'+htmlesc(query)+'"':''}</div>
+      </div>
+      <div class='row' style='margin-top:8px;gap:8px;flex-wrap:wrap;'>
+        <button id='newNote' class='btn acc' style='font-size:12px;'>New Note</button>
+        <button id='sortRecent' class='btn' style='font-size:12px;'>Recent</button>
+        <button id='sortAZ' class='btn' style='font-size:12px;'>A-Z</button>
+      </div>
+      ${tagFilters.length? `<div style='margin-top:8px;'>${tagFilters.map(t=>`<span class='pill'>#${htmlesc(t)}</span>`).join('')}</div>`:''}
+    </div>
+    ${pinned.length? `<div class='card'><strong style='font-size:14px;'>📌 Pinned</strong><div class='list' style='margin-top:8px;'>${pinned.map(n=> noteRow(n,true)).join('')}</div></div>`:''}
+    <div class='card'>
+      <strong style='font-size:14px;'>${pinned.length? 'Other Notes':'Notes'}</strong>
+      <div class='list' style='margin-top:8px;'>${others.map(n=> noteRow(n,false)).join('') || '<div class="muted">No notes</div>'}</div>
+    </div>`;
+  function noteRow(n,isPinned){
+    const preview = (n.content||'').slice(0,140).replace(/\n/g,' ');
+    return `<div class='card' style='padding:10px;'>
+      <div class='row' style='justify-content:space-between;'>
+        <span style='cursor:pointer;' data-open='${n.id}'>${highlight(n.title)}${n.type==='daily'?` <span class='pill'>${n.dateIndex||''}</span>`:''}${n.type==='idea'?` <span class='pill'>idea</span>`:''}</span>
+        <div class='row' style='gap:6px;'>
+          <button class='btn' data-pin='${n.id}' style='font-size:11px;'>${isPinned?'Unpin':'Pin'}</button>
+          <button class='btn' data-open='${n.id}' style='font-size:11px;'>Open</button>
+          <button class='btn' data-del='${n.id}' style='font-size:11px;'>✕</button>
+        </div>
+      </div>
+      ${preview?`<div class='muted' style='margin-top:4px;font-size:11px;'>${highlight(preview)}</div>`:''}
+      ${(n.tags&&n.tags.length)?`<div style='margin-top:4px;'>${n.tags.map(t=>`<span class='pill' data-tag='${t}'>#${htmlesc(t)}</span>`).join(' ')}</div>`:''}
+    </div>`;
+  }
+  content.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> openNote(b.dataset.open));
+  content.querySelectorAll('[data-pin]').forEach(b=> b.onclick=()=>{ const note=db.notes.find(x=>x.id===b.dataset.pin); if(note){ note.pinned=!note.pinned; save(); renderVault(); } });
+  content.querySelectorAll('[data-tag]').forEach(b=> b.onclick=()=>{ document.getElementById('q').value='#'+b.dataset.tag; renderVault(); });
+  content.querySelectorAll('[data-del]').forEach(b=> b.onclick=()=>{ const note=db.notes.find(x=>x.id===b.dataset.del); if(!note) return; if(!confirm(`Delete note "${note.title}"${note.type==='daily'?' (daily)':''}? This will also remove its tasks.`)) return; db.tasks = db.tasks.filter(t=> t.noteId!==note.id); db.notes = db.notes.filter(n=> n.id!==note.id); save(); renderVault(); });
+  document.getElementById('newNote').onclick = ()=> openDraftNote({});
+  document.getElementById('sortAZ').onclick = ()=>{ document.getElementById('q').value=''; notes.sort((a,b)=> a.title.localeCompare(b.title)); renderVault(); };
+  document.getElementById('sortRecent').onclick = ()=>{ document.getElementById('q').value=''; notes.sort((a,b)=> b.updatedAt.localeCompare(a.updatedAt)); renderVault(); };
+}
+// --- End added views ---
+
+// --- Links view (restored) ---
+function renderLinks(){
+  const prevFilter = document.getElementById('linksFilter')?.value || '';
+  content.innerHTML = `
+    <div class='card'>
+      <div class='row' style='justify-content:space-between;flex-wrap:wrap;gap:8px;'>
+        <strong>🔗 Links</strong>
+        <div class='muted' style='font-size:12px;'>Save & manage web resources</div>
+      </div>
+      <div class='row' style='margin-top:8px;gap:8px;flex-wrap:wrap;'>
+        <input id='linkTitle' type='text' placeholder='Title' style='flex:1;min-width:140px;' />
+        <input id='linkUrl' type='text' placeholder='https://...' style='flex:1;min-width:180px;' />
+        <input id='linkTags' type='text' placeholder='tags (space)' style='flex:1;min-width:120px;' />
+        <button id='addLink' class='btn acc'>Add</button>
+      </div>
+      <div class='row' style='margin-top:8px;gap:8px;flex-wrap:wrap;'>
+        <input id='linksFilter' type='text' placeholder='Filter or #tag' style='flex:1;min-width:160px;' value='${htmlesc(prevFilter)}' />
+        <button id='exportLinks' class='btn' style='font-size:12px;'>Export</button>
+        <button id='clearLinks' class='btn' style='font-size:12px;'>Clear All</button>
+      </div>
+    </div>
+    <div id='linksList' class='list'></div>`;
+  const filterEl = document.getElementById('linksFilter');
+  function draw(){
+    const q = (filterEl.value||'').trim();
+    const tagFilters = (q.match(/#[\w-]+/g)||[]).map(t=>t.slice(1).toLowerCase());
+    const text = q.replace(/#[\w-]+/g,'').trim().toLowerCase();
+    let links = db.links.slice();
+    if(tagFilters.length){ links = links.filter(l=> tagFilters.every(t=> (l.tags||[]).map(x=>x.toLowerCase()).includes(t))); }
+    if(text){ links = links.filter(l=> l.title.toLowerCase().includes(text) || l.url.toLowerCase().includes(text)); }
+    links.sort((a,b)=> (b.pinned?1:0)-(a.pinned?1:0) || b.updatedAt.localeCompare(a.updatedAt));
+    const list = document.getElementById('linksList');
+    list.innerHTML = links.map(l=> row(l)).join('') || `<div class='card muted'>No links</div>`;
+    list.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> window.open(b.dataset.open,'_blank'));
+    list.querySelectorAll('[data-pin]').forEach(b=> b.onclick=()=>{ const l=db.links.find(x=>x.id===b.dataset.pin); if(l){ l.pinned=!l.pinned; save(); draw(); } });
+    list.querySelectorAll('[data-del]').forEach(b=> b.onclick=()=>{ if(confirm('Delete link?')){ deleteLink(b.dataset.del); draw(); } });
+    list.querySelectorAll('[data-edit]').forEach(b=> b.onclick=()=> editLink(b.dataset.edit));
+    list.querySelectorAll('[data-tag]').forEach(b=> b.onclick=()=>{ const tag=b.dataset.tag; filterEl.value = (filterEl.value.includes('#'+tag)? filterEl.value : (filterEl.value+ ' #'+tag)).trim(); draw(); });
+  }
+  function row(l){
+    return `<div class='card' style='padding:10px;'>
+      <div class='row' style='justify-content:space-between;flex-wrap:wrap;gap:6px;'>
+        <span style='flex:1;min-width:200px;overflow:hidden;text-overflow:ellipsis;'>${l.pinned?'📌 ':''}<a href='${htmlesc(l.url)}' data-open='${htmlesc(l.url)}' target='_blank' rel='noopener' style='color:var(--acc);text-decoration:none;'>${htmlesc(l.title||l.url)}</a></span>
+        <div class='row' style='gap:6px;'>
+          <button class='btn' data-edit='${l.id}' style='font-size:11px;'>Edit</button>
+          <button class='btn' data-pin='${l.id}' style='font-size:11px;'>${l.pinned?'Unpin':'Pin'}</button>
+          <button class='btn' data-del='${l.id}' style='font-size:11px;'>✕</button>
+        </div>
+      </div>
+      <div class='muted' style='margin-top:4px;font-size:11px;'>${htmlesc(l.url)}</div>
+      ${(l.tags&&l.tags.length)?`<div style='margin-top:4px;'>${l.tags.map(t=>`<span class='pill' data-tag='${t}'>#${htmlesc(t)}</span>`).join(' ')}</div>`:''}
+    </div>`;
+  }
+  function editLink(id){
+    const l=db.links.find(x=>x.id===id); if(!l) return;
+    const title = prompt('Title', l.title); if(title===null) return;
+    const url = prompt('URL', l.url); if(url===null) return;
+    const tags = prompt('Tags (space)', (l.tags||[]).join(' ')); if(tags===null) return;
+    updateLink(id, {title: title.trim()||url.trim(), url: url.trim(), tags: tags.split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean)}); draw();
+  }
+  document.getElementById('addLink').onclick = ()=>{
+    const title = document.getElementById('linkTitle').value.trim();
+    const url = document.getElementById('linkUrl').value.trim();
+    if(!url) return;
+    const tags = (document.getElementById('linkTags').value||'').split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean);
+    createLink({title: title || url, url, tags});
+    document.getElementById('linkTitle').value='';
+    document.getElementById('linkUrl').value='';
+    document.getElementById('linkTags').value='';
+    draw();
+  };
+  filterEl.oninput = draw;
+  document.getElementById('exportLinks').onclick = ()=>{
+    const blob = new Blob([JSON.stringify(db.links,null,2)], {type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='links-export.json'; a.click(); URL.revokeObjectURL(a.href);
+  };
+  document.getElementById('clearLinks').onclick = ()=>{ if(confirm('Delete ALL links?')){ db.links=[]; save(); draw(); } };
+  draw();
+}
+// --- End Links view ---
+
 // --- Note editor ---
 function openNote(id){
   const n = db.notes.find(x=>x.id===id); if(!n){ alert('Note not found'); return; }
@@ -679,8 +831,7 @@ function openNote(id){
         <button id="duplicate" class="btn">Duplicate</button>
         <button id="export" class="btn">Export</button>
         <button id="delete" class="btn" style="border-color:#ff6b6b;color:#ff6b6b;">Delete</button>
-      </div>
-    </div>`;
+      </div>`;
   const saveBtn = document.getElementById('save');
   saveBtn.onclick = ()=>{
     const tagText = document.getElementById('tags').value;
@@ -734,6 +885,7 @@ function render(){
   if(route==='today') renderToday();
   else if(route==='projects') renderProjects();
   else if(route==='ideas') renderIdeas();
+  else if(route==='links') renderLinks(); // NEW
   else if(route==='vault') renderVault();
   else if(route==='review') renderReview();
   // Show selected daily date (or today) in sidebar
@@ -795,6 +947,8 @@ function drawProjectsSidebar(){
         db.notes = db.notes.filter(n=> n.projectId!==pid);
         db.tasks = db.tasks.filter(t=> t.projectId!==pid);
         db.projects = db.projects.filter(p=> p.id!==pid);
+       
+       
         if(currentProjectId===pid) currentProjectId = null;
         save(db);
         drawProjectsSidebar();
