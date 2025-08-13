@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "settings": {
+    "rollover": true,
+    "seenTip": false,
+    "autoCarryTasks": true,
+    "dailyTemplate": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"
+  },
+  "projects": [
+    {
+      "id": "yb3zt7yi",
+      "name": "Tes for storage",
+      "createdAt": "2025-08-13T00:58:34.378Z"
+    }
+  ],
+  "notes": [
+    {
+      "id": "n1",
+      "title": "2025-01-01 — Daily",
+      "content": "# Top 3\n- [ ] Example task A\n- [ ] Example task B\n\n## Journal\nTried UltraNote Lite.\n",
+      "tags": [],
+      "projectId": null,
+      "dateIndex": "2025-01-01",
+      "type": "daily",
+      "createdAt": "2025-08-13T00:51:15.811Z",
+      "updatedAt": "2025-08-13T00:51:15.811Z",
+      "pinned": false
+    },
+    {
+      "id": "n3",
+      "title": "Idea: Tablet stylus block",
+      "content": "- Add sketch canvas block\n- Save as SVG\n- Optional OCR later",
+      "tags": [
+        "idea"
+      ],
+      "projectId": null,
+      "dateIndex": null,
+      "type": "idea",
+      "createdAt": "2025-08-13T00:51:15.811Z",
+      "updatedAt": "2025-08-13T00:51:15.811Z",
+      "pinned": false
+    },
+    {
+      "id": "tolcbdqh",
+      "title": "2025-08-13 — Daily",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
+      "tags": [],
+      "projectId": null,
+      "dateIndex": "2025-08-13",
+      "type": "daily",
+      "pinned": false,
+      "createdAt": "2025-08-13T00:51:15.920Z",
+      "updatedAt": "2025-08-13T00:51:15.920Z"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "title": "Try adding a task on Today page",
+      "status": "TODO",
+      "due": null,
+      "noteId": "n1",
+      "projectId": null,
+      "createdAt": "2025-08-13T00:51:15.811Z",
+      "completedAt": null
+    },
+    {
+      "id": "cxdf7p4f",
+      "title": "Quick test of the modules",
+      "status": "DONE",
+      "due": null,
+      "noteId": "tolcbdqh",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-13T00:56:13.668Z",
+      "completedAt": "2025-08-13T00:57:23.798Z"
+    },
+    {
+      "id": "92z3gea0",
+      "title": "Nothing important",
+      "status": "DONE",
+      "due": null,
+      "noteId": "tolcbdqh",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-13T00:56:25.252Z",
+      "completedAt": "2025-08-13T00:57:24.608Z"
+    }
+  ],
+  "templates": [
+    {
+      "id": "tpl1",
+      "name": "Meeting Notes",
+      "content": "# Meeting: [Title]\n**Date:** [Date]\n**Attendees:** \n\n## Agenda\n- \n\n## Notes\n\n## Action Items\n- [ ] \n\n## Next Steps\n"
+    },
+    {
+      "id": "tpl2",
+      "name": "Project Plan",
+      "content": "# [Project Name]\n\n## Objective\n\n## Goals\n- \n\n## Milestones\n- [ ] \n\n## Resources\n\n## Risks\n\n## Success Metrics\n"
+    },
+    {
+      "id": "tpl3",
+      "name": "Weekly Review",
+      "content": "# Week of [Date]\n\n## Wins\n- \n\n## Challenges\n- \n\n## Lessons Learned\n- \n\n## Next Week Focus\n- [ ] \n"
+    }
+  ]
+}
