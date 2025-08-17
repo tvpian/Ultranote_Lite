@@ -1,0 +1,467 @@
+/* Extracted styles from index.html to make the project easier to maintain.
+   This file contains all of the CSS previously inlined in the HTML.
+   Color variables and responsive rules have been preserved. */
+
+:root {
+  --bg: #0b0f14;
+  --fg: #e8eef7;
+  --muted: #a9b6c6;
+  --card: #121924;
+  --acc: #4ea1ff;
+  /* Additional semantic color variables for borders, buttons and inputs */
+  --border: #1e2938;
+  --btn-bg: #122134;
+  --btn-border: #274768;
+  --pill-border: #334759;
+  --header-bg: #0e141d;
+  --input-bg: #0f1621;
+  --input-border: #203041;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--header-bg);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.search {
+  flex: 1;
+  max-width: 520px;
+}
+
+input[type="text"],
+textarea {
+  width: 100%;
+  /* Use !important to override inline attributes in HTML */
+  background: var(--input-bg) !important;
+  border: 1px solid var(--input-border) !important;
+  color: var(--fg) !important;
+  padding: 10px;
+  border-radius: 10px;
+  outline: none;
+}
+
+textarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+/* Override inline styles for date inputs to use theme variables */
+input[type="date"] {
+  background: var(--input-bg) !important;
+  border: 1px solid var(--input-border) !important;
+  color: var(--fg) !important;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  padding: 16px;
+}
+
+aside {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  height: calc(100dvh - 88px);
+  position: sticky;
+  top: 88px;
+  overflow: auto;
+}
+
+nav button {
+  width: 100%;
+  text-align: left;
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--fg);
+  padding: 10px 12px;
+  margin: 6px 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+nav button.active {
+  border-color: var(--acc);
+  outline: 2px solid color-mix(in oklab, var(--acc) 40%, transparent);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.btn {
+  /* Force override of any inline button color definitions */
+  background: var(--btn-bg) !important;
+  border: 1px solid var(--btn-border) !important;
+  color: var(--fg) !important;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.btn.acc {
+  border-color: var(--acc) !important;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--pill-border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 6px;
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+footer {
+  padding: 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+a {
+  color: var(--acc);
+}
+
+.tip {
+  position: fixed;
+  inset: auto 16px 16px 16px;
+  background: var(--header-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.tip h4 {
+  margin: 0 0 6px 0;
+}
+
+.kbd {
+  border: 1px solid var(--kbd-border);
+  border-radius: 6px;
+  padding: 0 6px;
+  margin: 0 3px;
+}
+
+.hidden {
+  display: none;
+}
+
+/* Project selector container for mobile: visible on small screens, hidden on desktop */
+#projectSelectorContainer {
+  /* Container for the project drop‑down in mobile view */
+  margin-bottom: 8px;
+}
+@media (min-width: 901px) {
+  /* Hide the selector on larger screens; the sidebar is used instead */
+  #projectSelectorContainer {
+    display: none;
+  }
+}
+
+/* Remove sticky positioning so the selector doesn’t float over content on mobile */
+@media (max-width: 900px) {
+  #projectSelectorContainer {
+    position: static;
+    top: auto;
+    z-index: auto;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Custom modal styles for confirmations and prompts                  */
+/* These modals are used instead of native browser dialogs to match  */
+/* the app’s look and feel.                                          */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+}
+.modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  width: 90%;
+  max-width: 360px;
+  color: var(--fg);
+}
+.modal-body {
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+.modal-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.modal input[type="text"],
+.modal input[type="date"],
+.modal textarea {
+  width: 100%;
+  margin-top: 8px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 8px;
+  box-sizing: border-box;
+}
+.modal .btn {
+  /* Buttons inside modal should follow theme */
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.modal .btn.acc {
+  border-color: var(--acc);
+}
+
+/* Project sidebar buttons */
+.projBtn {
+  width: 100%;
+  text-align: left;
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--fg);
+  padding: 8px 10px;
+  margin: 4px 0;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.projBtn.active {
+  border-color: var(--acc);
+  outline: 2px solid color-mix(in oklab, var(--acc) 40%, transparent);
+}
+
+.projBtn .projDel {
+  font-size: 12px;
+  opacity: 0.55;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.projBtn .projDel:hover {
+  opacity: 1;
+  background: var(--btn-active-bg);
+  color: #ff6b6b;
+}
+
+/* Responsive enhancements */
+#menuToggle {
+  display: none;
+  margin-right: 8px;
+}
+
+.hide-mobile {
+  display: block;
+}
+
+#mobileBar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--header-bg);
+  border-top: 1px solid var(--border);
+  display: none;
+  z-index: 120;
+  padding: 6px 8px;
+  gap: 6px;
+}
+
+#sketchModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 16px;
+}
+
+#sketchModal.show {
+  display: flex;
+}
+
+#sketchModal .sketchInner {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  max-width: 100%;
+}
+
+#sketchPad {
+  background: var(--input-bg);
+  border: 1px solid var(--btn-border);
+  border-radius: 12px;
+  touch-action: none;
+  max-width: 100%;
+  height: auto;
+}
+
+#mobileBar .btn.active {
+  border-color: var(--acc);
+  background: var(--btn-active-bg);
+}
+
+@media (max-width: 900px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+  aside {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100dvh;
+    transform: translateX(-100%);
+    transition: transform 0.25s;
+    background: var(--card);
+    width: 260px;
+    z-index: 200;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.4);
+  }
+  body.drawer-open aside {
+    transform: translateX(0);
+  }
+  body.drawer-open:after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(2px);
+    z-index: 150;
+  }
+  #menuToggle {
+    display: inline-block;
+  }
+  .hide-mobile {
+    display: none;
+  }
+  #mobileBar {
+    display: flex;
+  }
+  body {
+    padding-bottom: 74px;
+  }
+  header {
+    gap: 6px;
+  }
+  /* Stack cards when grid-2 is used on mobile to prevent narrow columns */
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+  /* Increase scratchpad height on mobile to make it usable */
+  #scratch {
+    min-height: 250px;
+  }
+  /* Show a visible add button for quick task entry in mobile */
+  #taskAddBtn {
+    display: inline-block;
+  }
+
+  /* Stack quick capture input and button vertically on narrow screens for better accessibility */
+  #quickCapture {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+  }
+  #captureBtn {
+    width: 100%;
+  }
+
+  /* Stack task input, priority, due date, and Add button vertically on mobile */
+  #taskTitle,
+  #taskPriority,
+  #taskDueDate,
+  #taskAddBtn {
+    width: 100%;
+  }
+
+  /* Remove sticky positioning of project selector on mobile */
+  #projectSelectorContainer {
+    /* previously sticky; now static so it scrolls naturally */
+    position: static;
+    top: auto;
+    z-index: auto;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    margin-bottom: 8px;
+  }
+}
+
+/* Hide the task add button on larger screens since Enter key works well */
+@media (min-width: 901px) {
+  #taskAddBtn {
+    display: none;
+  }
+}

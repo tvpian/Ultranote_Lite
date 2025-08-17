@@ -1,28 +1,430 @@
 {
   "version": 1,
   "settings": {
-    "rollover": false,
+    "rollover": true,
     "seenTip": true,
     "autoCarryTasks": false,
     "dailyTemplate": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
-    "scratchpad": ""
+    "scratchpad": "",
+    "theme": "dark"
   },
-  "projects": [],
+  "projects": [
+    {
+      "id": "x58sfrwh",
+      "name": "Digital Twin",
+      "createdAt": "2025-08-13T17:33:08.301Z"
+    },
+    {
+      "id": "lpliw12c",
+      "name": "Motion Planner",
+      "createdAt": "2025-08-13T20:01:18.709Z"
+    },
+    {
+      "id": "a7732c0q",
+      "name": "Perception Service",
+      "createdAt": "2025-08-13T20:03:29.029Z"
+    },
+    {
+      "id": "c7szb5bi",
+      "name": "Robot Learning",
+      "createdAt": "2025-08-14T17:14:15.270Z"
+    }
+  ],
   "notes": [
     {
       "id": "rfn667g2",
       "title": "2025-08-13 — Daily",
-      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\nImport URDF to Issac Sim\nLearning how to interface hardware with the simulation \n - Do it with UR5e and Robotiq - Gello\n - As first step try with Joint Trajectory Control like UI\n\n## Journal\n\n## Wins\n",
       "tags": [],
       "projectId": null,
       "dateIndex": "2025-08-13",
       "type": "daily",
       "pinned": false,
       "createdAt": "2025-08-13T04:20:20.955Z",
-      "updatedAt": "2025-08-13T15:07:03.068Z"
+      "updatedAt": "2025-08-14T16:27:52.019Z"
+    },
+    {
+      "id": "tzt5jxe4",
+      "title": "Model Anomalies",
+      "content": "- Presence of white screen - Model overfit problem\n- False Positives \n - Color biases - Yellow and Black color misidentification\n - Shadow and lighting \n - Range - Close and Far",
+      "tags": [],
+      "projectId": "a7732c0q",
+      "dateIndex": null,
+      "type": "note",
+      "pinned": false,
+      "createdAt": "2025-08-13T20:07:50.366Z",
+      "updatedAt": "2025-08-13T20:07:50.366Z"
+    },
+    {
+      "id": "5zkaojpo",
+      "title": "2025-08-14 — Daily",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\nImport URDF to Issac Sim\nLearning how to interface hardware with the simulation \n - Do it with UR5e and Robotiq - Gello\n - As first step try with Joint Trajectory Control like UI\nComplete the 3 videos on DTwin\nIssacLab(2)\nThink about how a personal work setup for robot learning can be built\n\n\n## Journal\n\n## Wins\n",
+      "tags": [],
+      "projectId": null,
+      "dateIndex": "2025-08-14",
+      "type": "daily",
+      "pinned": false,
+      "createdAt": "2025-08-14T17:01:30.445Z",
+      "updatedAt": "2025-08-14T17:13:45.629Z"
+    },
+    {
+      "id": "1l4evqz6",
+      "title": "2025-08-15 — Daily",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n- Test Joint-State Controller on the UR5e with Robotiq gripper\n - Go through the Franka Panda Example\n - Control the joint states from ros node\n - Learn and implement how to expose the joint state controller as a subscriber\n\n- Custom Teleop Setup Ideas and Design\n\n- Finish backlog tasks(2)\n\n\n\n\n## Journal\n\n## Wins\n",
+      "tags": [],
+      "projectId": null,
+      "dateIndex": "2025-08-15",
+      "type": "daily",
+      "pinned": false,
+      "createdAt": "2025-08-15T01:40:18.036Z",
+      "updatedAt": "2025-08-15T20:08:33.308Z"
+    },
+    {
+      "id": "t0ypufuu",
+      "title": "URDF import in Isaacsim",
+      "content": "In Isaacsim V5 by default, as per the instructions, when I tried to source the ROS2 workspace and tried to import the UR5e URDF, it was causing errors.\nWhat worked so far is using the absolute paths to mesh files.\n\nSecondly, having conflicting frame names like 'world' or 'World' dint seem like a problem.\n\nAll additional ROS 2-specific tags didn't cause any trouble in the import procedure.\n\nInitially, the movements of the joints seemed very abrupt. After setting the natural frequency to 300 for all the joints, it stabilized.\n\nSimilarly, on putting the natural frequency as 300 for the Robotiq gripper, it got stabilized as well.\n\nBasically for all the position based joints the natural frequency is set to 300 and for all the mimic joints, its set to 2500\n\nTwo errors that consistently showed up and dint get resolved yet \n - Limits not set for the left inner knuckle joint.\n - Multiple reference joints for the left inner knuckle joint.\n\n\n# Run this in Script Editor (Python) after your robot is loaded\n\nimport math\nimport omni.usd\nfrom pxr import Usd, Sdf, UsdPhysics   # Revolute joint attributes live here\nfrom pxr import PhysxSchema            # PhysxMimicJointAPI (multiple-apply schema)\n\nstage: Usd.Stage = omni.usd.get_context().get_stage()  # correct way to get the current stage in Kit apps\n# (Docs: omni.usd UsdContext/get_stage)  # https://docs.omniverse.nvidia.com/dev-guide/latest/programmer_ref/usd/stage/get-current-stage.html\n\ndef set_single_reference(follower_prim_path: str, source_joint_path: str):\n    prim = stage.GetPrimAtPath(follower_prim_path)\n    if not prim.IsValid():\n        print(\"Invalid prim:\", follower_prim_path); return\n    # A prim can have multiple mimic-API instances (rotX/rotY/rotZ). Fix all of them.\n    for api in PhysxSchema.PhysxMimicJointAPI.GetAll(prim):\n        # Keep exactly one referenceJoint target\n        rel = api.GetReferenceJointRel()\n        rel.ClearTargets(True)              # clear authored targets across the layer stack\n        rel.AddTarget(Sdf.Path(source_joint_path))\n        # Ensure gearing/offset exist (matches URDF defaults)\n        if api.GetGearingAttr().Get() is None:\n            api.CreateGearingAttr(1.0)\n        if api.GetOffsetAttr().Get() is None:\n            api.CreateOffsetAttr(0.0)\n        #print(f\"[OK] {follower_prim_path} -> reference {source_joint_path} (instance {api.GetName()})\")\n\ndef set_revolute_limits_rad(joint_path: str, lower_rad: float, upper_rad: float):\n    \"\"\"\n    Author finite limits on a UsdPhysics.RevoluteJoint. Converts radians->degrees for USD.\n    \"\"\"\n    prim = stage.GetPrimAtPath(joint_path)\n    if not prim.IsValid():\n        print(\"Invalid prim:\", joint_path); return\n    if not prim.IsA(UsdPhysics.RevoluteJoint):\n        print(\"Not a UsdPhysics.RevoluteJoint:\", joint_path); return\n    j = UsdPhysics.RevoluteJoint(prim)\n    lo_deg = math.degrees(lower_rad)\n    hi_deg = math.degrees(upper_rad)\n    # Create*/Get* are equivalent for authoring; Create* guarantees the attr exists.\n    j.CreateLowerLimitAttr().Set(lo_deg)\n    j.CreateUpperLimitAttr().Set(hi_deg)\n    print(f\"[OK] Set limits on {joint_path} to [{lo_deg:.3f}°, {hi_deg:.3f}°]\")\n\n# ---- Your existing mimic fixes (keep these) ----\nset_single_reference(\"/World/ur/joints/robotiq_85_left_inner_knuckle_joint\",  \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\nset_single_reference(\"/World/ur/joints/robotiq_85_left_finger_tip_joint\",     \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\nset_single_reference(\"/World/ur/joints/robotiq_85_right_inner_knuckle_joint\", \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\nset_single_reference(\"/World/ur/joints/robotiq_85_right_finger_tip_joint\",    \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\n\n# ---- NEW: author finite limits on both inner knuckle joints ----\n# left inner knuckle: +1 mapping of source [0, 0.8] rad\nset_revolute_limits_rad(\"/World/ur/joints/robotiq_85_left_inner_knuckle_joint\",  0.0,  0.8)\n\n# right inner knuckle: -1 mapping of source -> [-0.8, 0] rad\nset_revolute_limits_rad(\"/World/ur/joints/robotiq_85_right_inner_knuckle_joint\", -0.8, 0.0)\n",
+      "tags": [
+        "urdf",
+        "isaacsim",
+        "digitaltwin"
+      ],
+      "projectId": "x58sfrwh",
+      "dateIndex": null,
+      "type": "note",
+      "pinned": false,
+      "createdAt": "2025-08-15T01:47:05.036Z",
+      "updatedAt": "2025-08-16T02:47:01.122Z"
+    },
+    {
+      "id": "drfcs1d6",
+      "title": "Use the Accelerometer based glove fore Teleoperation",
+      "content": "- Use the gloves from the shelf and set it up.\n- Set it up to work with ROS2 topics\n- Test to see if teleoperation can be achieved using cartesian controller\n- Collect test dataset\n- Understand and retarget the collected data to train the policy",
+      "tags": [
+        "teleoperation",
+        "digitaltwin",
+        "isaacsim"
+      ],
+      "projectId": null,
+      "dateIndex": null,
+      "type": "idea",
+      "pinned": false,
+      "createdAt": "2025-08-15T01:55:20.529Z",
+      "updatedAt": "2025-08-15T02:07:02.013Z"
+    },
+    {
+      "id": "95ds18dm",
+      "title": "Teleoperation Survey",
+      "content": "# Research Summary: [Tele-operation Survey]\n\n## Objective\nLearn about the various teleoperation devices used in the community\n\n## Key Findings\n- Teleoperation as a technique can be thought of a classic Master-Apprentice relationship\n- The robot the apprentice learns the craft by watching the humans, the masters at work\n- Paradigm shift from coding instructions to teaching by doing\n- Traditional Code - Rigid, specific and totally inflexible. Works on an assembly line\n- Human Demonstrations - Fluid, intuitive. It captures not just 'what' but also 'how'\n- How to Demonstrate:\n - Kin-esthetic Teaching: Physically guiding the robot's arm\n - Teleoperation: Using a joystick or simple controller\n - Immersive VR: Using a VR headset to become the robot - Most intuitive\n - Operators being able to step into the robot's body is the most intuitive way for teaching robots.\n - Immersive VR techniques lets operator's movements get consumed to directly control the gripper\n   - Operator hand movement mapped one to one with the gripper\n   - Operator intuition gets captured more accurately. Higher quality data\n - Apprentice Mind:\n  - Imitation Learning - A paradigm where an agent learns to perform a task by mimicking the behavior of an expert.\n   - Behavioral Cloning - Learn to map a specific state to a specific action\n                          Not just enough to mimic the past but also learn the patterns to predict and generalize.\n - Good teaching requires a closed feedback.\n  - Robot needs to 'talk' back - \n   - Augmented Reality - Visualize the planned path.\n   - Haptic Feedback - Vibrates to show confidence\n   - Auditory Cues - Sound to indicate status or intent\n\n\n\n \n## Implications\n\n## Next Steps\n",
+      "tags": [],
+      "projectId": "c7szb5bi",
+      "dateIndex": null,
+      "type": "note",
+      "pinned": false,
+      "createdAt": "2025-08-15T23:34:07.907Z",
+      "updatedAt": "2025-08-16T00:16:05.904Z"
+    },
+    {
+      "id": "9leyv9ww",
+      "title": "2025-08-17 — Daily",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n#Case Study:\nNvidia:\n - Founded in 1993\n - Intel was the supreme leader in the chip-making industry. \n - 4.2T worth that is greater than the GDP of 185 countries  \n - Mario 64 required 100 million calculations every second, while Minecraft requires 100 billion calculations every second\n - Cyberpunk requires 36 trillion calculations every second. \n - A great entrepreneur is defined by the most non-obvious insight he has about the industry that nobody else believes in.\n - The first chip from Nvidia was called NV1. 249k out of 250k broke. Failure.\n - DirectX -- a set of rules defined by Microsoft to accelerate gaming. Low poly models. Triangles over Curves. \n - \"Microsoft had locked the doors and Nvidia had the wrong key\"\n - Nvidia Reva 128 - first successful hardware-accelerated pipeline. Nvidia geforce 250 -First GPU with parallel processing.\n -  CUDA - Computer Unified Device Architecture.\n - With CUDA, gaming chips become computing mammoths. \n - \n\n\n## Wins\n",
+      "tags": [],
+      "projectId": null,
+      "dateIndex": "2025-08-17",
+      "type": "daily",
+      "pinned": false,
+      "createdAt": "2025-08-17T21:12:13.856Z",
+      "updatedAt": "2025-08-17T21:12:21.299Z",
+      "attachments": []
     }
   ],
-  "tasks": [],
+  "tasks": [
+    {
+      "id": "0u8o1eca",
+      "title": "Setting up HTC Vive",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": "rfn667g2",
+      "projectId": null,
+      "priority": "low",
+      "createdAt": "2025-08-13T17:29:06.625Z",
+      "completedAt": null
+    },
+    {
+      "id": "uy8ut5pn",
+      "title": "Import URDF to Issac Sim",
+      "status": "DONE",
+      "due": null,
+      "noteId": "rfn667g2",
+      "projectId": null,
+      "priority": "low",
+      "createdAt": "2025-08-13T17:29:44.617Z",
+      "completedAt": "2025-08-15T01:39:36.875Z"
+    },
+    {
+      "id": "uj15mv6j",
+      "title": "ROS2 Lifecycle Nodes",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": "rfn667g2",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-13T17:44:37.113Z",
+      "completedAt": null
+    },
+    {
+      "id": "wxswgz5p",
+      "title": "ROS2 Behavioural Trees",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": "rfn667g2",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-13T17:45:08.475Z",
+      "completedAt": null
+    },
+    {
+      "id": "tg105zjb",
+      "title": "Startup script to run MBWH servers",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": "rfn667g2",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-13T19:59:53.634Z",
+      "completedAt": null
+    },
+    {
+      "id": "7s3eebu4",
+      "title": "Test Pymoveit2 with Joint Limits",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": null,
+      "projectId": "lpliw12c",
+      "priority": "medium",
+      "createdAt": "2025-08-13T20:01:48.445Z",
+      "completedAt": null
+    },
+    {
+      "id": "vwmmg0x8",
+      "title": "Modularize planner & Integrate with Demoq2 code",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": null,
+      "projectId": "lpliw12c",
+      "priority": "medium",
+      "createdAt": "2025-08-13T20:02:39.354Z",
+      "completedAt": null
+    },
+    {
+      "id": "z6i0jhtm",
+      "title": "Improve the models",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": null,
+      "projectId": "a7732c0q",
+      "priority": "medium",
+      "createdAt": "2025-08-13T20:05:19.538Z",
+      "completedAt": null
+    },
+    {
+      "id": "abt35u13",
+      "title": "Enable the option to do plain Point Prompting to segmentation model",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": null,
+      "projectId": "a7732c0q",
+      "priority": "medium",
+      "createdAt": "2025-08-13T20:08:48.163Z",
+      "completedAt": null
+    },
+    {
+      "id": "7ldaxaco",
+      "title": "Complete and Integrate Tracking service",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": null,
+      "projectId": "a7732c0q",
+      "priority": "medium",
+      "createdAt": "2025-08-13T20:09:08.331Z",
+      "completedAt": null
+    },
+    {
+      "id": "xkasv32m",
+      "title": "Re-setup the Issac Sim/Lab env",
+      "status": "DONE",
+      "due": null,
+      "noteId": "rfn667g2",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-13T21:33:22.892Z",
+      "completedAt": "2025-08-15T01:40:42.059Z"
+    },
+    {
+      "id": "4067wm8u",
+      "title": "Re-setup the Issac Sim/Lab env",
+      "status": "DONE",
+      "due": null,
+      "noteId": "5zkaojpo",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-14T17:01:30.445Z",
+      "completedAt": "2025-08-15T01:40:43.387Z"
+    },
+    {
+      "id": "jstgmz3u",
+      "title": "https://youtu.be/r2_VWdjxchY?si=2-tXkllKBZvJv5Tt",
+      "status": "DONE",
+      "due": null,
+      "noteId": "5zkaojpo",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-14T17:06:33.457Z",
+      "completedAt": "2025-08-14T18:23:52.218Z"
+    },
+    {
+      "id": "2pnquqmp",
+      "title": "https://www.linkedin.com/posts/chriskielthy_hiring-robotics-gtm-activity-7361411215106949121-3PNG?utm_source=share&utm_medium=member_android&rcm=ACoAABmYRCwB4VRjjDiSREanVW4-OL2NFsUjdi0",
+      "status": "DONE",
+      "due": null,
+      "noteId": "5zkaojpo",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-14T17:07:26.962Z",
+      "completedAt": "2025-08-14T18:25:31.467Z"
+    },
+    {
+      "id": "7sfsdayh",
+      "title": "Import URDF to Issac Sim",
+      "status": "DONE",
+      "due": null,
+      "noteId": "5zkaojpo",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-14T17:07:55.187Z",
+      "completedAt": "2025-08-14T18:26:02.530Z"
+    },
+    {
+      "id": "wj4wqv99",
+      "title": "Learn about Evaluation Metrics for a policy",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": null,
+      "projectId": "c7szb5bi",
+      "priority": "medium",
+      "createdAt": "2025-08-14T17:14:42.644Z",
+      "completedAt": null
+    },
+    {
+      "id": "62yl3gtp",
+      "title": "Implement own data collection and training script",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": null,
+      "projectId": "c7szb5bi",
+      "priority": "medium",
+      "createdAt": "2025-08-14T17:15:17.419Z",
+      "completedAt": null
+    },
+    {
+      "id": "ks950odn",
+      "title": "Setup personal Robot Learning Setup",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": null,
+      "projectId": "c7szb5bi",
+      "priority": "medium",
+      "createdAt": "2025-08-14T17:20:42.155Z",
+      "completedAt": null
+    },
+    {
+      "id": "6rwu7cpo",
+      "title": "Re-setup the Issac Sim/Lab env",
+      "status": "TODO",
+      "due": null,
+      "noteId": "9leyv9ww",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-17T21:12:13.856Z",
+      "completedAt": null
+    },
+    {
+      "id": "s8lp8mrw",
+      "title": "Test the movement of UR5e in joint space",
+      "status": "TODO",
+      "due": null,
+      "noteId": "9leyv9ww",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-17T21:12:13.856Z",
+      "completedAt": null
+    },
+    {
+      "id": "paee3k8n",
+      "title": "Attempt the need to fix the path issues for mesh files",
+      "status": "TODO",
+      "due": null,
+      "noteId": "9leyv9ww",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-17T21:12:13.856Z",
+      "completedAt": null
+    },
+    {
+      "id": "6fruuw7m",
+      "title": "Establish teleoperation in Isaacsim",
+      "status": "TODO",
+      "due": null,
+      "noteId": "9leyv9ww",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-17T21:12:13.856Z",
+      "completedAt": null
+    },
+    {
+      "id": "x71zad37",
+      "title": "Teleoperation Literature Review",
+      "status": "TODO",
+      "due": null,
+      "noteId": "9leyv9ww",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-17T21:12:13.856Z",
+      "completedAt": null
+    },
+    {
+      "id": "tblf1kqz",
+      "title": "https://youtu.be/TY9CYRBOBPM?si=9e3YROBT0UmlHOxT",
+      "status": "TODO",
+      "due": null,
+      "noteId": "9leyv9ww",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-17T21:12:13.856Z",
+      "completedAt": null
+    },
+    {
+      "id": "cn7l4wwb",
+      "title": "Learn and Build TMux start for the scripts",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": "1l4evqz6",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-15T17:33:55.528Z",
+      "completedAt": null
+    },
+    {
+      "id": "2ksol9ec",
+      "title": "Assemble the robot - ur5e + robotiq",
+      "status": "DONE",
+      "due": null,
+      "noteId": "1l4evqz6",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-15T20:09:06.922Z",
+      "completedAt": "2025-08-17T15:25:27.649Z"
+    }
+  ],
   "templates": [
     {
       "id": "tpl1",
@@ -38,6 +440,26 @@
       "id": "tpl3",
       "name": "Weekly Review",
       "content": "# Week of [Date]\n\n## Wins\n- \n\n## Challenges\n- \n\n## Lessons Learned\n- \n\n## Next Week Focus\n- [ ] \n"
+    },
+    {
+      "id": "tpl4",
+      "name": "Brainstorming Session",
+      "content": "# Brainstorming Session: [Topic]\n**Date:** [Date]\n**Facilitator:** [Name]\n\n## Ideas\n- \n\n## Discussion Points\n- \n\n## Action Items\n- [ ] \n"
+    },
+    {
+      "id": "tpl5",
+      "name": "Research Summary",
+      "content": "# Research Summary: [Topic]\n\n## Objective\n\n## Key Findings\n- \n\n## Implications\n\n## Next Steps\n"
+    },
+    {
+      "id": "tpl6",
+      "name": "Course / Lecture Notes",
+      "content": "# Course / Lecture: [Title]\n**Course:** [Course]\n**Module / Week:** \n**Date:** [Date]\n**Instructor:** \n\n## Session Overview\nBrief summary...\n\n## Key Concepts\n- Term: Definition\n- \n\n## Detailed Notes\n- \n\n## Examples / Demonstrations\n- \n\n## Important Formulas / Patterns\n```\n\n```\n\n## Questions / Clarifications Needed\n- [ ] \n\n## Action Items / Practice\n- [ ] \n\n## References\n- \n\n## Summary (1–2 sentences)\n\n"
+    },
+    {
+      "id": "tpl7",
+      "name": "Project Execution Log",
+      "content": "# Project Execution Log: [Project Name]\n**Date:** [Date]\n**Phase / Sprint:** \n\n## Context\nCurrent objective / scope.\n\n## Goals for This Session\n- [ ] \n\n## Procedure / Steps Performed\n1. \n2. \n\n## Commands / Tools Used\n```\n# command snippets\n```\n\n## Issues Encountered\n| Issue | Impact | Resolution |\n|-------|--------|------------|\n|  |  |  |\n\n## Decisions Made\n- Decision: Rationale\n\n## Metrics / Measurements\n- \n\n## Observations / Insights\n- \n\n## Risks / Blockers\n- \n\n## Artifacts / Outputs\n- \n\n## Next Actions\n- [ ] \n\n## Retrospective (What went well / improve)\n- Went well: \n- Improve: \n\n"
     }
   ],
   "links": [
@@ -45,21 +467,96 @@
       "id": "u8o69pqs",
       "title": "MolmoAct: An Action Reasoning Model that reasons in 3D space",
       "url": "https://allenai.org/blog/molmoact",
-      "tags": [],
+      "tags": [
+        "page"
+      ],
       "pinned": false,
       "status": "NEW",
       "createdAt": "2025-08-13T16:14:54.249Z",
-      "updatedAt": "2025-08-13T16:14:54.249Z"
+      "updatedAt": "2025-08-14T16:02:41.007Z"
     },
     {
       "id": "7fxrnsg7",
       "title": "Custom Controller for ROS2",
       "url": "https://github.com/masum919/my_custom_controller",
-      "tags": [],
+      "tags": [
+        "repo"
+      ],
       "pinned": false,
       "status": "NEW",
       "createdAt": "2025-08-13T16:15:35.656Z",
-      "updatedAt": "2025-08-13T16:15:35.656Z"
+      "updatedAt": "2025-08-14T16:02:18.982Z"
+    },
+    {
+      "id": "vbslbow1",
+      "title": "Sampling-Based Model Predictive Control for Dexterous Manipulation on a Biomimetic Tendon-Driven Hand",
+      "url": "https://arxiv.org/pdf/2411.06183",
+      "tags": [
+        "paper"
+      ],
+      "pinned": false,
+      "status": "NEW",
+      "createdAt": "2025-08-13T22:34:54.894Z",
+      "updatedAt": "2025-08-13T22:34:54.894Z"
+    },
+    {
+      "id": "3cctlmkm",
+      "title": "Cognitive Robotics - MIT Course",
+      "url": "https://m.youtube.com/playlist?list=PLUl4u3cNGP62Bkdzwe7caTZC7soj7ZYvk",
+      "tags": [
+        "course"
+      ],
+      "pinned": false,
+      "status": "NEW",
+      "createdAt": "2025-08-14T14:10:33.123Z",
+      "updatedAt": "2025-08-14T14:10:33.123Z"
+    },
+    {
+      "id": "4dhli9tl",
+      "title": "Wev Viewer for Robotics",
+      "url": "https://mechaverse.dev/",
+      "tags": [
+        "web",
+        "viewer",
+        "urdf",
+        "robotics"
+      ],
+      "pinned": false,
+      "status": "NEW",
+      "createdAt": "2025-08-15T23:36:24.138Z",
+      "updatedAt": "2025-08-15T23:36:24.138Z"
+    },
+    {
+      "id": "wosvtjpl",
+      "title": "Moveit2 with Isaac Sim & Gazebo",
+      "url": "https://github.com/blackcoffeerobotics/bcr_arm/",
+      "tags": [
+        "motionplanning",
+        "digitaltwin",
+        "ros",
+        "moveit2",
+        "isaacsim"
+      ],
+      "pinned": false,
+      "status": "NEW",
+      "createdAt": "2025-08-17T15:20:56.926Z",
+      "updatedAt": "2025-08-17T15:20:56.926Z"
+    },
+    {
+      "id": "t7jq380l",
+      "title": "Robotics101 from VisCircuit",
+      "url": "https://robotics101-viscircuit.web.app/robotics/numerical-methods-for-ode",
+      "tags": [
+        "tutorial",
+        "robotics",
+        "webviz",
+        "web",
+        "course"
+      ],
+      "pinned": false,
+      "status": "NEW",
+      "createdAt": "2025-08-17T16:37:18.013Z",
+      "updatedAt": "2025-08-17T16:37:18.013Z"
     }
   ]
 }
