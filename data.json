@@ -5,7 +5,8 @@
     "seenTip": true,
     "autoCarryTasks": false,
     "dailyTemplate": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
-    "scratchpad": ""
+    "scratchpad": "",
+    "theme": "dark"
   },
   "projects": [
     {
@@ -92,7 +93,8 @@
       "type": "note",
       "pinned": false,
       "createdAt": "2025-08-15T01:47:05.036Z",
-      "updatedAt": "2025-08-16T02:47:01.122Z"
+      "updatedAt": "2025-08-18T17:29:33.561Z",
+      "attachments": []
     },
     {
       "id": "drfcs1d6",
@@ -123,16 +125,30 @@
       "updatedAt": "2025-08-16T00:16:05.904Z"
     },
     {
-      "id": "jqkttl5c",
+      "id": "m99i6s3b",
       "title": "2025-08-17 — Daily",
-      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n#Case Study:\nNvidia:\n - Founded in 1993\n - Intel was the supreme leader in the chip-making industry. \n - 4.2T worth that is greater than the GDP of 185 countries  \n - Mario 64 required 100 million calculations every second, while Minecraft requires 100 billion calculations every second\n - Cyberpunk requires 36 trillion calculations every second. \n - A great entrepreneur is defined by the most non-obvious insight he has about the industry that nobody else believes in.\n - The first chip from Nvidia was called NV1. 249k out of 250k broke. Failure.\n - DirectX -- a set of rules defined by Microsoft to accelerate gaming. Low poly models. Triangles over Curves. \n - \"Microsoft had locked the doors and Nvidia had the wrong key\"\n - Nvidia Reva 128 - first successful hardware-accelerated pipeline. Nvidia geforce 250 -First GPU with parallel processing.\n -  CUDA - Computer Unified Device Architecture.\n - With CUDA, gaming chips become computing mammoths. \n - \n\n\n## Wins\n",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
       "tags": [],
       "projectId": null,
       "dateIndex": "2025-08-17",
       "type": "daily",
       "pinned": false,
-      "createdAt": "2025-08-17T15:25:13.650Z",
-      "updatedAt": "2025-08-17T16:36:15.921Z"
+      "createdAt": "2025-08-18T01:11:18.417Z",
+      "updatedAt": "2025-08-18T01:11:20.295Z",
+      "attachments": []
+    },
+    {
+      "id": "tho7b72v",
+      "title": "2025-08-18 — Daily",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\nChatgpt5 Analysis:\n- The performance on the MMMU metric has increased by 5%.\n- Features:\n - Model Selection - gpt5 main(fast) & gpt5 thinking(reasoning) - Router(trained model on prompts) decides which model to be used for specific prompts\n - Hallucination - Typically browsing tools like RAGS are used to ground the response of the LLM models to reduce hallucination\n - Sycophancy - Because of RLHF - Mitigated with the help of System Prompts - Fragile during long conversation - Handled using Post Training\n  - Models were penalized when it mistook factual agreement with tone politeness\n- Safe Completion - Fully Comply or Hard Refuse - Model trained to give 3 prompts - 1) Direct Answer 2) Safe Completion 3) Refuse\n- Deception - Happens when the graders during post-training rewarded confident looking answer although the reasoning behind it was invalid - GPT5 trained to Fail Gracefully and also supports \n              Chain Of Thought Monitoring - Honest and valid COT are rewarded while anything else are severely penalized. \n\n## Journal\n\n## Wins\n",
+      "tags": [],
+      "projectId": null,
+      "dateIndex": "2025-08-18",
+      "type": "daily",
+      "pinned": false,
+      "createdAt": "2025-08-18T04:21:34.888Z",
+      "updatedAt": "2025-08-18T18:08:58.371Z",
+      "attachments": []
     }
   ],
   "tasks": [
@@ -337,67 +353,67 @@
     {
       "id": "6rwu7cpo",
       "title": "Re-setup the Issac Sim/Lab env",
-      "status": "BACKLOG",
+      "status": "TODO",
       "due": null,
-      "noteId": "1l4evqz6",
+      "noteId": "tho7b72v",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-15T01:40:18.036Z",
+      "createdAt": "2025-08-18T04:21:34.898Z",
       "completedAt": null
     },
     {
       "id": "s8lp8mrw",
       "title": "Test the movement of UR5e in joint space",
-      "status": "BACKLOG",
+      "status": "DONE",
       "due": null,
       "noteId": "1l4evqz6",
       "projectId": null,
       "priority": "medium",
       "createdAt": "2025-08-15T01:49:03.559Z",
-      "completedAt": null
+      "completedAt": "2025-08-15T21:53:02.697Z"
     },
     {
       "id": "paee3k8n",
       "title": "Attempt the need to fix the path issues for mesh files",
       "status": "BACKLOG",
       "due": null,
-      "noteId": "1l4evqz6",
+      "noteId": "tho7b72v",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-15T01:49:41.089Z",
+      "createdAt": "2025-08-18T04:21:34.898Z",
       "completedAt": null
     },
     {
       "id": "6fruuw7m",
       "title": "Establish teleoperation in Isaacsim",
-      "status": "BACKLOG",
+      "status": "DONE",
       "due": null,
-      "noteId": "1l4evqz6",
+      "noteId": "m99i6s3b",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-15T01:50:07.231Z",
-      "completedAt": null
+      "createdAt": "2025-08-18T01:11:18.417Z",
+      "completedAt": "2025-08-18T03:30:54.904Z"
     },
     {
       "id": "x71zad37",
       "title": "Teleoperation Literature Review",
-      "status": "BACKLOG",
+      "status": "TODO",
       "due": null,
-      "noteId": "1l4evqz6",
+      "noteId": "tho7b72v",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-15T02:17:02.706Z",
+      "createdAt": "2025-08-18T04:21:34.898Z",
       "completedAt": null
     },
     {
       "id": "tblf1kqz",
       "title": "https://youtu.be/TY9CYRBOBPM?si=9e3YROBT0UmlHOxT",
-      "status": "BACKLOG",
+      "status": "TODO",
       "due": null,
-      "noteId": "1l4evqz6",
+      "noteId": "tho7b72v",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-15T03:52:05.227Z",
+      "createdAt": "2025-08-18T04:21:34.898Z",
       "completedAt": null
     },
     {
@@ -416,11 +432,33 @@
       "title": "Assemble the robot - ur5e + robotiq",
       "status": "DONE",
       "due": null,
-      "noteId": "1l4evqz6",
+      "noteId": "m99i6s3b",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-15T20:09:06.922Z",
-      "completedAt": "2025-08-17T15:25:27.649Z"
+      "createdAt": "2025-08-18T01:11:18.417Z",
+      "completedAt": "2025-08-18T03:31:00.861Z"
+    },
+    {
+      "id": "r82qjwrp",
+      "title": "Get the accurate one-to-one match USD/URDF model of the setup",
+      "status": "TODO",
+      "due": null,
+      "noteId": null,
+      "projectId": "x58sfrwh",
+      "priority": "medium",
+      "createdAt": "2025-08-18T15:49:45.437Z",
+      "completedAt": null
+    },
+    {
+      "id": "coz35syb",
+      "title": "Test the visuals from UR10E on UR5E to improve realism",
+      "status": "TODO",
+      "due": null,
+      "noteId": null,
+      "projectId": "x58sfrwh",
+      "priority": "medium",
+      "createdAt": "2025-08-18T17:37:49.540Z",
+      "completedAt": null
     }
   ],
   "templates": [
@@ -525,7 +563,7 @@
       "updatedAt": "2025-08-15T23:36:24.138Z"
     },
     {
-      "id": "wosvtjpl",
+      "id": "tr0zmntl",
       "title": "Moveit2 with Isaac Sim & Gazebo",
       "url": "https://github.com/blackcoffeerobotics/bcr_arm/",
       "tags": [
@@ -537,11 +575,11 @@
       ],
       "pinned": false,
       "status": "NEW",
-      "createdAt": "2025-08-17T15:20:56.926Z",
-      "updatedAt": "2025-08-17T15:20:56.926Z"
+      "createdAt": "2025-08-18T01:15:39.613Z",
+      "updatedAt": "2025-08-18T01:15:39.613Z"
     },
     {
-      "id": "t7jq380l",
+      "id": "1syawn9i",
       "title": "Robotics101 from VisCircuit",
       "url": "https://robotics101-viscircuit.web.app/robotics/numerical-methods-for-ode",
       "tags": [
@@ -553,8 +591,24 @@
       ],
       "pinned": false,
       "status": "NEW",
-      "createdAt": "2025-08-17T16:37:18.013Z",
-      "updatedAt": "2025-08-17T16:37:18.013Z"
+      "createdAt": "2025-08-18T01:17:01.730Z",
+      "updatedAt": "2025-08-18T01:17:01.730Z"
+    },
+    {
+      "id": "21i1056m",
+      "title": "AI Sheets from Huggingface",
+      "url": "https://huggingface.co/spaces/aisheets/sheets",
+      "tags": [
+        "llm",
+        "huggingface",
+        "sheets",
+        "syntheticdata",
+        "dataset"
+      ],
+      "pinned": false,
+      "status": "NEW",
+      "createdAt": "2025-08-18T15:19:41.040Z",
+      "updatedAt": "2025-08-18T15:19:41.040Z"
     }
   ]
 }

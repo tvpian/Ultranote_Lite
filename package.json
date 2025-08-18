@@ -8,6 +8,7 @@
     "@types/prismjs": "1.26.5",
     "autoprefixer": "10.4.21",
     "express": "^5.1.0",
+    "express-session": "^1.18.2",
     "http-server": "14.1.1",
     "image-size": "2.0.2",
     "postcss": "8.5.6",
