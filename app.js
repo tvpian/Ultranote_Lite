@@ -150,6 +150,12 @@ function applyTheme(){
 
 // --- Restored runtime glue (was missing) ---
 let db; // global in‑memory state
+// Globals to track which note is open and whether the user has unsaved edits.
+// These help the background sync avoid interrupting a user who is actively editing.
+// When a note is opened, `_openNoteId` is set to that note's id and `_editorDirty` is reset to false.
+// When the user types in the note's title or content, `_editorDirty` becomes true. When the note is saved, it is reset to false.
+window._openNoteId = null;
+window._editorDirty = false;
 function uid(){ return Math.random().toString(36).slice(2,10); }
 // Backwards compatibility: some calls still pass db => ignore param
 function save(){ persistDB(); }
@@ -1123,7 +1129,11 @@ function renderLinks(){
 
 // --- Note editor ---
 function openNote(id){
-  const n = db.notes.find(x=>x.id===id); if(!n){ alert('Note not found'); return; }
+  const n = db.notes.find(x=>x.id===id);
+  if(!n){ alert('Note not found'); return; }
+  // Record which note is open and reset dirty flag when opening.
+  window._openNoteId = n.id;
+  window._editorDirty = false;
   content.innerHTML = `
     <div class="card">
       <input id="title" type="text" value="${htmlesc(n.title)}" />
@@ -1144,16 +1154,29 @@ function openNote(id){
         <button id="export" class="btn">Export</button>
         <button id="delete" class="btn" style="border-color:#ff6b6b;color:#ff6b6b;">Delete</button>
       </div>`;
+  // Attach listeners to detect editing and mark the note as dirty. We attach after
+  // injecting the HTML so the elements exist. Editing any field will set
+  // `_editorDirty` to true until the note is saved.
+  {
+    const titleEl = document.getElementById('title');
+    const contentEl = document.getElementById('contentBox');
+    ['input','change'].forEach(evt=>{
+      if(titleEl) titleEl.addEventListener(evt, () => { window._editorDirty = true; });
+      if(contentEl) contentEl.addEventListener(evt, () => { window._editorDirty = true; });
+    });
+  }
   const saveBtn = document.getElementById('save');
-  saveBtn.onclick = ()=>{
+  saveBtn.onclick = () => {
     const tagText = document.getElementById('tags').value;
-    const tags = tagText ? tagText.split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean) : [];
+    const tags = tagText ? tagText.split(/\s+/).map(t => t.startsWith('#') ? t.slice(1) : t).filter(Boolean) : [];
     updateNote(n.id, {
       title: document.getElementById('title').value,
       content: document.getElementById('contentBox').value,
       tags,
       pinned: document.getElementById('pinned').checked
     });
+    // Mark the note as no longer dirty once it has been saved.
+    window._editorDirty = false;
   };
   document.getElementById('back').onclick = ()=>{
     if(n.type==='daily'){ route='today'; render(); }
@@ -1241,6 +1264,10 @@ function openNote(id){
 
 // --- Global app logic ---
 function render(){
+  // When rendering a new section (today, projects, ideas, etc.), we are no longer editing a note.
+  // Reset the open note tracking so that background sync will not reopen a note when the user has navigated away.
+  window._openNoteId = null;
+  window._editorDirty = false;
   // Apply current theme before rendering UI elements
   applyTheme();
   renderNav();
@@ -1464,21 +1491,44 @@ document.addEventListener('DOMContentLoaded', ()=>{
 // remote DB differs from the current in-memory state, we update
 // our local DB, apply the theme, redraw sidebar and rerender the
 // current route. This runs every 10 seconds.
-setInterval(async ()=>{
-  try{
-    const remote = await fetchDB();
-    if(!remote) return;
-    // Simple deep equality check via JSON string
+setInterval(async () => {
+  try {
+    const remote = await fetchDB().catch(() => null);
+    if (!remote) return;
+    // Deep equality check via JSON string
     const localStr = JSON.stringify(db);
     const remoteStr = JSON.stringify(remote);
-    if(localStr !== remoteStr){
-      db = remote;
-      // ensure any missing collections are initialized
-      ['notes','tasks','projects','templates','settings','links'].forEach(k=>{ if(!db[k]) db[k] = Array.isArray(seed[k])?[]:{}; });
-      // Reapply theme in case settings changed
+    if (localStr === remoteStr) return;
+    // Always load the remote snapshot
+    db = remote;
+    // Ensure any missing collections are initialized
+    ['notes','tasks','projects','templates','settings','links'].forEach(k => {
+      if (!db[k]) db[k] = Array.isArray(seed[k]) ? [] : {};
+    });
+    // If a note is currently open, preserve its state on sync
+    if (window._openNoteId) {
+      // When the user has unsaved edits, merge them into the fresh DB snapshot before re‑rendering
+      if (window._editorDirty) {
+        const editingNote = db.notes.find(x => x.id === window._openNoteId);
+        const titleEl = document.getElementById('title');
+        const contentEl = document.getElementById('contentBox');
+        if (editingNote) {
+          if (titleEl) editingNote.title = titleEl.value;
+          if (contentEl) editingNote.content = contentEl.value;
+        }
+      }
+      // Reapply theme and sidebar updates
+      applyTheme();
+      drawProjectsSidebar();
+      // Re‑open the same note so the editor remains visible
+      openNote(window._openNoteId);
+    } else {
+      // For all other routes, simply re‑render
       applyTheme();
       drawProjectsSidebar();
       render();
     }
-  }catch(err){ console.warn('Periodic sync failed', err); }
+  } catch (err) {
+    console.warn('Periodic sync failed', err);
+  }
 }, 10000);
