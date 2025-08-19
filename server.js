@@ -7,6 +7,10 @@ const app      = express();
 const PORT     = process.env.PORT || 3366;
 const DATA_FILE = path.join(__dirname, 'data.json');
 
+const MAX_ATTEMPTS = 5;          // tries before temporary lockout
+const LOCK_MS = 2 * 60 * 1000;   // 2 minutes lock
+
+
 // Password for first‑time visitors: set via env or fallback
 const APP_PASSWORD = process.env.APP_PASSWORD || 'change-me';
 
@@ -23,6 +27,18 @@ app.use(session({
   resave: false,
   saveUninitialized: false
 }));
+
+// Motivational quotes pool (randomized on each /login render)
+const QUOTES = [
+  "Small steps every day add up to big results.",
+  "Stay consistent—success will follow.",
+  "Your focus determines your reality.",
+  "Discipline beats motivation.",
+  "Every day is a chance to improve.",
+  "Progress, not perfection.",
+  "Dream big, start small, act now.",
+  "The secret to getting ahead is getting started."
+];
 
 /**
  * Authentication middleware:
@@ -44,8 +60,21 @@ app.use((req, res, next) => {
   return res.redirect('/login');
 });
 
-// Login form (GET)
+// === Login page (GET) with animated subtle gradient + graceful errors ===
 app.get('/login', (req, res) => {
+  const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+
+  const errType = req.query.err; // 'bad' | 'locked' | undefined
+  const left = Number(req.query.left || 0);
+  const msRemaining = Number(req.query.ms || 0);
+
+  let errHtml = '';
+  if (errType === 'bad') {
+    errHtml = `<div class="err">Incorrect password${left ? ` — ${left} attempt${left===1?'':'s'} left` : ''}.</div>`;
+  } else if (errType === 'locked') {
+    errHtml = `<div class="err">Too many attempts. Try again in ${Math.ceil(msRemaining/1000)}s.</div>`;
+  }
+
   res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -53,56 +82,136 @@ app.get('/login', (req, res) => {
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>UltraNote – Login</title>
 <style>
-:root{--bg:#0b0f14;--card:#121924;--fg:#e8eef7;--muted:#a9b6c6;--acc:#4ea1ff;--border:#1e2938;--input-bg:#0f1621;--input-border:#203041;--btn-bg:#122134;--btn-border:#274768;}
-*{box-sizing:border-box;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
-body{margin:0;background:var(--bg);color:var(--fg);min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:32px;}
-.card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:40px 36px;max-width:420px;width:100%;box-shadow:0 12px 40px -8px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.4);}
-h1{margin:0 0 6px;font-size:26px;letter-spacing:.5px;text-align:center;font-weight:600;}
-.subtitle{text-align:center;color:var(--muted);font-size:14px;margin:0 0 28px;}
-form{display:flex;flex-direction:column;gap:18px;margin:0;}
-label{font-size:13px;text-transform:uppercase;letter-spacing:.8px;font-weight:600;color:var(--muted);}
-input[type=password]{width:100%;padding:14px 16px;border-radius:14px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--fg);font-size:15px;outline:none;transition:border-color .18s, background .18s;}
-input[type=password]:focus{border-color:var(--acc);}
-button{padding:14px 18px;border-radius:14px;border:1px solid var(--acc);background:linear-gradient(145deg,var(--acc),#2d7ac5);color:#fff;font-size:15px;font-weight:600;cursor:pointer;letter-spacing:.4px;box-shadow:0 4px 14px -4px rgba(78,161,255,.6);transition:filter .2s, transform .15s;}
-button:hover{filter:brightness(1.05);}button:active{transform:translateY(1px);}
-footer{margin-top:26px;text-align:center;font-size:12px;color:var(--muted);}
-.badge{display:inline-block;background:rgba(255,255,255,.06);border:1px solid var(--border);padding:4px 10px;border-radius:999px;font-size:11px;margin-top:4px;}
-.note{font-size:12px;color:var(--muted);line-height:1.4;margin-top:-6px;text-align:center;}
-.err{color:#ff6b6b;font-size:13px;text-align:center;margin-top:-8px;}
-@media (max-width:520px){body{padding:18px;} .card{padding:34px 28px;border-radius:18px;}}
+:root {
+  --bg1:#0e1117; --bg2:#151a23; --bg3:#1c2430;
+  --card: rgba(30,34,45,.92);
+  --fg:#f5f7fa; --muted:#97a5b8;
+  --acc:#5073b8;
+  --border:#2d3444;
+  --input-bg:#141a24; --input-border:#394259;
+  --btn-bg:#5073b8; --btn-border:#394259;
+}
+*{ box-sizing:border-box; font-family:"Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+body{
+  margin:0; min-height:100vh; color:var(--fg); display:flex; align-items:center; justify-content:center; padding:2rem;
+  background:
+    radial-gradient(1000px 700px at 20% 20%, var(--bg3), transparent 60%),
+    radial-gradient(1000px 700px at 80% 80%, var(--bg2), transparent 60%),
+    linear-gradient(120deg, var(--bg1), var(--bg2));
+  background-size:200% 200%;
+  animation:bg-pan 28s ease-in-out infinite alternate;
+}
+@keyframes bg-pan{ 0%{background-position:0% 0%} 100%{background-position:100% 100%} }
+.card{
+  background:var(--card); border:1px solid var(--border); border-radius:16px;
+  padding:2.5rem 2rem; max-width:420px; width:100%;
+  box-shadow:0 20px 40px rgba(0,0,0,.4);
+}
+h1{
+  margin:0 0 .5rem; font-size:1.9rem; font-weight:600; text-align:center;
+  background:linear-gradient(45deg, var(--acc), #6ea0e0);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+}
+.subtitle{ text-align:center; color:var(--muted); font-size:.95rem; margin:0 0 1.75rem; }
+form{ display:flex; flex-direction:column; gap:1.1rem; }
+label{ font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; font-weight:600; color:var(--muted); }
+input[type=password]{
+  width:100%; padding:.75rem 1rem; border-radius:10px; border:1px solid var(--input-border);
+  background:var(--input-bg); color:var(--fg); font-size:1rem; outline:none;
+  transition:border-color .18s, box-shadow .18s;
+}
+input[type=password]:focus{ border-color:var(--acc); box-shadow:0 0 0 2px rgba(80,115,184,.35); }
+button{
+  padding:.8rem 1rem; border-radius:10px; border:1px solid var(--btn-border);
+  background:var(--btn-bg); color:#fff; font-size:1rem; font-weight:600; cursor:pointer;
+  transition:background .18s, transform .1s;
+}
+button:hover{ background:#6ea0e0; }
+button:active{ transform:translateY(1px); }
+.err{ color:#ff6b6b; font-size:.9rem; text-align:center; margin-top:.25rem; font-weight:600; }
+.note{ font-size:.8rem; color:var(--muted); text-align:center; margin-top:.6rem; font-style:italic; }
+footer{ margin-top:1.2rem; text-align:center; color:var(--muted); font-size:.75rem; }
+.badge{ display:inline-block; background:rgba(255,255,255,.08); border:1px solid var(--border);
+  padding:.35rem .75rem; border-radius:999px; font-size:.75rem; }
+@media (max-width:520px){ body{padding:1rem;} .card{padding:2rem 1.25rem;} }
 </style>
 </head>
 <body>
-  <div class="card">
+  <div class="card"${errHtml ? ' aria-live="polite"' : ''}>
     <h1>UltraNote</h1>
-    <p class="subtitle">Secure Access</p>
+    <p class="subtitle">Secure Workspace Access</p>
     <form method="POST" action="/login" autocomplete="off">
       <div>
         <label for="pw">Password</label>
         <input id="pw" type="password" name="password" placeholder="Enter password" autofocus required />
       </div>
       <button type="submit">Enter Workspace</button>
-      ${req.query.err ? '<div class="err">Incorrect password</div>' : ''}
-      <div class="note">Set APP_PASSWORD env var to change this. Session persists for this IP.</div>
+      ${errHtml}
+      <div class="note">“${q}”</div>
     </form>
-    <footer><span class="badge">Local‑first</span></footer>
+    <footer><span class="badge">Private</span></footer>
   </div>
 </body>
 </html>`);
 });
 
-// Login handler (POST)
-app.post('/login', (req, res) => {
-  const password = req.body.password;
-  if (password === APP_PASSWORD) {
-    // Whitelist the current IP and mark this session as authorized
-    const ip = req.ip.replace(/^::ffff:/, '');
+// === Login (POST) with throttling + lockout ===
+app.post('/login', async (req, res) => {
+  const ip = req.ip.replace(/^::ffff:/, '');
+  const now = Date.now();
+  if (!req.session.login) req.session.login = { attempts: 0, lockedUntil: 0 };
+
+  // lock active?
+  if (req.session.login.lockedUntil && req.session.login.lockedUntil > now) {
+    const ms = req.session.login.lockedUntil - now;
+    return res.redirect(`/login?err=locked&ms=${ms}`);
+  }
+
+  const password = (req.body.password || '').trim();
+  const ok = password === APP_PASSWORD;
+
+  if (ok) {
+    // success → clear counters, whitelist IP, mark session authorized
+    req.session.login = { attempts: 0, lockedUntil: 0 };
     allowedIps.add(ip);
     req.session.authorized = true;
     return res.redirect('/');
   }
-  res.status(401).send('Incorrect password');
+
+  // failure → increment attempts, maybe lock
+  req.session.login.attempts = (req.session.login.attempts || 0) + 1;
+
+  if (req.session.login.attempts >= MAX_ATTEMPTS) {
+    req.session.login.lockedUntil = now + LOCK_MS;
+    return res.redirect(`/login?err=locked&ms=${LOCK_MS}`);
+  }
+
+  // gentle delay (throttling): grows with attempts, capped
+  const delay = Math.min(200 * req.session.login.attempts, 1500);
+  await new Promise(r => setTimeout(r, delay));
+
+  const left = MAX_ATTEMPTS - req.session.login.attempts;
+  return res.redirect(`/login?err=bad&left=${left}`);
 });
+
+
+
+// Logout: destroy the session and remove IP from whitelist
+app.get('/logout', (req, res) => {
+  // Normalise IPv4‑mapped IPv6 addresses
+  const ip = req.ip.replace(/^::ffff:/, '');
+  // Remove the IP from the allowed list so the next visit requires login again
+  allowedIps.delete(ip);
+  // Destroy the session: this unsets req.session and deletes the cookie:contentReference[oaicite:0]{index=0}
+  req.session.destroy(err => {
+    if (err) {
+      console.error('Error destroying session', err);
+    }
+    // Redirect to login page after logging out
+    res.redirect('/login');
+  });
+});
+
 
 // Now add your existing API and file logic below
 function readData() {

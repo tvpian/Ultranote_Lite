@@ -1397,6 +1397,17 @@ document.getElementById("manageTemplates").onclick = ()=> {
   });
 };
 
+document.addEventListener('DOMContentLoaded', () => {
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      // This will hit the /logout route you added on the server
+      window.location.href = '/logout';
+    });
+  }
+});
+
+
 // Search
 document.getElementById("q").addEventListener("input", ()=> { if(route!=="vault"){ route="vault"; render(); } else renderVault(); });
 
