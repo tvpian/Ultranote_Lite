@@ -147,7 +147,20 @@
       "type": "daily",
       "pinned": false,
       "createdAt": "2025-08-18T04:21:34.888Z",
-      "updatedAt": "2025-08-18T18:08:58.371Z",
+      "updatedAt": "2025-08-19T01:13:16.824Z",
+      "attachments": []
+    },
+    {
+      "id": "dddvyov0",
+      "title": "2025-08-19 — Daily",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n### Tedx Daily:\n- It's not enough to have the right attitude but also the behaviour associated with the kind of attitude you want to have\n- 6 behaviours:\n - Count yourself in. \n  - Stand up to conflict if it's required.\n - Give yourself 20secs of courage\n - Take a seat at the table\n - Cheer for other peoples success\n - Bolster your confidence for a new activity through youralready great performance in another. Use prior success to propel yourself forward.\n - Celebrate confidently.\n\n### Veritasium:\n- For the longest time it was believed that to observe The Law of Large Numbers independence between events was necessary. Also the corollary that if you saw the \n  Law of Large Numbers coming into existense it means there lies indepence between events.\n- If the Law of Large Numbers is thought of as an absolute idea then it can be said that all decisions are acts of free will. Hence in a way it could be said that\n  free will can be measured.\n- \n\n\n## Wins\n",
+      "tags": [],
+      "projectId": null,
+      "dateIndex": "2025-08-19",
+      "type": "daily",
+      "pinned": false,
+      "createdAt": "2025-08-19T06:21:48.183Z",
+      "updatedAt": "2025-08-19T15:50:23.186Z",
       "attachments": []
     }
   ],
@@ -355,10 +368,10 @@
       "title": "Re-setup the Issac Sim/Lab env",
       "status": "TODO",
       "due": null,
-      "noteId": "tho7b72v",
+      "noteId": "dddvyov0",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-18T04:21:34.898Z",
+      "createdAt": "2025-08-19T06:21:48.203Z",
       "completedAt": null
     },
     {
@@ -399,22 +412,22 @@
       "title": "Teleoperation Literature Review",
       "status": "TODO",
       "due": null,
-      "noteId": "tho7b72v",
+      "noteId": "dddvyov0",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-18T04:21:34.898Z",
+      "createdAt": "2025-08-19T06:21:48.203Z",
       "completedAt": null
     },
     {
       "id": "tblf1kqz",
       "title": "https://youtu.be/TY9CYRBOBPM?si=9e3YROBT0UmlHOxT",
-      "status": "TODO",
+      "status": "DONE",
       "due": null,
       "noteId": "tho7b72v",
       "projectId": null,
       "priority": "medium",
       "createdAt": "2025-08-18T04:21:34.898Z",
-      "completedAt": null
+      "completedAt": "2025-08-18T19:28:04.421Z"
     },
     {
       "id": "cn7l4wwb",
@@ -458,6 +471,17 @@
       "projectId": "x58sfrwh",
       "priority": "medium",
       "createdAt": "2025-08-18T17:37:49.540Z",
+      "completedAt": null
+    },
+    {
+      "id": "d05accpq",
+      "title": "https://cmt3.research.microsoft.com/ITI2025/User/AcceptInvitation?uniqueId=acf73539-71e8-4a39-8bf9-c0d1c049e6b8",
+      "status": "TODO",
+      "due": null,
+      "noteId": "dddvyov0",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-19T06:22:21.397Z",
       "completedAt": null
     }
   ],

@@ -465,3 +465,13 @@ a {
     display: none;
   }
 }
+
+.btn.danger {
+  color: var(--danger-color, #ff6b6b);
+  border-color: var(--danger-color, #ff6b6b);
+  background: transparent;
+}
+.btn.danger:hover {
+  background: var(--danger-color, #ff6b6b);
+  color: var(--bg, #fff);
+}
