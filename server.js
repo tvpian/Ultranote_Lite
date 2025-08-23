@@ -28,8 +28,7 @@ app.use(session({
   saveUninitialized: false
 }));
 
-// Motivational quotes pool (randomized on each /login render)
-let QUOTES = [];
+
 try {
   const quotesPath = path.join(__dirname, 'quotes.json');
   const raw = fs.readFileSync(quotesPath, 'utf8');
@@ -40,13 +39,16 @@ try {
 } catch (e) {
   console.warn('Quotes load failed, using fallback sample.', e.message);
   QUOTES = [
-    'Stay consistent—success will follow.',
-    'Progress, not perfection.',
-    'Discipline beats motivation.'
+    "Stay consistent—success will follow.",
+    "Your focus determines your reality.",
+    "Discipline beats motivation.",
+    "Every day is a chance to improve.",
+    "Progress, not perfection.",
+    "Dream big, start small, act now.",
+    "The secret to getting ahead is getting started."
   ];
 }
 if(!QUOTES.length){ QUOTES = ['Show up. Do the work.']; }
-
 
 /**
  * Authentication middleware:
@@ -137,7 +139,7 @@ button{
 button:hover{ background:#6ea0e0; }
 button:active{ transform:translateY(1px); }
 .err{ color:#ff6b6b; font-size:.9rem; text-align:center; margin-top:.25rem; font-weight:600; }
-.note{ font-size:.9rem; color:var(--muted); text-align:center; margin-top:.6rem; font-style:italic; }
+.note{ font-size:.8rem; color:var(--muted); text-align:center; margin-top:.6rem; font-style:italic; }
 footer{ margin-top:1.2rem; text-align:center; color:var(--muted); font-size:.75rem; }
 .badge{ display:inline-block; background:rgba(255,255,255,.08); border:1px solid var(--border);
   padding:.35rem .75rem; border-radius:999px; font-size:.75rem; }

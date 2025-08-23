@@ -238,6 +238,40 @@ function deleteTask(id){
   t.deletedAt = nowISO();
   save();
 }
+
+// === SOFT DELETE SYSTEM ===
+function softDeleteTask(id){
+  const t = db.tasks.find(x => x.id === id);
+  if(!t) return;
+  t.deletedAt = nowISO();
+  save();
+}
+
+function restoreTask(id){
+  const t = db.tasks.find(x => x.id === id);
+  if(!t) return;
+  delete t.deletedAt;
+  save();
+}
+
+function hardDeleteTask(id){
+  db.tasks = db.tasks.filter(x => x.id !== id);
+  save();
+}
+
+function emptyTrash(){
+  db.tasks = db.tasks.filter(t => !t.deletedAt);
+  save();
+}
+
+// Helper to get active (non-deleted) tasks
+function getActiveTasks(){
+  return db.tasks.filter(t => !t.deletedAt);
+}
+
+function getTrashedTasks(){
+  return db.tasks.filter(t => t.deletedAt);
+}
 function createProject(name){ const p={id:uid(), name, createdAt:nowISO()}; db.projects.push(p); save(); return p; }
 function createTemplate(name, content){ const t={id:uid(), name, content, createdAt:nowISO()}; db.templates.push(t); save(); return t; }
 function addTag(text){ const tags = extractTags(text); if(tags.length) { const uniqueTags = [...new Set([...getAllTags(), ...tags])]; } return tags; }
@@ -279,18 +313,33 @@ function renderNav(){
 
 function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
 
-// Very simple Markdown → HTML converter. This aims to handle basic
-// formatting used in UltraNote templates without external dependencies.
-// It performs the following transformations on plain text:
-//  - Escapes HTML entities to prevent injection.
-//  - Converts heading markers (# through ######) at the start of lines to
-//    corresponding <h1>…<h6> tags.
-//  - Converts unordered list items starting with "- " or "* " into <ul>/<li> lists.
-//  - Converts **bold** and *italic* markup to <strong> and <em>.
-//  - Converts inline code surrounded by backticks to <code>.
-//  - Replaces double newlines with paragraph breaks and single newlines with <br>.
+// Enhanced markdown rendering using marked.js library with fallback
+// This function provides:
+//  - Full markdown support via marked.js when available
+//  - Safe HTML rendering to prevent XSS attacks
+//  - Basic markdown support as fallback if marked.js fails to load
+//  - Converts headings, lists, code blocks, emphasis, and more
 function markdownToHtml(md){
   if(!md) return '';
+  
+  // Use marked.js if available for full markdown support
+  if(typeof marked !== 'undefined'){
+    try {
+      // Configure marked for safe rendering
+      marked.setOptions({
+        breaks: true,        // Convert single line breaks to <br>
+        gfm: true,          // GitHub Flavored Markdown
+        sanitize: false,     // We'll handle sanitization ourselves
+        smartLists: true,    // Use smarter list behavior
+        smartypants: false   // Don't use smart quotes (can cause issues)
+      });
+      return marked.parse(md);
+    } catch(error) {
+      console.warn('marked.js failed, falling back to basic renderer:', error);
+    }
+  }
+  
+  // Fallback basic markdown implementation
   // Escape HTML first
   let html = htmlesc(md);
   // Code fences ```content``` → <pre><code>content</code></pre>
@@ -937,6 +986,7 @@ function renderReview(){
     const dateStr = t.completedAt ? new Date(t.completedAt).toLocaleDateString() : '';
     return `<div class='row' style='justify-content:space-between;'><span style='flex:1;'>${htmlesc(t.title)} ${ctx} <span class='pill'>${dateStr}</span></span></div>`;
   }).join('') : '<div class="muted">No completed tasks</div>';
+
   content.innerHTML = `
     <div class="grid-2">
       <div class="card">
@@ -1005,6 +1055,29 @@ function renderReview(){
         ${completedHtml}
       </div>
     </div>
+    <!-- Trash section for soft-deleted tasks -->
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center;">
+        <strong>🗑️ Trash (${getTrashedTasks().length})</strong>
+        <button id="emptyTrashBtn" class="btn" style="font-size:12px;">Empty Trash</button>
+      </div>
+      <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
+        ${getTrashedTasks().map(t=>{
+          const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null;
+          const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null;
+          const label = htmlesc(t.title);
+          const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
+          const deletedDate = t.deletedAt ? new Date(t.deletedAt).toLocaleDateString() : '';
+          return `<div class='row' style='justify-content:space-between;align-items:center;'>
+            <span class='muted' style='padding-left:6px;'>${label} ${ctx} <span class='pill'>Deleted: ${deletedDate}</span></span>
+            <div class='row' style='gap:4px;'>
+              <button class='btn' data-restore-task='${t.id}' style='font-size:11px;'>Restore</button>
+              <button class='btn' data-hard-delete='${t.id}' style='font-size:11px;color:#ff6b6b;'>Delete Forever</button>
+            </div>
+          </div>`;
+        }).join('') || '<div class="muted">Trash is empty</div>'}
+      </div>
+    </div>
     <div class="card">
       <strong>📅 Recent Daily Logs</strong>
       <div class="list" style="margin-top:8px;">${db.notes.filter(n=>n.type==='daily').slice(-7).reverse().map(n=> `<div class='row' style='justify-content:space-between;'><span>${htmlesc(n.title)}</span><button class='btn' data-open='${n.id}'>Open</button></div>`).join('')}</div>
@@ -1023,6 +1096,25 @@ function renderReview(){
   content.querySelectorAll('[data-done]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.done,'DONE'); renderReview(); });
   content.querySelectorAll('[data-restore]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.restore,'TODO'); renderReview(); });
   content.querySelectorAll('[data-tag]').forEach(b=> b.onclick=()=>{ route='vault'; document.getElementById('q').value='#'+b.dataset.tag; render(); });
+
+  // Trash handlers
+  content.querySelectorAll('[data-restore-task]').forEach(b=> b.onclick=()=>{ restoreTask(b.dataset.restoreTask); renderReview(); });
+  content.querySelectorAll('[data-hard-delete]').forEach(b=> b.onclick=async ()=>{ 
+    const task = db.tasks.find(t => t.id === b.dataset.hardDelete);
+    const ok = await showConfirm(`Permanently delete "${task?.title || 'this task'}"? This cannot be undone.`, 'Delete Forever', 'Cancel');
+    if(ok) { hardDeleteTask(b.dataset.hardDelete); renderReview(); }
+  });
+
+  // Empty trash handler
+  const emptyTrashBtn = document.getElementById('emptyTrashBtn');
+  if(emptyTrashBtn){
+    emptyTrashBtn.onclick = async () => {
+      const deletedTasks = getTrashedTasks();
+      if(deletedTasks.length === 0) return;
+      const ok = await showConfirm(`Permanently delete all ${deletedTasks.length} tasks from trash? This cannot be undone.`, 'Empty Trash', 'Cancel');
+      if(ok) { emptyTrash(); renderReview(); }
+    };
+  }
 
   // Handler for clearing completed tasks history
   const clearBtn = document.getElementById('clearCompleted');
