@@ -150,11 +150,141 @@ nav button.active {
 }
 
 /* --- Monthly view styling --- */
-/* Wrap the label and select vertically */
+/* Monthly page now uses standard app styling for consistency */
+
+/* Improved day selection with checkboxes */
+.monthly-days-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.monthly-day-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.2s ease;
+}
+
+.monthly-day-option:hover {
+  background: var(--card);
+}
+
+.monthly-day-option input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--acc);
+}
+
+.monthly-day-option input[type="checkbox"]:checked + span {
+  font-weight: 500;
+  color: var(--acc);
+}
+
+/* Task list view modes */
+.monthly-tasks-container.grid-view {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.monthly-tasks-container.list-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.monthly-tasks-container.grid-view .monthly-task-item {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  padding: 12px;
+  transition: all 0.2s ease;
+  min-height: 80px;
+}
+
+.monthly-tasks-container.list-view .monthly-task-item {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  transition: all 0.2s ease;
+}
+
+.monthly-task-item:hover {
+  border-color: var(--acc);
+  transform: translateY(-1px);
+}
+
+.monthly-task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 6px;
+}
+
+.monthly-task-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+  line-height: 1.3;
+  flex: 1;
+  margin-right: 8px;
+}
+
+.monthly-task-delete {
+  padding: 3px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid #ff6b6b;
+  color: #ff6b6b;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.monthly-task-delete:hover {
+  background: #ff6b6b;
+  color: white;
+}
+
+.monthly-task-schedule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.monthly-schedule-badge {
+  background: var(--acc);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* View toggle buttons */
+#monthlyViewGrid.active,
+#monthlyViewList.active {
+  background: var(--acc);
+  color: white;
+  border-color: var(--acc);
+}
+
+/* Legacy styles maintained for backward compatibility */
 .monthly .monthly-select {
   display: flex;
   flex-direction: column;
-  /* Allow the weekday selector to expand proportionally in the row */
   flex: 1;
   min-width: 120px;
 }
@@ -166,7 +296,6 @@ nav button.active {
 }
 
 .monthly .monthly-select select {
-  /* Provide a consistent width and height for the weekday selector */
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   color: var(--fg);
@@ -189,6 +318,28 @@ nav button.active {
   background: var(--btn-bg);
   border-color: var(--pill-border);
   color: var(--acc);
+}
+
+/* Responsive grid layout for monthly form */
+@media (max-width: 700px) {
+  .monthly-container .card:first-child > div:nth-child(2) {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  
+  .monthly-container .card:first-child .row:last-child {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  
+  .monthly-container .card:first-child .row:last-child > div:first-child {
+    justify-content: center;
+  }
+  
+  .monthly-tasks-container.grid-view {
+    grid-template-columns: 1fr;
+  }
 }
 
 
