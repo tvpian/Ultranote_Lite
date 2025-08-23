@@ -149,6 +149,49 @@ nav button.active {
   margin-right: 6px;
 }
 
+/* --- Monthly view styling --- */
+/* Wrap the label and select vertically */
+.monthly .monthly-select {
+  display: flex;
+  flex-direction: column;
+  /* Allow the weekday selector to expand proportionally in the row */
+  flex: 1;
+  min-width: 120px;
+}
+
+.monthly .monthly-select label {
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
+.monthly .monthly-select select {
+  /* Provide a consistent width and height for the weekday selector */
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--fg);
+  padding: 6px;
+  border-radius: 8px;
+  width: 100px;
+  height: 160px;
+}
+
+/* Style each scheduled task row in the monthly list */
+.monthly #monthlyTasksList > .row {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+
+/* Make the pill stand out a bit more in the monthly list */
+.monthly #monthlyTasksList .pill {
+  background: var(--btn-bg);
+  border-color: var(--pill-border);
+  color: var(--acc);
+}
+
+
 .list {
   display: grid;
   gap: 8px;
@@ -198,6 +241,39 @@ a {
 
 .hidden {
   display: none;
+}
+
+/* Markdown preview styling */
+.markdown-preview {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--input-bg);
+  max-height: 360px;
+  overflow-y: auto;
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.markdown-preview h1 { font-size: 1.6em; margin-top: 0.8em; margin-bottom: 0.4em; }
+.markdown-preview h2 { font-size: 1.4em; margin-top: 0.8em; margin-bottom: 0.4em; }
+.markdown-preview h3 { font-size: 1.3em; margin-top: 0.8em; margin-bottom: 0.4em; }
+.markdown-preview h4 { font-size: 1.2em; margin-top: 0.8em; margin-bottom: 0.4em; }
+.markdown-preview h5 { font-size: 1.1em; margin-top: 0.8em; margin-bottom: 0.4em; }
+.markdown-preview h6 { font-size: 1em; margin-top: 0.8em; margin-bottom: 0.4em; }
+.markdown-preview ul { margin-left: 1.2em; padding-left: 0; }
+.markdown-preview li { margin-bottom: 4px; list-style-type: disc; }
+.markdown-preview pre {
+  background: var(--card);
+  padding: 8px;
+  border-radius: 8px;
+  overflow: auto;
+}
+.markdown-preview code {
+  background: var(--card);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: monospace;
 }
 
 /* Project selector container for mobile: visible on small screens, hidden on desktop */

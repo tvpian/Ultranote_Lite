@@ -5,7 +5,7 @@
     "seenTip": true,
     "autoCarryTasks": false,
     "dailyTemplate": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
-    "scratchpad": "",
+    "scratchpad": "1) Journal the methods and the results obtained while trying out for Test the visuals from UR10E on UR5E to improve realism\n2) Look at the automated service startup script\n\nUltranote:\n1. Scratchpad refresh problem\n2. Needs better handling of the past tasks - should handle cases where it gets carelessly deleted\n3. History of completed tasks\n4. The idea of the week in the review section should be improved\n5. Better analytics\n6. Better readability in the notes section MD\n7. Today's task glitches for the first entry to add an item\n",
     "theme": "dark"
   },
   "projects": [
@@ -93,7 +93,7 @@
       "type": "note",
       "pinned": false,
       "createdAt": "2025-08-15T01:47:05.036Z",
-      "updatedAt": "2025-08-18T17:29:33.561Z",
+      "updatedAt": "2025-08-21T18:01:06.194Z",
       "attachments": []
     },
     {
@@ -122,7 +122,8 @@
       "type": "note",
       "pinned": false,
       "createdAt": "2025-08-15T23:34:07.907Z",
-      "updatedAt": "2025-08-16T00:16:05.904Z"
+      "updatedAt": "2025-08-16T00:16:05.904Z",
+      "attachments": []
     },
     {
       "id": "m99i6s3b",
@@ -147,20 +148,128 @@
       "type": "daily",
       "pinned": false,
       "createdAt": "2025-08-18T04:21:34.888Z",
-      "updatedAt": "2025-08-19T01:13:16.824Z",
+      "updatedAt": "2025-08-20T00:47:00.337Z",
       "attachments": []
     },
     {
       "id": "dddvyov0",
       "title": "2025-08-19 — Daily",
-      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n### Tedx Daily:\n- It's not enough to have the right attitude but also the behaviour associated with the kind of attitude you want to have\n- 6 behaviours:\n - Count yourself in. \n  - Stand up to conflict if it's required.\n - Give yourself 20secs of courage\n - Take a seat at the table\n - Cheer for other peoples success\n - Bolster your confidence for a new activity through youralready great performance in another. Use prior success to propel yourself forward.\n - Celebrate confidently.\n\n### Veritasium:\n- For the longest time it was believed that to observe The Law of Large Numbers independence between events was necessary. Also the corollary that if you saw the \n  Law of Large Numbers coming into existense it means there lies indepence between events.\n- If the Law of Large Numbers is thought of as an absolute idea then it can be said that all decisions are acts of free will. Hence in a way it could be said that\n  free will can be measured.\n- \n\n\n## Wins\n",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n### Tedx Daily:\n- It's not enough to have the right attitude but also the behaviour associated with the kind of attitude you want to have\n- 6 behaviours:\n - Count yourself in. \n  - Stand up to conflict if it's required.\n - Give yourself 20secs of courage\n - Take a seat at the table\n - Cheer for other peoples success\n - Bolster your confidence for a new activity through youralready great performance in another. Use prior success to propel yourself forward.\n - Celebrate confidently.\n\n### Veritasium:\n- For the longest time it was believed that to observe The Law of Large Numbers independence between events was necessary. Also the corollary that if you saw the \n  Law of Large Numbers coming into existense it means there lies indepence between events.\n- If the Law of Large Numbers is thought of as an absolute idea then it can be said that all decisions are acts of free will. Hence in a way it could be said that\n  free will can be measured.\n- Markov proved that TLOL applied even to dependent events thereby proving observing convergence in social statistics dint necessarily mean that the decisions                   \n  are independent.\n- Any or most events could be defined as a Markov Chain Event\n- Claude Shannon came up with the idea that if probability of next letter can be predictedd why not the next word itself.\n- Current LLMs not just predict the next word/token based on probability but also uses Attention as a concept.\n- Google is fundamentally build on PageRank alogorithm based on MCC\n- Memoryless property of MC - very powerful\n\n\n\n## Wins\n",
       "tags": [],
       "projectId": null,
       "dateIndex": "2025-08-19",
       "type": "daily",
       "pinned": false,
       "createdAt": "2025-08-19T06:21:48.183Z",
-      "updatedAt": "2025-08-19T15:50:23.186Z",
+      "updatedAt": "2025-08-19T19:34:37.284Z",
+      "attachments": []
+    },
+    {
+      "id": "up18btk1",
+      "title": "Teleoperation Survey - Part 2",
+      "content": "# Research Summary: [Tele-operation Survey]\n\n## Objective\nLearn about the various teleoperation devices used in the community\n\n## Key Findings\n- Historically, teaching robots and obtaining the internal state of the robot back were looked at as separate branches.\n- Two high-level ways of robot learning:\n - Human in the loop Reinforcement Learning - Human Occupancy, Reward at the end of the task, Binary reward system(1-success, 0-fail)\n - Active Learning\n- Rather than copying the action space of the humans, the robot is trying to learn the reward function set by the humans.,\n- In Imitation Learning, a form of Active Learning, the robots instead of learning the reward, the robot directly learns the control policy.\n- RL is the why, and IL is the how\n- Demonstration Learning - Significantly less amount of data required.\n- Moving away from the need for expert coders for everyday users\n- Starting with a policy learnt from humans is technically a lot safer than starting random\n- Batch Learning - Collects several corrections and updates the model once.\n- Realtime - Online gradient descent, the robots in this case, tweak their learning every time a correction is given - Tighter Loop\n-\n\n\n\nIndirect Teaching:\n\n-\n\n- Demonstrations have to collect the state space of the task accurately, implying all the possible object locations, orientations, and positions.\n - For complex tasks, the task space is enormous.\n- Generalization tends to be tough because the data we collect doesn't always tend to be statistically neat and IID\n- Whenever there is a shift in the observation space, this leads to a Distributional Shift problem.\n- Teleoperation could give slightly cleaner data—Interactive Imitation Learning - Motivates addressing new situations on the fly.\n- Augmented Reality could help in projecting potential waypoints in the 3D space for validation of performance.\n- Haptic feedback, like pulses, could signify the confidence of the robot in executing a task.\n- Multimodal feedback is good to build trust, but not too much, though—a primary source to obtain the key info and a secondary source for nuances.\n\nWhat are the tangible outputs of having a closed-loop teaching-learning framework?\n - Human trust in the robot improves significantly.\n - Leads to Human-Robot Co-Adaptation.\n - With steady feedback, humans could become better teachers.\n - Robots that communicate explicitly are considered more trustworthy.\n\n\nHow is learning implemented?\n- Few-shot generalization.\n\n \n## Implications\n\n## Next Steps\n",
+      "tags": [],
+      "projectId": "c7szb5bi",
+      "dateIndex": null,
+      "type": "note",
+      "pinned": false,
+      "createdAt": "2025-08-19T21:28:51.578Z",
+      "updatedAt": "2025-08-20T01:36:03.972Z",
+      "attachments": []
+    },
+    {
+      "id": "78exhcxi",
+      "title": "2025-08-20 — Daily",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
+      "tags": [],
+      "projectId": null,
+      "dateIndex": "2025-08-20",
+      "type": "daily",
+      "pinned": false,
+      "createdAt": "2025-08-20T18:15:36.346Z",
+      "updatedAt": "2025-08-20T20:38:45.365Z",
+      "attachments": []
+    },
+    {
+      "id": "498mkuqj",
+      "title": "Agent integration with IntraChat",
+      "content": "1. It should be the one-stop control for the team to talk with the services and server.\n2. One LLM-based interactive portal for starting demos.",
+      "tags": [
+        "llm",
+        "agent",
+        "intrachat"
+      ],
+      "projectId": null,
+      "dateIndex": null,
+      "type": "idea",
+      "pinned": false,
+      "createdAt": "2025-08-20T19:24:22.221Z",
+      "updatedAt": "2025-08-20T19:29:41.655Z",
+      "attachments": []
+    },
+    {
+      "id": "rhsvuali",
+      "title": "2025-08-21 — Daily",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\nMaster Robot Assembly process and Document the learning\n - Split the urdf into arm and gripper\n - Test the robot assembler - Documentation method\n - Test the fixed joint way - Lychee Ai method\nComplete Teleoperation Survey\n - Create 1 slide \n - Use the CG reference. Combine it with the NLM \nControl the gripper thorugh Python code\n - Test with Megumi code\n - Test in the script editor\nComplete Isaac Sim Documentaion\n - Test the arm handle functions with ur \n\n## Journal\n\n## Wins\n",
+      "tags": [],
+      "projectId": null,
+      "dateIndex": "2025-08-21",
+      "type": "daily",
+      "pinned": false,
+      "createdAt": "2025-08-21T15:56:02.810Z",
+      "updatedAt": "2025-08-21T17:27:23.110Z",
+      "attachments": []
+    },
+    {
+      "id": "f9g9ypih",
+      "title": "Robot Control From the Script ",
+      "content": "```python\n# --- Robotiq 85 single-joint control (init-safe, frame-update loop, robust World init) ---\n\nimport time\nimport numpy as np\n\n# ===== Imports compatible with Isaac Sim 4.x/5.x =====\ntry:\n    # Isaac Sim 5.x-style package names\n    from isaacsim.core.api import World\n    from isaacsim.core.utils.types import ArticulationAction\n    from isaacsim.robot.manipulators import SingleManipulator\nexcept Exception:\n    # Fallback for older builds\n    from omni.isaac.core import World\n    from omni.isaac.core.utils.types import ArticulationAction\n    from omni.isaac.core.robots import SingleManipulator  # older alias\n\ntry:\n    # 5.x\n    from isaacsim.core.articulations import ArticulationView\nexcept Exception:\n    from omni.isaac.core.articulations import ArticulationView\n\nimport omni.kit.app\nimport omni.timeline\nimport omni.usd\nfrom pxr import Usd\n\n# === Your scene paths ===\nROBOT_PRIM_PATH = \"/World/ur\"\nEE_LINK_PATH    = \"/World/ur/wrist_3_link/flange/tool0\"\nGRIPPER_JOINT   = \"robotiq_85_left_knuckle_joint\"\n\nOPEN_POS   = 0.00\nCLOSED_POS = 0.8\nSTEP       = 0.01\n\nBASE_NAME = \"__robotiq_single_joint_manip__\"\nVIEW_NAME = \"__robotiq_robot_view__\"\n\n# --- Helper: make sure the prim exists before proceeding ---\ndef _assert_prim_exists(path: str) -> bool:\n    stage = omni.usd.get_context().get_stage()\n    if stage is None:\n        print(\"[robotiq] No USD stage yet. Load/open a stage first.\")\n        return False\n    prim = stage.GetPrimAtPath(path)\n    if not prim.IsValid():\n        print(f\"[robotiq] Robot prim not found: {path}\")\n        roots = [p.GetPath().pathString for p in stage.GetPseudoRoot().GetChildren()]\n        print(\"[robotiq] Top-level prims:\", roots[:10])\n        return False\n    return True\n\n# --- Robust World acquisition/creation ---\nworld = None\ntry:\n    world = World.instance()\nexcept Exception:\n    world = None\n\nif world is None or getattr(world, \"scene\", None) is None:\n    world = World(stage_units_in_meters=1.0)\n\n# 1) Ensure an ArticulationView exists and physics is initialized\nif not _assert_prim_exists(ROBOT_PRIM_PATH):\n    raise RuntimeError(\"Load a scene that contains your robot at /World/ur (or update ROBOT_PRIM_PATH).\")\n\nview = world.scene.get_object(VIEW_NAME)\nif view is None:\n    view = ArticulationView(prim_paths_expr=ROBOT_PRIM_PATH, name=VIEW_NAME)\n    world.scene.add(view)\n\ntry:\n    world.initialize_physics()\nexcept Exception:\n    try:\n        world.reset()\n    except Exception:\n        pass\n\n# 2) Wrap the articulation (non-destructive) and add if missing\nmanip = world.scene.get_object(BASE_NAME)\nif manip is None:\n    manip = SingleManipulator(\n        prim_path=ROBOT_PRIM_PATH,\n        name=BASE_NAME,\n        end_effector_prim_path=EE_LINK_PATH,\n        gripper=None,\n    )\n    world.scene.add(manip)\n\n# Resolve joint index\njoint_names = manip.dof_names\nname_to_idx = {n: i for i, n in enumerate(joint_names)}\nif GRIPPER_JOINT not in name_to_idx:\n    print(\"[robotiq] Joint not found:\", GRIPPER_JOINT)\n    print(\"[robotiq] Available DOFs:\", joint_names)\n    raise RuntimeError(\"Update GRIPPER_JOINT.\")\nJIDX = name_to_idx[GRIPPER_JOINT]\nLOW, HIGH = (min(OPEN_POS, CLOSED_POS), max(OPEN_POS, CLOSED_POS))\n\n# 3) Frame update loop (guarded until sim/joints are ready)\napp = omni.kit.app.get_app()\ntimeline = omni.timeline.get_timeline_interface()\n\nold_sub = getattr(manip, \"_robotiq_sub\", None)\nif old_sub is not None:\n    try:\n        old_sub.unsubscribe()\n    except Exception:\n        pass\n\n_state = {\"i\": 0}\n\ndef _clamp(v, lo, hi): \n    return lo if v < lo else hi if v > hi else v\n\ndef _on_update(e):\n    if not timeline.is_playing():\n        return\n\n    q = manip.get_joint_positions()\n    if q is None or len(q) == 0:\n        return\n\n    i = _state[\"i\"]\n    if i < 500:\n        q[JIDX] = _clamp(q[JIDX] + STEP, LOW, HIGH)  # closing\n    else:\n        q[JIDX] = _clamp(q[JIDX] - STEP, LOW, HIGH)  # opening\n    manip.apply_action(ArticulationAction(joint_positions=q.tolist()))\n    _state[\"i\"] = 0 if i >= 999 else i + 1\n\nmanip._robotiq_sub = app.get_update_event_stream().create_subscription_to_pop(\n    _on_update, name=f\"__robotiq_update_{int(time.time())%100000}\"\n)\n\ntimeline.play()\nprint(f\"[robotiq] Driving '{GRIPPER_JOINT}' with open/close loop (guarded for sim init).\")\n\n# --- Utilities ---\ndef gripper_set(alpha: float):\n    a = float(np.clip(alpha, 0.0, 1.0))\n    target = OPEN_POS * (1.0 - a) + CLOSED_POS * a\n    q = manip.get_joint_positions()\n    if q is None: \n        print(\"[robotiq] Joint state not ready yet.\"); return\n    q[JIDX] = _clamp(target, LOW, HIGH)\n    manip.apply_action(ArticulationAction(joint_positions=q.tolist()))\n    print(f\"[robotiq] Set alpha={a:.2f} -> {q[JIDX]:.3f}\")\n\ndef gripper_open():\n    q = manip.get_joint_positions()\n    if q is None: \n        print(\"[robotiq] Joint state not ready yet.\"); return\n    q[JIDX] = OPEN_POS\n    manip.apply_action(ArticulationAction(joint_positions=q.tolist()))\n    print(\"[robotiq] Open.\")\n\ndef gripper_close():\n    q = manip.get_joint_positions()\n    if q is None: \n        print(\"[robotiq] Joint state not ready yet.\"); return\n    q[JIDX] = CLOSED_POS\n    manip.apply_action(ArticulationAction(joint_positions=q.tolist()))\n    print(\"[robotiq] Close.\")\n\ndef gripper_stop_loop():\n    sub = getattr(manip, \"_robotiq_sub\", None)\n    if sub is not None:\n        try:\n            sub.unsubscribe()\n            print(\"[robotiq] Stopped auto loop.\")\n        except Exception:\n            print(\"[robotiq] Could not unsubscribe (already gone?).\")\n",
+      "tags": [],
+      "projectId": "x58sfrwh",
+      "dateIndex": null,
+      "type": "note",
+      "pinned": false,
+      "createdAt": "2025-08-21T18:01:43.089Z",
+      "updatedAt": "2025-08-22T01:54:36.767Z",
+      "attachments": []
+    },
+    {
+      "id": "30sm3d7k",
+      "title": "Only Gripper Control From the Script ",
+      "content": "# --- Robotiq 85 single-joint control (init-safe, frame-update loop, holds arm targets) ---\n\nimport time\nimport numpy as np\n\nfrom isaacsim.core.api import World\nfrom isaacsim.core.utils.types import ArticulationAction  # kept for reference; not used now\nfrom isaacsim.robot.manipulators import SingleManipulator\ntry:\n    from isaacsim.core.articulations import ArticulationView\nexcept Exception:\n    from omni.isaac.core.articulations import ArticulationView\n\nimport omni.kit.app\nimport omni.timeline\n\n# === Your scene paths ===\nROBOT_PRIM_PATH = \"/World/ur\"\nEE_LINK_PATH    = \"/World/ur/wrist_3_link/flange/tool0\"\nGRIPPER_JOINT   = \"robotiq_85_left_knuckle_joint\"\n\nOPEN_POS   = 0.00\nCLOSED_POS = 0.8\nSTEP       = 0.01\n\n# Reuse (or create) World\ntry:\n    world = World.instance()\nexcept Exception:\n    world = World(stage_units_in_meters=1.0)\n\nBASE_NAME = \"__robotiq_single_joint_manip__\"\nVIEW_NAME = \"__robotiq_robot_view__\"\n\n# 1) Ensure an ArticulationView exists and physics is initialized\nview = world.scene.get_object(VIEW_NAME)\nif view is None:\n    view = ArticulationView(prim_paths_expr=ROBOT_PRIM_PATH, name=VIEW_NAME)\n    world.scene.add(view)\n\n# Initialize physics handles (idempotent)\ntry:\n    world.initialize_physics()\nexcept Exception:\n    world.reset()\n\n# 2) Wrap the articulation (non-destructive) and add if missing\nmanip = world.scene.get_object(BASE_NAME)\nif manip is None:\n    manip = SingleManipulator(\n        prim_path=ROBOT_PRIM_PATH,\n        name=BASE_NAME,\n        end_effector_prim_path=EE_LINK_PATH,\n        gripper=None,\n    )\n    world.scene.add(manip)\n\n# Resolve joint index\njoint_names = manip.dof_names\nname_to_idx = {n: i for i, n in enumerate(joint_names)}\nif GRIPPER_JOINT not in name_to_idx:\n    print(\"[robotiq] Joint not found:\", GRIPPER_JOINT)\n    print(\"[robotiq] Available DOFs:\", joint_names)\n    raise RuntimeError(\"Update GRIPPER_JOINT.\")\nJIDX = name_to_idx[GRIPPER_JOINT]\nLOW, HIGH = (min(OPEN_POS, CLOSED_POS), max(OPEN_POS, CLOSED_POS))\n\n# 3) Frame update loop (holds all joints; moves only gripper target)\napp = omni.kit.app.get_app()\ntimeline = omni.timeline.get_timeline_interface()\n\n# Clean old subscription on re-runs\nold_sub = getattr(manip, \"_robotiq_sub\", None)\nif old_sub is not None:\n    try:\n        old_sub.unsubscribe()\n    except Exception:\n        pass\n\n_state = {\n    \"i\": 0,\n    \"targets\": None,   # full joint position targets we will keep updating\n}\n\ndef _clamp(v, lo, hi):\n    return lo if v < lo else hi if v > hi else v\n\ndef _on_update(e):\n    # Drive only while sim time advances\n    if not timeline.is_playing():\n        return\n\n    # Read current joint positions (needed once to seed targets)\n    q = manip.get_joint_positions()\n    if q is None or len(q) == 0:\n        return  # wait until PhysX buffers exist\n\n    # Seed & latch the hold targets on first valid frame\n    if _state[\"targets\"] is None:\n        _state[\"targets\"] = q.copy()\n        # Hold the current pose for all joints\n        view.set_joint_position_targets(_state[\"targets\"][None, :])  # shape (1, dof)\n        return  # start moving next frame\n\n    # Update only the gripper target; hold everything else\n    i = _state[\"i\"]\n    if i < 500:\n        _state[\"targets\"][JIDX] = _clamp(_state[\"targets\"][JIDX] + STEP, LOW, HIGH)  # closing\n    else:\n        _state[\"targets\"][JIDX] = _clamp(_state[\"targets\"][JIDX] - STEP, LOW, HIGH)  # opening\n\n    # Apply the full target vector (controller will hold arm joints at their targets)\n    view.set_joint_position_targets(_state[\"targets\"][None, :])\n\n    _state[\"i\"] = 0 if i >= 999 else i + 1\n\n# Subscribe to per-frame updates (Script Editor friendly)\nmanip._robotiq_sub = app.get_update_event_stream().create_subscription_to_pop(\n    _on_update, name=f\"__robotiq_update_{int(time.time())%100000}\"\n)\n\n# Start timeline so updates fire and physics initializes\ntimeline.play()\n\nprint(f\"[robotiq] Holding arm joints and cycling '{GRIPPER_JOINT}' between {OPEN_POS} and {CLOSED_POS}.\")\n\n# --- Utilities: update the same targets vector ---\ndef _ensure_targets():\n    if _state[\"targets\"] is None:\n        q = manip.get_joint_positions()\n        if q is not None and len(q) > 0:\n            _state[\"targets\"] = q.copy()\n            view.set_joint_position_targets(_state[\"targets\"][None, :])\n            return True\n        print(\"[robotiq] Joint state not ready yet.\")\n        return False\n    return True\n\ndef gripper_set(alpha: float):\n    \"\"\"Set gripper between open (0.0) and closed (1.0) and hold all other joints.\"\"\"\n    if not _ensure_targets():\n        return\n    a = float(np.clip(alpha, 0.0, 1.0))\n    target = OPEN_POS * (1.0 - a) + CLOSED_POS * a\n    _state[\"targets\"][JIDX] = _clamp(target, LOW, HIGH)\n    view.set_joint_position_targets(_state[\"targets\"][None, :])\n    print(f\"[robotiq] Set alpha={a:.2f} -> {target:.3f}\")\n\ndef gripper_open():\n    if not _ensure_targets():\n        return\n    _state[\"targets\"][JIDX] = OPEN_POS\n    view.set_joint_position_targets(_state[\"targets\"][None, :])\n    print(\"[robotiq] Open.\")\n\ndef gripper_close():\n    if not _ensure_targets():\n        return\n    _state[\"targets\"][JIDX] = CLOSED_POS\n    view.set_joint_position_targets(_state[\"targets\"][None, :])\n    print(\"[robotiq] Close.\")\n\ndef gripper_stop_loop():\n    sub = getattr(manip, \"_robotiq_sub\", None)\n    if sub is not None:\n        try:\n            sub.unsubscribe()\n            print(\"[robotiq] Stopped auto loop.\")\n        except Exception:\n            print(\"[robotiq] Could not unsubscribe (already gone?).\")\n",
+      "tags": [],
+      "projectId": "x58sfrwh",
+      "dateIndex": null,
+      "type": "note",
+      "pinned": false,
+      "createdAt": "2025-08-21T19:52:30.132Z",
+      "updatedAt": "2025-08-21T22:53:59.515Z",
+      "attachments": []
+    },
+    {
+      "id": "n4dczvok",
+      "title": "Python Script for Controlling the Ur5e + Robotiq Gripper",
+      "content": "```python\n#!/usr/bin/env python3\n# --- Robotiq 85 single-joint control (standalone, auto-resolve UR root & EE link) ---\n\nfrom isaacsim import SimulationApp\nimport argparse, time, numpy as np\n\nparser = argparse.ArgumentParser(description=\"Robotiq 85 single-joint loop on a UR articulation (auto-resolve prims).\")\nparser.add_argument(\"--headless\", action=\"store_true\", help=\"Run headless.\")\nparser.add_argument(\"--stage\", type=str, default=None, help=\"Open an existing stage (.usd/.usda/.usdz).\")\nparser.add_argument(\"--spawn-ur-usd\", type=str, default=None, help=\"USD to reference at /World/ur on a fresh stage.\")\nparser.add_argument(\"--ur-prim\", type=str, default=\"/World/ur\", help=\"Expected robot root prim path (coarse).\")\nparser.add_argument(\"--ee-link\", type=str, default=\"/World/ur/wrist_3_link/flange/tool0\", help=\"End-effector prim path guess.\")\nparser.add_argument(\"--gripper-joint\", type=str, default=\"robotiq_85_left_knuckle_joint\", help=\"Robotiq single DOF name.\")\nparser.add_argument(\"--open-pos\", type=float, default=0.0, help=\"Open position.\")\nparser.add_argument(\"--closed-pos\", type=float, default=0.8, help=\"Closed position.\")\nparser.add_argument(\"--step\", type=float, default=0.01, help=\"Per-step delta.\")\nparser.add_argument(\"--ground\", action=\"store_true\", help=\"Add a default ground plane.\")\nparser.add_argument(\"--quit-after\", type=float, default=None, help=\"Quit after N seconds (for CI/tests).\")\nargs, _ = parser.parse_known_args()\n\nsimulation_app = SimulationApp({\"headless\": bool(args.headless)})\n\n# ----- Imports that need SimulationApp alive\ntry:\n    from isaacsim.core.api import World\n    from isaacsim.core.utils.types import ArticulationAction\n    from isaacsim.robot.manipulators import SingleManipulator\nexcept Exception:\n    from omni.isaac.core import World\n    from omni.isaac.core.utils.types import ArticulationAction\n    from omni.isaac.core.robots import SingleManipulator\n\ntry:\n    from isaacsim.core.articulations import ArticulationView\nexcept Exception:\n    from omni.isaac.core.articulations import ArticulationView\n\nimport omni.usd\nfrom pxr import Usd, Sdf\ntry:\n    from isaacsim.core.utils.stage import add_reference_to_stage\nexcept Exception:\n    add_reference_to_stage = None\n\n# ----- USD helpers\ndef _stage(): return omni.usd.get_context().get_stage()\ndef _open_stage(path: str):\n    ctx = omni.usd.get_context(); ctx.open_stage(path)\n    for _ in range(200):\n        st = ctx.get_stage()\n        if st and st.GetRootLayer(): return st\n        omni.kit.app.get_app().update()\n    return ctx.get_stage()\ndef _new_stage():\n    ctx = omni.usd.get_context(); ctx.new_stage(); return ctx.get_stage()\ndef _add_ref(usd_path: str, prim_path: str):\n    if add_reference_to_stage: add_reference_to_stage(usd_path=usd_path, prim_path=prim_path); return\n    st = _stage(); prim = st.DefinePrim(prim_path, \"Xform\"); prim.GetReferences().AddReference(usd_path)\n\ndef _exists(path: str) -> bool:\n    st = _stage(); \n    return bool(st and st.GetPrimAtPath(path).IsValid())\n\ndef _search_suffix(root: str, suffix: str) -> str|None:\n    \"\"\"Find first prim under `root` whose path ends with `suffix`.\"\"\"\n    st = _stage(); rprim = st.GetPrimAtPath(root)\n    if not rprim.IsValid(): return None\n    for prim in Usd.PrimRange(rprim):\n        if prim.GetPath().pathString.endswith(suffix):\n            return prim.GetPath().pathString\n    return None\n\ndef _find_articulation_root_under(root_hint: str) -> str|None:\n    \"\"\"Heuristic: many UR assets mount a child prim (e.g., '/World/ur/ur'). Try common depths and pick the first that has joints.\"\"\"\n    if _exists(root_hint): return root_hint\n    leaf = Sdf.Path(root_hint).name\n    cand = Sdf.Path(root_hint).AppendChild(leaf).pathString\n    if _exists(cand): return cand\n    st = _stage()\n    base = st.GetPrimAtPath(Sdf.Path(root_hint).GetParentPath())\n    if base and base.IsValid():\n        for prim in base.GetChildren():\n            pstr = prim.GetPath().pathString\n            if pstr.startswith(root_hint) and any(True for _ in prim.GetChildren()):\n                return pstr\n    return None\n\n# ----- Stage setup\nif args.stage and args.spawn_ur_usd:\n    print(\"[robotiq] Both --stage and --spawn-ur-usd given; opening --stage and ignoring spawn.\")\nif args.stage:\n    print(f\"[robotiq] Opening stage: {args.stage}\")\n    _open_stage(args.stage)\nelif args.spawn_ur_usd:\n    print(\"[robotiq] Creating fresh stage and spawning UR USD at /World/ur\")\n    _new_stage()\n    _add_ref(args.spawn_ur_usd, \"/World/ur\")\nelse:\n    print(\"[robotiq] No --stage/--spawn-ur-usd; creating empty stage (will error if robot not present).\")\n    _new_stage()\n\nworld = World(stage_units_in_meters=1.0)\nif args.ground:\n    try: world.scene.add_default_ground_plane()\n    except Exception: pass\n\n# ----- Auto-resolve actual robot root & EE link\nur_root = _find_articulation_root_under(args.ur_prim) or args.ur_prim\nif not _exists(ur_root):\n    st = _stage()\n    roots = [p.GetPath().pathString for p in st.GetPseudoRoot().GetChildren()]\n    print(\"[robotiq] Could not locate robot root under:\", args.ur_prim)\n    print(\"[robotiq] Top-level prims:\", roots[:12])\n    simulation_app.close(); raise SystemExit(1)\n\nee_link = args.ee_link\nif not _exists(ee_link):\n    try_rebased = ee_link.replace(args.ur_prim, ur_root)\n    candidates = [\n        try_rebased,\n        f\"{ur_root}/wrist_3_link/flange/tool0\",\n        f\"{ur_root}/wrist_3_link/tool0\",\n        f\"{ur_root}/wrist_3_link/flange\",\n    ]\n    ee_link = next((p for p in candidates if _exists(p)), None)\n    if not ee_link:\n        ee_link = _search_suffix(ur_root, \"tool0\")\n    if not ee_link or not _exists(ee_link):\n        print(\"[robotiq] End-effector prim not found.\")\n        print(\"  Tried:\", [c for c in candidates])\n        print(\"  Searched for suffix: tool0 under\", ur_root)\n        simulation_app.close(); raise SystemExit(1)\n\nprint(f\"[robotiq] Using robot root: {ur_root}\")\nprint(f\"[robotiq] Using EE link:   {ee_link}\")\n\n# ----- Scene objects\nVIEW_NAME = \"__robotiq_robot_view__\"\nview = world.scene.get_object(VIEW_NAME)\nif view is None:\n    view = ArticulationView(prim_paths_expr=ur_root, name=VIEW_NAME)\n    world.scene.add(view)\n\nMANIP_NAME = \"__robotiq_single_joint_manip__\"\nmanip = world.scene.get_object(MANIP_NAME)\nif manip is None:\n    manip = SingleManipulator(prim_path=ur_root, name=MANIP_NAME, end_effector_prim_path=ee_link, gripper=None)\n    world.scene.add(manip)\n\nworld.reset()\n\n# ----- Resolve gripper joint index\njoint_names = manip.dof_names\nname_to_idx = {n: i for i, n in enumerate(joint_names)}\nif args.gripper_joint not in name_to_idx:\n    print(\"[robotiq] Joint not found:\", args.gripper_joint)\n    print(\"[robotiq] Available DOFs:\", joint_names)\n    simulation_app.close(); raise SystemExit(1)\nJIDX = name_to_idx[args.gripper_joint]\n\nOPEN_POS, CLOSED_POS, STEP = float(args.open_pos), float(args.closed_pos), float(args.step)\nLOW, HIGH = (min(OPEN_POS, CLOSED_POS), max(OPEN_POS, CLOSED_POS))\ndef _clamp(v, lo, hi): return lo if v < lo else hi if v > hi else v\n\nprint(f\"[robotiq] Controlling '{args.gripper_joint}' idx={JIDX}, limits=[{LOW:.3f},{HIGH:.3f}], step={STEP:.4f}\")\n\n# ----- Main loop\ni, reset_needed, t0 = 0, False, time.time()\nwhile simulation_app.is_running():\n    world.step(render=not args.headless)\n\n    if world.is_stopped() and not reset_needed:\n        reset_needed = True\n    if world.is_playing():\n        if reset_needed:\n            world.reset(); reset_needed = False\n\n        q = manip.get_joint_positions()\n        if q is None or len(q) == 0:\n            continue\n\n        if i < 500:  q[JIDX] = _clamp(q[JIDX] + STEP, LOW, HIGH)   # closing\n        else:        q[JIDX] = _clamp(q[JIDX] - STEP, LOW, HIGH)   # opening\n        manip.apply_action(ArticulationAction(joint_positions=q.tolist()))\n        i = 0 if i >= 999 else i + 1\n\n    if args.quit_after is not None and (time.time() - t0) >= float(args.quit_after):\n        break\n\nsimulation_app.close()\n",
+      "tags": [],
+      "projectId": "x58sfrwh",
+      "dateIndex": null,
+      "type": "note",
+      "pinned": false,
+      "createdAt": "2025-08-22T02:25:43.608Z",
+      "updatedAt": "2025-08-22T02:25:43.608Z",
+      "attachments": []
+    },
+    {
+      "id": "1itn31si",
+      "title": "2025-08-22 — Daily",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
+      "tags": [],
+      "projectId": null,
+      "dateIndex": "2025-08-22",
+      "type": "daily",
+      "pinned": false,
+      "createdAt": "2025-08-22T13:32:29.630Z",
+      "updatedAt": "2025-08-22T13:32:29.630Z",
       "attachments": []
     }
   ],
@@ -366,13 +475,13 @@
     {
       "id": "6rwu7cpo",
       "title": "Re-setup the Issac Sim/Lab env",
-      "status": "TODO",
+      "status": "DONE",
       "due": null,
       "noteId": "dddvyov0",
       "projectId": null,
       "priority": "medium",
       "createdAt": "2025-08-19T06:21:48.203Z",
-      "completedAt": null
+      "completedAt": "2025-08-20T01:36:48.981Z"
     },
     {
       "id": "s8lp8mrw",
@@ -410,13 +519,13 @@
     {
       "id": "x71zad37",
       "title": "Teleoperation Literature Review",
-      "status": "TODO",
+      "status": "DONE",
       "due": null,
       "noteId": "dddvyov0",
       "projectId": null,
       "priority": "medium",
       "createdAt": "2025-08-19T06:21:48.203Z",
-      "completedAt": null
+      "completedAt": "2025-08-19T21:28:17.442Z"
     },
     {
       "id": "tblf1kqz",
@@ -449,23 +558,12 @@
       "projectId": null,
       "priority": "medium",
       "createdAt": "2025-08-18T01:11:18.417Z",
-      "completedAt": "2025-08-18T03:31:00.861Z"
-    },
-    {
-      "id": "r82qjwrp",
-      "title": "Get the accurate one-to-one match USD/URDF model of the setup",
-      "status": "TODO",
-      "due": null,
-      "noteId": null,
-      "projectId": "x58sfrwh",
-      "priority": "medium",
-      "createdAt": "2025-08-18T15:49:45.437Z",
-      "completedAt": null
+      "completedAt": "2025-08-20T01:39:41.340Z"
     },
     {
       "id": "coz35syb",
       "title": "Test the visuals from UR10E on UR5E to improve realism",
-      "status": "TODO",
+      "status": "BACKLOG",
       "due": null,
       "noteId": null,
       "projectId": "x58sfrwh",
@@ -474,14 +572,184 @@
       "completedAt": null
     },
     {
-      "id": "d05accpq",
-      "title": "https://cmt3.research.microsoft.com/ITI2025/User/AcceptInvitation?uniqueId=acf73539-71e8-4a39-8bf9-c0d1c049e6b8",
+      "id": "jk451t6h",
+      "title": "https://m.youtube.com/watch?v=32uzEGpvSog",
       "status": "TODO",
       "due": null,
-      "noteId": "dddvyov0",
+      "noteId": "1itn31si",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-19T06:22:21.397Z",
+      "createdAt": "2025-08-22T13:32:29.649Z",
+      "completedAt": null
+    },
+    {
+      "id": "ab9cibgb",
+      "title": "https://ai.meta.com/dinov3/",
+      "status": "TODO",
+      "due": null,
+      "noteId": "1itn31si",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-22T13:32:29.649Z",
+      "completedAt": null
+    },
+    {
+      "id": "wik2kohf",
+      "title": "Learn how to design and create flexible or deformable assets for simulation.",
+      "status": "BACKLOG",
+      "due": null,
+      "noteId": null,
+      "projectId": "x58sfrwh",
+      "priority": "medium",
+      "createdAt": "2025-08-20T20:26:33.074Z",
+      "completedAt": null
+    },
+    {
+      "id": "zpq74ow8",
+      "title": "Complete Isaac Sim Documentaion",
+      "status": "TODO",
+      "due": null,
+      "noteId": "1itn31si",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-22T13:32:29.649Z",
+      "completedAt": null
+    },
+    {
+      "id": "dfi95qh3",
+      "title": "Complete Teleoperation Survey",
+      "status": "DONE",
+      "due": null,
+      "noteId": "rhsvuali",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-21T15:56:02.845Z",
+      "completedAt": "2025-08-22T02:49:41.960Z"
+    },
+    {
+      "id": "3l5qcby0",
+      "title": "Master Robot Assembly process and Document the learning",
+      "status": "TODO",
+      "due": null,
+      "noteId": "1itn31si",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-22T13:32:29.649Z",
+      "completedAt": null
+    },
+    {
+      "id": "m4t60tmt",
+      "title": "Quick Test one RL policy training pipeline using the assembled UR5E + Robotiq Gripper",
+      "status": "TODO",
+      "due": null,
+      "noteId": null,
+      "projectId": "c7szb5bi",
+      "priority": "medium",
+      "createdAt": "2025-08-20T20:33:58.595Z",
+      "completedAt": null
+    },
+    {
+      "id": "9w2vvens",
+      "title": "Control the gripper thorugh Python code",
+      "status": "DONE",
+      "due": null,
+      "noteId": "rhsvuali",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-21T15:56:02.845Z",
+      "completedAt": "2025-08-22T02:49:47.192Z"
+    },
+    {
+      "id": "nj4fsr56",
+      "title": "https://www.linkedin.com/posts/rohinik_hiring-remote-activity-7363790536115179525-2pVJ?utm_source=share&utm_medium=member_android&rcm=ACoAABmYRCwB4VRjjDiSREanVW4-OL2NFsUjdi0",
+      "status": "TODO",
+      "due": null,
+      "noteId": "1itn31si",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-22T13:32:29.649Z",
+      "completedAt": null
+    },
+    {
+      "id": "607tsrll",
+      "title": "Test ROS2 working in Isaaclab",
+      "status": "TODO",
+      "due": null,
+      "noteId": null,
+      "projectId": "c7szb5bi",
+      "priority": "medium",
+      "createdAt": "2025-08-21T15:57:49.242Z",
+      "completedAt": null
+    },
+    {
+      "id": "uwtaz1rx",
+      "title": "Test1",
+      "status": "TODO",
+      "due": null,
+      "noteId": "1itn31si",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-22T13:32:29.649Z",
+      "completedAt": null,
+      "deletedAt": "2025-08-22T01:06:56.684Z"
+    },
+    {
+      "id": "ylyckeso",
+      "title": "Test1",
+      "status": "TODO",
+      "due": "2025-08-23",
+      "noteId": "1itn31si",
+      "projectId": null,
+      "priority": "high",
+      "createdAt": "2025-08-22T13:32:29.649Z",
+      "completedAt": null,
+      "deletedAt": "2025-08-22T01:08:47.077Z"
+    },
+    {
+      "id": "be4wi3cd",
+      "title": "test4",
+      "status": "TODO",
+      "due": null,
+      "noteId": "1itn31si",
+      "projectId": null,
+      "priority": "low",
+      "createdAt": "2025-08-22T13:32:29.649Z",
+      "completedAt": null,
+      "deletedAt": "2025-08-22T01:08:42.483Z"
+    },
+    {
+      "id": "yiznuxwv",
+      "title": "testtest",
+      "status": "TODO",
+      "due": "2025-08-23",
+      "noteId": "1itn31si",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-22T13:32:29.649Z",
+      "completedAt": null,
+      "deletedAt": "2025-08-22T01:08:44.628Z"
+    },
+    {
+      "id": "l96onb2e",
+      "title": "est4",
+      "status": "TODO",
+      "due": null,
+      "noteId": "1itn31si",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-22T13:32:29.649Z",
+      "completedAt": null,
+      "deletedAt": "2025-08-22T01:08:53.508Z"
+    },
+    {
+      "id": "odtb3d35",
+      "title": "Tedx",
+      "status": "TODO",
+      "due": null,
+      "noteId": "1itn31si",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-22T13:32:29.650Z",
       "completedAt": null
     }
   ],
@@ -633,6 +901,52 @@
       "status": "NEW",
       "createdAt": "2025-08-18T15:19:41.040Z",
       "updatedAt": "2025-08-18T15:19:41.040Z"
+    },
+    {
+      "id": "08x4aado",
+      "title": "Multiverse - Decentralised Simulation Framework",
+      "url": "https://github.com/Multiverse-Framework/Multiverse",
+      "tags": [
+        "simulation",
+        "digitaltwin",
+        "robotics"
+      ],
+      "pinned": false,
+      "status": "NEW",
+      "createdAt": "2025-08-20T19:51:10.181Z",
+      "updatedAt": "2025-08-20T19:51:10.181Z"
+    }
+  ],
+  "monthly": [
+    {
+      "id": "vu1anz40",
+      "title": "Tedx",
+      "days": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "month": "2025-08",
+      "createdAt": "2025-08-22T01:14:49.338Z"
+    },
+    {
+      "id": "zhjf8cae",
+      "title": "Thinkschool",
+      "days": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "month": "2025-08",
+      "createdAt": "2025-08-22T17:30:01.128Z"
     }
   ]
 }
