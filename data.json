@@ -5,7 +5,7 @@
     "seenTip": true,
     "autoCarryTasks": false,
     "dailyTemplate": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
-    "scratchpad": "1) Journal the methods and the results obtained while trying out for Test the visuals from UR10E on UR5E to improve realism\n2) Look at the automated service startup script\n\nhttps://m.youtube.com/watch?v=32uzEGpvSog\nBacklog\n✕\n\nhttps://ai.meta.com/dinov3/\nBacklog\n✕\n\nComplete Isaac Sim Documentaion\nBacklog\n✕\n\nMaster Robot Assembly process and Document the learning\nBacklog\n✕\n\nhttps://www.linkedin.com/posts/rohinik_hiring-remote-activity-7363790536115179525-2pVJ?utm_source=share&utm_medium=member_android&rcm=ACoAABmYRCwB4VRjjDiSREanVW4-OL2NFsUjdi0\nBacklog\n✕\n\nTedx",
+    "scratchpad": "1) Journal the methods and the results obtained while trying out for Test the visuals from UR10E on UR5E to improve realism\n2) Look at the automated service startup script\n\n",
     "theme": "dark"
   },
   "projects": [
@@ -212,14 +212,14 @@
     {
       "id": "rhsvuali",
       "title": "2025-08-21 — Daily",
-      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\nMaster Robot Assembly process and Document the learning\n - Split the urdf into arm and gripper\n - Test the robot assembler - Documentation method\n - Test the fixed joint way - Lychee Ai method\nComplete Teleoperation Survey\n - Create 1 slide \n - Use the CG reference. Combine it with the NLM \nControl the gripper thorugh Python code\n - Test with Megumi code\n - Test in the script editor\nComplete Isaac Sim Documentaion\n - Test the arm handle functions with ur \n\n## Journal\n\n## Wins\n",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\nMaster the Robot Assembly process and document the learning\n - Split the URDF into arm and gripper\n - Test the robot assembler - Documentation method\n - Test the fixed joint way - Lychee Ai method\nComplete Teleoperation Survey\n - Create 1 slide \n - Use the CG reference. Combine it with the NLM \nControl the gripper through Python code\n - Test with Megumi's code\n - Test in the script editor\nComplete Isaac Sim Documentation\n - Test the arm handle functions with ur \n\n## Journal\n\n## Wins\n",
       "tags": [],
       "projectId": null,
       "dateIndex": "2025-08-21",
       "type": "daily",
       "pinned": false,
       "createdAt": "2025-08-21T15:56:02.810Z",
-      "updatedAt": "2025-08-21T17:27:23.110Z",
+      "updatedAt": "2025-08-23T17:22:13.864Z",
       "attachments": []
     },
     {
@@ -275,7 +275,7 @@
       "attachments": []
     },
     {
-      "id": "qvwwk8ih",
+      "id": "206cdawu",
       "title": "2025-08-23 — Daily",
       "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
       "tags": [],
@@ -283,8 +283,8 @@
       "dateIndex": "2025-08-23",
       "type": "daily",
       "pinned": false,
-      "createdAt": "2025-08-23T05:00:08.695Z",
-      "updatedAt": "2025-08-23T05:00:08.695Z",
+      "createdAt": "2025-08-23T05:32:56.746Z",
+      "updatedAt": "2025-08-23T05:32:56.746Z",
       "attachments": []
     }
   ],
@@ -653,25 +653,91 @@
       "completedAt": "2025-08-23T03:06:33.366Z"
     },
     {
-      "id": "tcchz660",
+      "id": "w0mj5ddk",
       "title": "Tedx",
       "status": "TODO",
       "due": null,
-      "noteId": "qvwwk8ih",
+      "noteId": "206cdawu",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-23T05:00:08.695Z",
+      "createdAt": "2025-08-23T05:32:56.746Z",
       "completedAt": null
     },
     {
-      "id": "39yfwxyk",
+      "id": "ayfj9yqf",
       "title": "Thinkschool",
       "status": "TODO",
       "due": null,
-      "noteId": "qvwwk8ih",
+      "noteId": "206cdawu",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-23T05:00:08.695Z",
+      "createdAt": "2025-08-23T05:32:56.746Z",
+      "completedAt": null
+    },
+    {
+      "id": "bddri456",
+      "title": "https://www.linkedin.com/posts/chriskielthy_hiring-robotics-gtm-activity-7361411215106949121-3PNG?utm_source=share&utm_medium=member_android&rcm=ACoAABmYRCwB4VRjjDiSREanVW4-OL2NFsUjdi0",
+      "status": "TODO",
+      "due": null,
+      "noteId": "206cdawu",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-23T06:54:20.696Z",
+      "completedAt": null
+    },
+    {
+      "id": "z4g98uju",
+      "title": "https://m.youtube.com/watch?v=32uzEGpvSog",
+      "status": "TODO",
+      "due": null,
+      "noteId": "206cdawu",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-23T06:54:40.386Z",
+      "completedAt": null
+    },
+    {
+      "id": "aoyah3lt",
+      "title": "https://ai.meta.com/dinov3/",
+      "status": "TODO",
+      "due": null,
+      "noteId": "206cdawu",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-23T06:55:16.675Z",
+      "completedAt": null
+    },
+    {
+      "id": "1vggcj6c",
+      "title": "Complete Isaac Sim Documentaion",
+      "status": "TODO",
+      "due": null,
+      "noteId": "206cdawu",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-23T06:55:55.545Z",
+      "completedAt": null
+    },
+    {
+      "id": "1o18gqc0",
+      "title": "Master Robot Assembly process and Document the learning",
+      "status": "TODO",
+      "due": null,
+      "noteId": "206cdawu",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-23T06:58:23.339Z",
+      "completedAt": null
+    },
+    {
+      "id": "35hr3mka",
+      "title": "https://www.linkedin.com/posts/rohinik_hiring-remote-activity-7363790536115179525-2pVJ?utm_source=share&utm_medium=member_android&rcm=ACoAABmYRCwB4VRjjDiSREanVW4-OL2NFsUjdi",
+      "status": "TODO",
+      "due": null,
+      "noteId": "206cdawu",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-23T06:59:16.198Z",
       "completedAt": null
     }
   ],
@@ -880,6 +946,36 @@
       ],
       "month": "2025-08",
       "createdAt": "2025-08-23T01:15:26.176Z"
+    },
+    {
+      "id": "7cw6c1s7",
+      "title": "Mentalism",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        0
+      ],
+      "month": "2025-08",
+      "createdAt": "2025-08-23T17:59:12.743Z"
+    },
+    {
+      "id": "52pv8ocg",
+      "title": "SC/HC",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        0
+      ],
+      "month": "2025-08",
+      "createdAt": "2025-08-23T17:59:42.626Z"
     }
   ]
 }

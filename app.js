@@ -1833,10 +1833,16 @@ function openNote(id){
         <label class="btn" for="noteAttachFile" style="font-size:12px;">Attach</label>
         <input id="noteAttachFile" type="file" class="hidden" multiple />
       </div>
-      <div style="margin-top:8px;"><textarea id="contentBox" style="min-height:300px;">${htmlesc(n.content||'')}</textarea></div>
+      <div class="row" style="margin-top:8px; gap:8px; align-items:center;">
+        <button id="editModeBtn" class="btn acc" style="font-size:12px;">✏️ Edit</button>
+        <button id="previewModeBtn" class="btn" style="font-size:12px;">👁️ Preview</button>
+        <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+P to toggle</span>
+      </div>
+      <div style="margin-top:8px;">
+        <textarea id="contentBox" style="min-height:300px;">${htmlesc(n.content||'')}</textarea>
+        <div id="markdownPreview" class="markdown-preview" style="min-height:300px; display:none;"></div>
+      </div>
       <div id="attachments" class="list" style="margin-top:8px;"></div>
-      <!-- Markdown preview area will show formatted content below the editor -->
-      <div id="markdownPreview" class="markdown-preview" style="margin-top:12px;"></div>
       <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;">
         <button id="save" class="btn acc">Save</button>
         <button id="back" class="btn">Back</button>
@@ -1951,19 +1957,61 @@ function openNote(id){
     };
   }
 
-  // Initialize and sync the Markdown preview. The preview updates whenever the
-  // user modifies the note content. Rendering is deferred to avoid
-  // unnecessary re-renders on unrelated UI changes.
+  // Initialize markdown preview toggle functionality
+  // This provides a clean edit/preview mode toggle instead of showing both simultaneously
   const previewEl = document.getElementById('markdownPreview');
   const contentBoxEl = document.getElementById('contentBox');
-  if(previewEl && contentBoxEl){
-    const updatePreview = () => {
-      previewEl.innerHTML = markdownToHtml(contentBoxEl.value);
-    };
-    // Set initial preview
-    updatePreview();
-    ['input','change'].forEach(evt => contentBoxEl.addEventListener(evt, updatePreview));
+  const editModeBtn = document.getElementById('editModeBtn');
+  const previewModeBtn = document.getElementById('previewModeBtn');
+  
+  let isPreviewMode = false;
+  
+  const switchToEditMode = () => {
+    isPreviewMode = false;
+    contentBoxEl.style.display = 'block';
+    previewEl.style.display = 'none';
+    editModeBtn.classList.add('acc');
+    previewModeBtn.classList.remove('acc');
+  };
+  
+  const switchToPreviewMode = () => {
+    isPreviewMode = true;
+    // Update preview content before showing
+    previewEl.innerHTML = markdownToHtml(contentBoxEl.value);
+    contentBoxEl.style.display = 'none';
+    previewEl.style.display = 'block';
+    editModeBtn.classList.remove('acc');
+    previewModeBtn.classList.add('acc');
+  };
+  
+  // Button event listeners
+  if(editModeBtn) editModeBtn.onclick = switchToEditMode;
+  if(previewModeBtn) previewModeBtn.onclick = switchToPreviewMode;
+  
+  // Keyboard shortcut: Ctrl+Shift+P to toggle (only when editing this note)
+  const toggleKeyHandler = (e) => {
+    if(e.ctrlKey && e.shiftKey && e.key === 'P') {
+      e.preventDefault();
+      if(isPreviewMode) {
+        switchToEditMode();
+      } else {
+        switchToPreviewMode();
+      }
+    }
+  };
+  
+  // Add keyboard shortcut specifically for this note editor
+  if(contentBoxEl) {
+    contentBoxEl.addEventListener('keydown', toggleKeyHandler);
   }
+  // Also add to title field for convenience
+  const titleEl = document.getElementById('title');
+  if(titleEl) {
+    titleEl.addEventListener('keydown', toggleKeyHandler);
+  }
+  
+  // Start in edit mode
+  switchToEditMode();
 }
 
 // --- Global app logic ---
