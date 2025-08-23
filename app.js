@@ -49,6 +49,24 @@ function createDailyNoteFor(dateKey, contentOverride){
       if(projectPool.length) save();
     }
   }
+  // Insert recurring monthly tasks for the given date (runs for any date)
+  if(db.monthly && Array.isArray(db.monthly)){
+    try {
+      const dObj = new Date(dateKey + 'T00:00:00');
+      const weekday = dObj.getDay();
+      const monthKey = dateKey.slice(0,7);
+      db.monthly.forEach(mt => {
+        if(mt.month && mt.month !== monthKey) return;
+        if(!Array.isArray(mt.days) || !mt.days.includes(weekday)) return;
+        const exists = db.tasks.some(t => t.noteId === daily.id && !t.deletedAt && t.title === mt.title);
+        if(!exists){
+          createTask({ title: mt.title, noteId: daily.id, priority: 'medium' });
+        }
+      });
+    } catch(err) {
+      console.warn('Monthly task injection error', err);
+    }
+  }
   return daily;
 }
 // NEW: unified handler to open or create the selected daily note (deferred creation)
@@ -100,6 +118,9 @@ const seed = {
   links:[
     {id:"l1", title:"UltraNote Example", url:"https://example.com", tags:["ref"], pinned:true, status:"NEW", createdAt:nowISO(), updatedAt:nowISO()}
   ]
+  ,
+  // NEW: recurring monthly tasks for planning (empty by default)
+  monthly: []
 };
 const defaults = seed;
 
@@ -150,6 +171,13 @@ function applyTheme(){
 
 // --- Restored runtime glue (was missing) ---
 let db; // global in‑memory state
+// Persist scratchpad draft text outside of render cycles. Without this,
+// the scratchpad would reset whenever render() is called (e.g. when
+// updating tasks), because the scratch textarea is recreated each time
+// and its value is set from db.settings.scratchpad. We keep the most
+// recent typed value here to restore it after each render. This helps
+// avoid the "scratchpad refresh" problem described by users.
+let scratchDraft = '';
 // Globals to track which note is open and whether the user has unsaved edits.
 // These help the background sync avoid interrupting a user who is actively editing.
 // When a note is opened, `_openNoteId` is set to that note's id and `_editorDirty` is reset to false.
@@ -174,7 +202,10 @@ async function initApp(){
     await persistDB();
   }
   // Defensive: ensure collections exist (added links)
-  ['notes','tasks','projects','templates','settings','links'].forEach(k=>{ if(!db[k]) db[k] = Array.isArray(seed[k])?[]:{}; });
+  // Ensure all collections exist on db. Include new 'monthly' plan storage.
+  ['notes','tasks','projects','templates','settings','links','monthly'].forEach(k=>{
+    if(!db[k]) db[k] = Array.isArray(seed[k]) ? [] : {};
+  });
   // Ensure theme setting exists (default to dark)
   if(!db.settings.theme){ db.settings.theme = 'dark'; }
   // Draw initial UI
@@ -197,6 +228,13 @@ function createTask({title, due=null, noteId=null, projectId=null, priority="med
 function setTaskStatus(id, status){ const t=db.tasks.find(x=>x.id===id); if(!t) return; t.status=status; t.completedAt = status==="DONE"? nowISO(): null; save(); }
 // New helper to move a task to backlog
 function moveToBacklog(id){ const t=db.tasks.find(x=>x.id===id); if(!t) return; t.status='BACKLOG'; save(); }
+// Soft-delete a task by marking it archived. Tasks are not removed from DB to allow history viewing.
+function deleteTask(id){
+  const t = db.tasks.find(x => x.id === id);
+  if(!t) return;
+  t.deletedAt = nowISO();
+  save();
+}
 function createProject(name){ const p={id:uid(), name, createdAt:nowISO()}; db.projects.push(p); save(); return p; }
 function createTemplate(name, content){ const t={id:uid(), name, content, createdAt:nowISO()}; db.templates.push(t); save(); return t; }
 function addTag(text){ const tags = extractTags(text); if(tags.length) { const uniqueTags = [...new Set([...getAllTags(), ...tags])]; } return tags; }
@@ -224,6 +262,8 @@ const sections = [
   {id:"ideas", label:"💡 Ideas"},
   {id:"links", label:"🔗 Links"}, // NEW
   {id:"vault", label:"🔍 Vault"},
+  // NEW: monthly planning view
+  {id:"monthly", label:"🗓️ Monthly"},
   {id:"review", label:"📊 Review"},
 ];
 let route = "today";
@@ -235,6 +275,49 @@ function renderNav(){
 }
 
 function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
+
+// Very simple Markdown → HTML converter. This aims to handle basic
+// formatting used in UltraNote templates without external dependencies.
+// It performs the following transformations on plain text:
+//  - Escapes HTML entities to prevent injection.
+//  - Converts heading markers (# through ######) at the start of lines to
+//    corresponding <h1>…<h6> tags.
+//  - Converts unordered list items starting with "- " or "* " into <ul>/<li> lists.
+//  - Converts **bold** and *italic* markup to <strong> and <em>.
+//  - Converts inline code surrounded by backticks to <code>.
+//  - Replaces double newlines with paragraph breaks and single newlines with <br>.
+function markdownToHtml(md){
+  if(!md) return '';
+  // Escape HTML first
+  let html = htmlesc(md);
+  // Code fences ```content``` → <pre><code>content</code></pre>
+  html = html.replace(/```([\s\S]*?)```/g, (m, code) => {
+    return '<pre><code>' + code.trim().replace(/\n/g,'<br>') + '</code></pre>';
+  });
+  // Headings: process from largest to smallest to avoid conflicts
+  html = html.replace(/^######\s+(.*)$/gm, '<h6>$1</h6>');
+  html = html.replace(/^#####\s+(.*)$/gm, '<h5>$1</h5>');
+  html = html.replace(/^####\s+(.*)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
+  // Unordered lists: group consecutive list items into a single <ul>
+  html = html.replace(/(^|\n)([-\*])\s+(.*(?:\n(?:[-\*])\s+.*)*)/g, (match, lead, bullet, items) => {
+    const lines = match.trim().split(/\n/).map(l => l.replace(/^[-\*]\s+/, ''));
+    return '<ul>' + lines.map(item => '<li>' + item + '</li>').join('') + '</ul>';
+  });
+  // Bold **text**
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Italic *text* or _text_
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+  // Inline code `code`
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Paragraphs: replace two or more newlines with <br><br>, single newline with <br>
+  html = html.replace(/\n{2,}/g, '<br><br>');
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
 
 // ------------------------------------------------------------------
 // Custom modal helpers
@@ -419,7 +502,8 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
 function renderToday(){
   const key = selectedDailyDate || todayKey();
   const daily = db.notes.find(n=>n.type==='daily' && n.dateIndex===key) || null;
-  const projectTasks = db.tasks.filter(t=> t.projectId && !t.noteId && t.status!=='BACKLOG').sort((a,b)=> { const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); });
+  // Exclude archived tasks (deletedAt) when gathering project tasks pool
+  const projectTasks = db.tasks.filter(t=> t.projectId && !t.noteId && t.status!=='BACKLOG' && !t.deletedAt).sort((a,b)=> { const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); });
   if(!daily){
     const tpl = db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n";
     content.innerHTML = `
@@ -559,7 +643,7 @@ function renderToday(){
   $("#toggleBacklog").onclick = ()=>{ const bl = $("#backlogList"); bl.style.display = bl.style.display==='none'? 'block':'none'; drawBacklog(); };
   function drawTasks(){
     const list = $("#taskList"); if(!list) return;
-    const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG')
+    const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG' && !t.deletedAt)
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
     list.innerHTML = tasks.map(t=> { const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
@@ -572,16 +656,16 @@ function renderToday(){
       </div>
     </div>`; }).join('');
     list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawTasks(); drawBacklog(); });
-    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(); drawTasks(); drawProjectTasks(); drawBacklog(); });
+    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); drawProjectTasks(); drawBacklog(); });
     list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
   }
-  function drawBacklog(){ const list = $("#backlogList"); if(!list || list.style.display==='none') return; const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status==='BACKLOG'); list.innerHTML = tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;'>
+  function drawBacklog(){ const list = $("#backlogList"); if(!list || list.style.display==='none') return; const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status==='BACKLOG' && !t.deletedAt); list.innerHTML = tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;'>
       <span class='muted' style='font-size:12px;'>${htmlesc(t.title)}</span>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-r='${t.id}' style='font-size:11px;'>Restore</button>
         <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
       </div>
-    </div>`).join('') : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`; list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=>{ setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(); drawBacklog(); }); }
+    </div>`).join('') : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`; list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=>{ setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawBacklog(); }); }
   function drawProjectTasks(){ const list = $("#projectTaskList"); if(!list) return; const tasks = projectTasks.slice(0,10); list.innerHTML = tasks.map(t=> { const proj=db.projects.find(p=>p.id===t.projectId); const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
         <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
@@ -591,7 +675,7 @@ function renderToday(){
         ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
         <button class='btn' data-del='${t.id}'>✕</button>
       </div>
-    </div>`; }).join(''); list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawProjectTasks(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(); drawProjectTasks(); }); list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawProjectTasks(); });
+    </div>`; }).join(''); list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawProjectTasks(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawProjectTasks(); }); list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawProjectTasks(); });
   }
   drawTasks(); drawBacklog();
 }
@@ -650,14 +734,14 @@ function renderProjects(){
           <span class="muted" id="projProgressInline"></span>
         </div>
         <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap;">
-          <input id="taskTitle" type="text" placeholder="New project task"/>
-          <select id="taskPriority" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
+        <input id="projTaskTitle" type="text" placeholder="New project task"/>
+          <select id="projTaskPriority" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
             <option value="low">Low</option>
             <option value="medium" selected>Medium</option>
             <option value="high">High</option>
           </select>
           <input id="projTaskDueDate" type="date" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;"/>
-          <button id="addTask" class="btn">Add Task</button>
+          <button id="projAddTask" class="btn">Add Task</button>
         </div>
         <div id="taskList" class="list" style="margin-top:8px;"></div>
         <div id="projBacklogList" class="list" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"></div>
@@ -673,8 +757,9 @@ function renderProjects(){
         <div id="notes" class="list" style="margin-top:8px;"></div>
       </div>
     </div>`;
-  function getProjectTasks(){ return db.tasks.filter(t=>t.projectId===currentProjectId && t.status!=='BACKLOG'); }
-  function getProjectBacklog(){ return db.tasks.filter(t=>t.projectId===currentProjectId && t.status==='BACKLOG'); }
+  // Exclude deleted tasks when retrieving project tasks/backlog
+  function getProjectTasks(){ return db.tasks.filter(t=> t.projectId===currentProjectId && t.status!=='BACKLOG' && !t.deletedAt); }
+  function getProjectBacklog(){ return db.tasks.filter(t=> t.projectId===currentProjectId && t.status==='BACKLOG' && !t.deletedAt); }
   function getProjectNotes(){ return db.notes.filter(n=> n.projectId===currentProjectId && (!n.type || n.type==='note')); }
   function drawNotes(){
     const notes = getProjectNotes().sort((a,b)=> sortBy==="title"? a.title.localeCompare(b.title) : b.updatedAt.localeCompare(a.updatedAt));
@@ -727,19 +812,19 @@ function renderProjects(){
       nt.addEventListener('keydown', e=>{ if(e.key === 'Enter') document.getElementById('addNote').click(); });
     }
   }
-  document.getElementById("addTask").onclick = ()=>{
-    const titleEl = document.getElementById("taskTitle");
+  document.getElementById("projAddTask").onclick = ()=>{
+    const titleEl = document.getElementById("projTaskTitle");
     const title = titleEl ? titleEl.value.trim() : '';
     if(!title) return;
     const dueEl = document.getElementById("projTaskDueDate");
     const dueVal = dueEl && dueEl.value ? dueEl.value : null;
-    createTask({title, projectId:currentProjectId, priority:document.getElementById("taskPriority").value, due: dueVal});
+    createTask({title, projectId:currentProjectId, priority:document.getElementById("projTaskPriority").value, due: dueVal});
     if(titleEl) titleEl.value="";
     if(dueEl) dueEl.value="";
     drawTasks();
     refreshStats();
   };
-  document.getElementById("taskTitle").onkeydown = e=>{ if(e.key==="Enter") document.getElementById("addTask").click(); };
+  document.getElementById("projTaskTitle").onkeydown = e=>{ if(e.key==="Enter") document.getElementById("projAddTask").click(); };
   document.getElementById("sortTitle").onclick = ()=>{ sortBy="title"; drawNotes(); };
   document.getElementById("sortDate").onclick = ()=>{ sortBy="date"; drawNotes(); };
   function drawTasks(){ const tasks = getProjectTasks().sort((a,b)=>{ if(a.status !== b.status) return a.status==="DONE"?1:-1; const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); }); const list = document.getElementById("taskList"); list.innerHTML = tasks.map(t=>{ const colors={high:"#ff6b6b",medium:"#4ea1ff",low:"#64748b"}; return `<div class="row" style="justify-content:space-between;">
@@ -751,14 +836,14 @@ function renderProjects(){
           ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
           <button class='btn' data-del='${t.id}'>✕</button>
         </div>
-      </div>`; }).join(""); list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked?"DONE":"TODO"); drawTasks(); refreshStats(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(db); drawTasks(); refreshStats(); drawBacklog(); }); list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); refreshStats(); }); }
+      </div>`; }).join(""); list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked?"DONE":"TODO"); drawTasks(); refreshStats(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); refreshStats(); drawBacklog(); }); list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); refreshStats(); }); }
   function drawBacklog(){ const list = document.getElementById('projBacklogList'); const tasks = getProjectBacklog(); list.innerHTML = `<div class='muted' style='font-size:12px;margin-bottom:4px;'>Backlog (${tasks.length})</div>` + (tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;'>
       <span class='muted' style='font-size:12px;'>${htmlesc(t.title)}</span>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-r='${t.id}' style='font-size:11px;'>Restore</button>
         <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
       </div>
-    </div>`).join("") : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`); list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=> { setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> { db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(db); drawBacklog(); refreshStats(); });
+    </div>`).join("") : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`); list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=> { setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> { deleteTask(b.dataset.del); drawBacklog(); refreshStats(); });
   }
   drawTasks();
   drawNotes();
@@ -811,16 +896,21 @@ function renderIdeas(){
 }
 
 function renderReview(){
-  const done = db.tasks.filter(t=> t.status==='DONE');
-  const activeTasks = db.tasks.filter(t=> t.status!=='BACKLOG');
+  // Exclude deleted tasks from analytics
+  const done = db.tasks.filter(t=> t.status==='DONE' && !t.deletedAt);
+  const activeTasks = db.tasks.filter(t=> t.status!=='BACKLOG' && !t.deletedAt);
   const total = activeTasks.length; // fix 0/1 bug
   const pct = total? Math.round(done.length/total*100) : 0;
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
-  const weekTasks = db.tasks.filter(t=> t.completedAt && new Date(t.completedAt) > weekAgo);
+  const weekTasks = db.tasks.filter(t=> t.completedAt && new Date(t.completedAt) > weekAgo && !t.deletedAt);
   const weekNotes = db.notes.filter(n=> new Date(n.createdAt) > weekAgo);
-  const projectStats = db.projects.map(p=>{ const tasks = db.tasks.filter(t=>t.projectId===p.id); const completed = tasks.filter(t=>t.status==="DONE").length; return {project: p, total: tasks.length, completed, progress: tasks.length ? Math.round(completed/tasks.length*100) : 0}; }).filter(s=>s.total>0);
-  const pendingAll = db.tasks.filter(t=> t.status==='TODO' && t.status!=='BACKLOG');
-  const backlogAll = db.tasks.filter(t=> t.status==='BACKLOG');
+  const projectStats = db.projects.map(p=>{
+    const tasks = db.tasks.filter(t=> t.projectId === p.id && !t.deletedAt);
+    const completed = tasks.filter(t=> t.status === 'DONE').length;
+    return { project: p, total: tasks.length, completed, progress: tasks.length ? Math.round(completed/tasks.length*100) : 0 };
+  }).filter(s=> s.total > 0);
+  const pendingAll = db.tasks.filter(t=> t.status==='TODO' && t.status!=='BACKLOG' && !t.deletedAt);
+  const backlogAll = db.tasks.filter(t=> t.status==='BACKLOG' && !t.deletedAt);
   const pPriority = {high:3,medium:2,low:1};
   pendingAll.sort((a,b)=> (pPriority[b.priority]||2)-(pPriority[a.priority]||2));
   backlogAll.sort((a,b)=> (pPriority[b.priority]||2)-(pPriority[a.priority]||2));
@@ -828,8 +918,22 @@ function renderReview(){
   // Upcoming tasks: tasks with a due date within next 7 days and still pending (TODO)
   const today = new Date();
   const in7 = new Date(); in7.setDate(today.getDate()+7);
-  const upcoming = db.tasks.filter(t => t.status==='TODO' && t.due && new Date(t.due) >= today && new Date(t.due) <= in7);
+  const upcoming = db.tasks.filter(t => t.status==='TODO' && t.due && !t.deletedAt && new Date(t.due) >= today && new Date(t.due) <= in7);
   upcoming.sort((a,b)=> new Date(a.due) - new Date(b.due));
+
+  // Precompute HTML for completed tasks history. Sort by completion date (latest first).
+  const completedHtml = done.length ? done.slice().sort((a,b)=>{
+    // Use completedAt first, fallback to updatedAt or createdAt
+    const aDate = a.completedAt || a.updatedAt || a.createdAt;
+    const bDate = b.completedAt || b.updatedAt || b.createdAt;
+    return (new Date(bDate)) - (new Date(aDate));
+  }).map(t=>{
+    const proj = t.projectId ? db.projects.find(p=> p.id === t.projectId) : null;
+    const note = t.noteId ? db.notes.find(n=> n.id === t.noteId) : null;
+    const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type === 'daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
+    const dateStr = t.completedAt ? new Date(t.completedAt).toLocaleDateString() : '';
+    return `<div class='row' style='justify-content:space-between;'><span style='flex:1;'>${htmlesc(t.title)} ${ctx} <span class='pill'>${dateStr}</span></span></div>`;
+  }).join('') : '<div class="muted">No completed tasks</div>';
   content.innerHTML = `
     <div class="grid-2">
       <div class="card">
@@ -888,6 +992,16 @@ function renderReview(){
         </div>`; }).join('') || '<div class="muted">No backlog tasks</div>'}
       </div>
     </div>
+    <!-- Completed tasks history -->
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center;">
+        <strong>✅ Completed Tasks (${done.length})</strong>
+        <button id="clearCompleted" class="btn" style="font-size:12px;">Clear History</button>
+      </div>
+      <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
+        ${completedHtml}
+      </div>
+    </div>
     <div class="card">
       <strong>📅 Recent Daily Logs</strong>
       <div class="list" style="margin-top:8px;">${db.notes.filter(n=>n.type==='daily').slice(-7).reverse().map(n=> `<div class='row' style='justify-content:space-between;'><span>${htmlesc(n.title)}</span><button class='btn' data-open='${n.id}'>Open</button></div>`).join('')}</div>
@@ -906,6 +1020,108 @@ function renderReview(){
   content.querySelectorAll('[data-done]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.done,'DONE'); renderReview(); });
   content.querySelectorAll('[data-restore]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.restore,'TODO'); renderReview(); });
   content.querySelectorAll('[data-tag]').forEach(b=> b.onclick=()=>{ route='vault'; document.getElementById('q').value='#'+b.dataset.tag; render(); });
+
+  // Handler for clearing completed tasks history
+  const clearBtn = document.getElementById('clearCompleted');
+  if(clearBtn){
+    clearBtn.onclick = async () => {
+      const ok = await showConfirm('Clear all completed tasks history?', 'Clear', 'Cancel');
+      if(!ok) return;
+      // Soft delete all done tasks that haven't already been deleted
+      db.tasks.filter(t => t.status === 'DONE' && !t.deletedAt).forEach(t => deleteTask(t.id));
+      // Re-render review after clearing
+      renderReview();
+    };
+  }
+}
+
+// --- Monthly planning view ---
+function renderMonthly(){
+  // Ensure the monthly collection exists
+  if(!db.monthly) db.monthly = [];
+  // Determine current month key (YYYY-MM) for grouping
+  const monthKey = (selectedDailyDate || todayKey()).slice(0,7);
+  // Build UI for monthly planning
+  const monthLabel = new Date(monthKey + '-01').toLocaleDateString(undefined, { month:'long', year:'numeric' });
+  content.innerHTML = `
+    <div class="monthly">
+      <div class="card">
+        <strong>Monthly Planning for ${htmlesc(monthLabel)}</strong>
+        <div class="muted" style="margin-top:6px;">Define recurring tasks for this month. They will appear on daily pages automatically.</div>
+        <div style="margin-top:12px; display:flex; flex-direction:column; gap:10px;">
+          <div style="display:flex; flex-direction:column;">
+            <label for="monthlyTaskTitle" class="muted">Task name</label>
+            <input id="monthlyTaskTitle" type="text" placeholder="Task name" />
+          </div>
+          <div class="monthly-select">
+            <label for="monthlyTaskDays" class="muted">Days of week</label>
+            <select id="monthlyTaskDays" multiple size="7">
+              <option value="0">Sun</option>
+              <option value="1">Mon</option>
+              <option value="2">Tue</option>
+              <option value="3">Wed</option>
+              <option value="4">Thu</option>
+              <option value="5">Fri</option>
+              <option value="6">Sat</option>
+            </select>
+          </div>
+          <button id="monthlyAdd" class="btn" style="width:max-content;">Add Task</button>
+        </div>
+      </div>
+      <div class="card">
+        <strong>Scheduled Tasks</strong>
+        <div id="monthlyTasksList" class="list" style="margin-top:8px;"></div>
+      </div>
+    </div>`;
+  // Helper to render existing monthly tasks for this month
+  function drawMonthlyList(){
+    const listEl = document.getElementById('monthlyTasksList');
+    if(!listEl) return;
+    // Filter tasks for current month (or tasks without explicit month)
+    const tasks = (db.monthly || []).filter(t => (!t.month || t.month === monthKey));
+    if(!tasks.length){
+      listEl.innerHTML = `<div class='muted'>No monthly tasks</div>`;
+      return;
+    }
+    listEl.innerHTML = tasks.map(t => {
+      const dayNames = t.days.map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ');
+      return `<div class='row' style='justify-content:space-between;align-items:center;'>
+        <span>${htmlesc(t.title)} <span class='pill'>${htmlesc(dayNames)}</span></span>
+        <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
+      </div>`;
+    }).join('');
+    // Attach delete handlers
+    listEl.querySelectorAll('[data-del]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.del;
+        db.monthly = db.monthly.filter(x => x.id !== id);
+        save();
+        drawMonthlyList();
+      };
+    });
+  }
+  // Add new monthly task handler
+  const addBtn = document.getElementById('monthlyAdd');
+  if(addBtn){
+    addBtn.onclick = () => {
+      const titleEl = document.getElementById('monthlyTaskTitle');
+      const title = titleEl ? titleEl.value.trim() : '';
+      if(!title) return;
+      const sel = document.getElementById('monthlyTaskDays');
+      const days = Array.from(sel.selectedOptions).map(o => parseInt(o.value, 10)).filter(d => !isNaN(d));
+      if(!days.length){
+        alert('Select at least one day of the week');
+        return;
+      }
+      const id = uid();
+      db.monthly.push({ id, title, days, month: monthKey, createdAt: nowISO() });
+      if(titleEl) titleEl.value = '';
+      if(sel) sel.selectedIndex = -1;
+      save();
+      drawMonthlyList();
+    };
+  }
+  drawMonthlyList();
 }
 
 // --- Added: Vault & Links views (previously missing) ---
@@ -1147,6 +1363,8 @@ function openNote(id){
       </div>
       <div style="margin-top:8px;"><textarea id="contentBox" style="min-height:300px;">${htmlesc(n.content||'')}</textarea></div>
       <div id="attachments" class="list" style="margin-top:8px;"></div>
+      <!-- Markdown preview area will show formatted content below the editor -->
+      <div id="markdownPreview" class="markdown-preview" style="margin-top:12px;"></div>
       <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;">
         <button id="save" class="btn acc">Save</button>
         <button id="back" class="btn">Back</button>
@@ -1260,6 +1478,20 @@ function openNote(id){
       e.target.value = '';
     };
   }
+
+  // Initialize and sync the Markdown preview. The preview updates whenever the
+  // user modifies the note content. Rendering is deferred to avoid
+  // unnecessary re-renders on unrelated UI changes.
+  const previewEl = document.getElementById('markdownPreview');
+  const contentBoxEl = document.getElementById('contentBox');
+  if(previewEl && contentBoxEl){
+    const updatePreview = () => {
+      previewEl.innerHTML = markdownToHtml(contentBoxEl.value);
+    };
+    // Set initial preview
+    updatePreview();
+    ['input','change'].forEach(evt => contentBoxEl.addEventListener(evt, updatePreview));
+  }
 }
 
 // --- Global app logic ---
@@ -1276,6 +1508,7 @@ function render(){
   else if(route==='ideas') renderIdeas();
   else if(route==='links') renderLinks(); // NEW
   else if(route==='vault') renderVault();
+  else if(route==='monthly') renderMonthly(); // NEW
   else if(route==='review') renderReview();
   // Update mobile bar active states
   const mb = document.getElementById('mobileBar');
@@ -1312,8 +1545,18 @@ function render(){
   }
   const scratchEl = document.getElementById("scratch");
   if(scratchEl){
-    scratchEl.value = db.settings.scratchpad || "";
-    scratchEl.oninput = ()=>{ db.settings.scratchpad = scratchEl.value; save(db); };
+    // Populate scratchpad with the draft if available, otherwise from settings.
+    // Without using scratchDraft, the scratchpad would reset to the last saved
+    // value on every render, causing characters typed during rapid
+    // interactions to be lost.
+    scratchEl.value = (typeof scratchDraft === 'string' && scratchDraft.length > 0) ? scratchDraft : (db.settings.scratchpad || "");
+    scratchEl.oninput = ()=>{
+      scratchDraft = scratchEl.value;
+      db.settings.scratchpad = scratchEl.value;
+      // Immediately persist scratch changes; do not rely on debounced save
+      // so that refreshes pick up the latest value.
+      persistDB();
+    };
   }
   if(!db.settings.seenTip){ const t = document.getElementById("tip"); t.style.display="block"; document.getElementById("closeTip").onclick = ()=>{ db.settings.seenTip=true; save(db); t.style.display="none"; }; }
 }
@@ -1347,6 +1590,25 @@ if(themeToggleBtn){
     applyTheme();
   };
 }
+
+// Global Tab key handler: insert two spaces instead of moving focus when editing text
+// This improves note-taking experience by allowing quick indentation in notes,
+// tasks and scratchpad fields. Only triggers for textarea and text input elements.
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Tab'){
+    const el = e.target;
+    if(el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type === 'text'))){
+      e.preventDefault();
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const value = el.value;
+      const insertion = '  '; // two spaces
+      el.value = value.slice(0, start) + insertion + value.slice(end);
+      const cursor = start + insertion.length;
+      el.selectionStart = el.selectionEnd = cursor;
+    }
+  }
+});
 
 // Template management
 document.getElementById("manageTemplates").onclick = ()=> {
