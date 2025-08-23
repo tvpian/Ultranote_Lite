@@ -184,6 +184,9 @@ let scratchDraft = '';
 // When the user types in the note's title or content, `_editorDirty` becomes true. When the note is saved, it is reset to false.
 window._openNoteId = null;
 window._editorDirty = false;
+// Track when user is actively typing in forms to prevent background sync interference
+window._isTypingInForm = false;
+let _typingTimer = null;
 function uid(){ return Math.random().toString(36).slice(2,10); }
 // Backwards compatibility: some calls still pass db => ignore param
 function save(){ persistDB(); }
@@ -1041,86 +1044,463 @@ function renderMonthly(){
   if(!db.monthly) db.monthly = [];
   // Determine current month key (YYYY-MM) for grouping
   const monthKey = (selectedDailyDate || todayKey()).slice(0,7);
-  // Build UI for monthly planning
-  const monthLabel = new Date(monthKey + '-01').toLocaleDateString(undefined, { month:'long', year:'numeric' });
+  // Build UI for monthly planning - fix timezone issue by parsing year and month separately
+  const [year, month] = monthKey.split('-');
+  const monthLabel = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleDateString(undefined, { month:'long', year:'numeric' });
+  
+  // Preserve input state if re-rendering
+  const preservedTitle = document.getElementById('monthlyTaskTitle')?.value || '';
+  const preservedDays = Array.from(document.querySelectorAll('.monthly-day-option input:checked') || []).map(cb => cb.value);
+  
+  // Preserve view mode
+  const preservedViewMode = localStorage.getItem('monthlyViewMode') || 'list';
+  
   content.innerHTML = `
-    <div class="monthly">
-      <div class="card">
-        <strong>Monthly Planning for ${htmlesc(monthLabel)}</strong>
-        <div class="muted" style="margin-top:6px;">Define recurring tasks for this month. They will appear on daily pages automatically.</div>
-        <div style="margin-top:12px; display:flex; flex-direction:column; gap:10px;">
-          <div style="display:flex; flex-direction:column;">
-            <label for="monthlyTaskTitle" class="muted">Task name</label>
-            <input id="monthlyTaskTitle" type="text" placeholder="Task name" />
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <strong>🗓️ Monthly Planning — ${htmlesc(monthLabel)}</strong>
+        <div class="muted" style="font-size:12px;">Recurring tasks for daily pages</div>
+      </div>
+      
+      <div style="margin-bottom:16px;">
+        <label for="monthlyTaskTitle" class="muted" style="display:block;margin-bottom:6px;">Task Name</label>
+        <input id="monthlyTaskTitle" type="text" 
+               placeholder="e.g., Review emails, Morning workout" 
+               value="${htmlesc(preservedTitle)}" 
+               style="margin-bottom:12px;" />
+        
+        <div class="row" style="gap:8px;margin-bottom:16px;">
+          <button id="monthlyAdd" class="btn acc">➕ Add Task</button>
+          <button id="monthlyClear" class="btn">Clear</button>
+        </div>
+        
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;">
+          <div>
+            <label for="monthlyTaskDays" class="muted" style="display:block;margin-bottom:6px;">Select Days</label>
+            <div class="monthly-days-grid">
+              <label class="monthly-day-option"><input type="checkbox" value="1" data-day="1"> Monday</label>
+              <label class="monthly-day-option"><input type="checkbox" value="2" data-day="2"> Tuesday</label>
+              <label class="monthly-day-option"><input type="checkbox" value="3" data-day="3"> Wednesday</label>
+              <label class="monthly-day-option"><input type="checkbox" value="4" data-day="4"> Thursday</label>
+              <label class="monthly-day-option"><input type="checkbox" value="5" data-day="5"> Friday</label>
+              <label class="monthly-day-option"><input type="checkbox" value="6" data-day="6"> Saturday</label>
+              <label class="monthly-day-option"><input type="checkbox" value="0" data-day="0"> Sunday</label>
+            </div>
           </div>
-          <div class="monthly-select">
-            <label for="monthlyTaskDays" class="muted">Days of week</label>
-            <select id="monthlyTaskDays" multiple size="7">
-              <option value="0">Sun</option>
-              <option value="1">Mon</option>
-              <option value="2">Tue</option>
-              <option value="3">Wed</option>
-              <option value="4">Thu</option>
-              <option value="5">Fri</option>
-              <option value="6">Sat</option>
-            </select>
+          
+          <div>
+            <div class="muted" style="margin-bottom:6px;">Quick Select</div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <button type="button" class="btn" data-days="1,2,3,4,5" style="font-size:12px;padding:6px 12px;text-align:left;">Weekdays (Mon-Fri)</button>
+              <button type="button" class="btn" data-days="0,6" style="font-size:12px;padding:6px 12px;text-align:left;">Weekends (Sat-Sun)</button>
+              <button type="button" class="btn" data-days="1,3,5" style="font-size:12px;padding:6px 12px;text-align:left;">MWF</button>
+              <button type="button" class="btn" data-days="2,4" style="font-size:12px;padding:6px 12px;text-align:left;">T/TH</button>
+              <button type="button" class="btn" data-days="0,1,2,3,4,5,6" style="font-size:12px;padding:6px 12px;text-align:left;">Daily</button>
+            </div>
           </div>
-          <button id="monthlyAdd" class="btn" style="width:max-content;">Add Task</button>
         </div>
       </div>
-      <div class="card">
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:16px;">
         <strong>Scheduled Tasks</strong>
-        <div id="monthlyTasksList" class="list" style="margin-top:8px;"></div>
+        <div class="row" style="gap:12px;align-items:center;">
+          <div class="muted" style="font-size:12px;" id="monthlyTaskCount">0 tasks</div>
+          <div class="row" style="gap:6px;">
+            <button id="monthlyViewGrid" class="btn" style="font-size:11px;padding:4px 8px;" title="Grid view">⊞</button>
+            <button id="monthlyViewList" class="btn" style="font-size:11px;padding:4px 8px;" title="List view">☰</button>
+          </div>
+        </div>
       </div>
+      <div id="monthlyTasksList" class="monthly-tasks-container"></div>
     </div>`;
   // Helper to render existing monthly tasks for this month
   function drawMonthlyList(){
     const listEl = document.getElementById('monthlyTasksList');
+    const countEl = document.getElementById('monthlyTaskCount');
     if(!listEl) return;
+    
     // Filter tasks for current month (or tasks without explicit month)
     const tasks = (db.monthly || []).filter(t => (!t.month || t.month === monthKey));
+    
+    // Update count
+    if(countEl) {
+      countEl.textContent = `${tasks.length} task${tasks.length !== 1 ? 's' : ''}`;
+    }
+    
+    // Get current view mode
+    const viewMode = localStorage.getItem('monthlyViewMode') || 'list';
+    listEl.className = `monthly-tasks-container ${viewMode}-view`;
+    
+    // Update view toggle buttons
+    const gridBtn = document.getElementById('monthlyViewGrid');
+    const listBtn = document.getElementById('monthlyViewList');
+    if(gridBtn && listBtn) {
+      gridBtn.classList.toggle('active', viewMode === 'grid');
+      listBtn.classList.toggle('active', viewMode === 'list');
+    }
+    
     if(!tasks.length){
-      listEl.innerHTML = `<div class='muted'>No monthly tasks</div>`;
+      listEl.innerHTML = `<div class='muted' style='text-align:center;padding:32px 16px;grid-column:1/-1;'>No recurring tasks yet. Add one above to get started.</div>`;
       return;
     }
+    
     listEl.innerHTML = tasks.map(t => {
       const dayNames = t.days.map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ');
-      return `<div class='row' style='justify-content:space-between;align-items:center;'>
-        <span>${htmlesc(t.title)} <span class='pill'>${htmlesc(dayNames)}</span></span>
-        <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
-      </div>`;
+      const dayCount = t.days.length;
+      const daysSummary = dayCount === 7 ? 'Daily' : 
+                         dayCount === 5 && t.days.every(d => d >= 1 && d <= 5) ? 'Weekdays' :
+                         dayCount === 2 && t.days.includes(0) && t.days.includes(6) ? 'Weekends' :
+                         dayCount === 2 && t.days.includes(2) && t.days.includes(4) ? 'T/TH' :
+                         dayCount === 3 && t.days.includes(1) && t.days.includes(3) && t.days.includes(5) ? 'MWF' :
+                         dayNames;
+      
+      return `
+        <div class='monthly-task-item'>
+          <div class='monthly-task-header'>
+            <div class='monthly-task-title'>${htmlesc(t.title)}</div>
+            <button class='monthly-task-delete' data-del='${t.id}' title='Delete recurring task'>✕</button>
+          </div>
+          <div class='monthly-task-schedule'>
+            <span class='monthly-schedule-badge'>${htmlesc(daysSummary)}</span>
+            <span class='muted'>${dayCount < 7 ? `${dayCount} day${dayCount !== 1 ? 's' : ''}/week` : 'Every day'}</span>
+          </div>
+        </div>`;
     }).join('');
-    // Attach delete handlers
+    
+    // Attach delete handlers with improved confirmation
     listEl.querySelectorAll('[data-del]').forEach(btn => {
       btn.onclick = () => {
         const id = btn.dataset.del;
-        db.monthly = db.monthly.filter(x => x.id !== id);
-        save();
-        drawMonthlyList();
+        const task = db.monthly.find(t => t.id === id);
+        if(task) {
+          // Use a more styled confirmation that matches app design
+          showDeleteConfirmation(task.title, () => {
+            db.monthly = db.monthly.filter(x => x.id !== id);
+            save();
+            drawMonthlyList();
+          });
+        }
       };
     });
   }
-  // Add new monthly task handler
-  const addBtn = document.getElementById('monthlyAdd');
-  if(addBtn){
-    addBtn.onclick = () => {
-      const titleEl = document.getElementById('monthlyTaskTitle');
-      const title = titleEl ? titleEl.value.trim() : '';
-      if(!title) return;
-      const sel = document.getElementById('monthlyTaskDays');
-      const days = Array.from(sel.selectedOptions).map(o => parseInt(o.value, 10)).filter(d => !isNaN(d));
-      if(!days.length){
-        alert('Select at least one day of the week');
-        return;
+  
+  // Custom styled delete confirmation
+  function showDeleteConfirmation(taskTitle, onConfirm) {
+    // Create modal overlay
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 16px;
+    `;
+    
+    modal.innerHTML = `
+      <div style="
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px;
+        max-width: 400px;
+        width: 100%;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+      ">
+        <h3 style="margin: 0 0 12px 0; color: var(--fg); font-size: 16px;">Delete Recurring Task</h3>
+        <p style="margin: 0 0 20px 0; color: var(--muted); line-height: 1.4;">
+          Are you sure you want to delete "<strong style="color: var(--fg);">${htmlesc(taskTitle)}</strong>"? 
+          This will remove it from future daily pages.
+        </p>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button id="cancelDelete" class="btn" style="padding: 8px 16px;">Cancel</button>
+          <button id="confirmDelete" class="btn" style="padding: 8px 16px; background: #ff6b6b; border-color: #ff6b6b; color: white;">Delete</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Event handlers
+    modal.querySelector('#cancelDelete').onclick = () => {
+      document.body.removeChild(modal);
+    };
+    
+    modal.querySelector('#confirmDelete').onclick = () => {
+      document.body.removeChild(modal);
+      onConfirm();
+    };
+    
+    // Close on backdrop click
+    modal.onclick = (e) => {
+      if(e.target === modal) {
+        document.body.removeChild(modal);
       }
-      const id = uid();
-      db.monthly.push({ id, title, days, month: monthKey, createdAt: nowISO() });
-      if(titleEl) titleEl.value = '';
-      if(sel) sel.selectedIndex = -1;
-      save();
-      drawMonthlyList();
+    };
+    
+    // Close on Escape key
+    const escapeHandler = (e) => {
+      if(e.key === 'Escape') {
+        document.body.removeChild(modal);
+        document.removeEventListener('keydown', escapeHandler);
+      }
+    };
+    document.addEventListener('keydown', escapeHandler);
+  }
+  
+  // Custom styled validation modal for form errors
+  function showValidationModal(title, message) {
+    // Create modal overlay
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 16px;
+    `;
+    
+    modal.innerHTML = `
+      <div style="
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px;
+        max-width: 400px;
+        width: 100%;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+      ">
+        <h3 style="margin: 0 0 12px 0; color: var(--fg); font-size: 16px;">⚠️ ${htmlesc(title)}</h3>
+        <p style="margin: 0 0 20px 0; color: var(--muted); line-height: 1.4;">
+          ${htmlesc(message)}
+        </p>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button id="validationOk" class="btn acc" style="padding: 8px 16px;">OK</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Event handlers
+    modal.querySelector('#validationOk').onclick = () => {
+      document.body.removeChild(modal);
+    };
+    
+    // Close on backdrop click
+    modal.onclick = (e) => {
+      if(e.target === modal) {
+        document.body.removeChild(modal);
+      }
+    };
+    
+    // Close on Escape key
+    const escapeHandler = (e) => {
+      if(e.key === 'Escape') {
+        document.body.removeChild(modal);
+        document.removeEventListener('keydown', escapeHandler);
+      }
+    };
+    document.addEventListener('keydown', escapeHandler);
+    
+    // Auto-focus the OK button
+    setTimeout(() => {
+      modal.querySelector('#validationOk').focus();
+    }, 100);
+  }
+
+  // Restore selected days from preserved state
+  setTimeout(() => {
+    const dayCheckboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
+    if(dayCheckboxes.length && preservedDays.length) {
+      dayCheckboxes.forEach(cb => {
+        cb.checked = preservedDays.includes(cb.value);
+      });
+    }
+  }, 0);
+
+  // Quick select handlers for day buttons
+  function setupQuickSelect() {
+    document.querySelectorAll('[data-days]').forEach(btn => {
+      btn.onclick = () => {
+        const days = btn.dataset.days.split(',');
+        const checkboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
+        if(checkboxes.length) {
+          checkboxes.forEach(cb => {
+            cb.checked = days.includes(cb.value);
+          });
+          // Visual feedback
+          const originalBg = btn.style.background;
+          btn.style.background = 'var(--acc)';
+          btn.style.color = 'white';
+          setTimeout(() => {
+            btn.style.background = originalBg;
+            btn.style.color = '';
+          }, 300);
+        }
+      };
+    });
+  }
+  
+  // View mode toggle handlers
+  function setupViewToggle() {
+    const gridBtn = document.getElementById('monthlyViewGrid');
+    const listBtn = document.getElementById('monthlyViewList');
+    
+    if(gridBtn) {
+      gridBtn.onclick = () => {
+        localStorage.setItem('monthlyViewMode', 'grid');
+        drawMonthlyList();
+      };
+    }
+    
+    if(listBtn) {
+      listBtn.onclick = () => {
+        localStorage.setItem('monthlyViewMode', 'list');
+        drawMonthlyList();
+      };
+    }
+  }
+
+  // Add monthly task with improved validation and UX
+  function handleAddTask() {
+    const titleEl = document.getElementById('monthlyTaskTitle');
+    const title = titleEl ? titleEl.value.trim() : '';
+    
+    // Visual feedback for missing title
+    if(!title) {
+      titleEl?.focus();
+      // Visual feedback by temporarily changing border color
+      if(titleEl) {
+        const originalBorder = titleEl.style.borderColor;
+        titleEl.style.borderColor = '#ff6b6b';
+        setTimeout(() => {
+          titleEl.style.borderColor = originalBorder;
+        }, 2000);
+      }
+      return;
+    }
+
+    const checkboxes = document.querySelectorAll('.monthly-day-option input:checked');
+    const days = Array.from(checkboxes).map(cb => parseInt(cb.value, 10)).filter(d => !isNaN(d));
+    
+    if(!days.length){
+      // Visual feedback for missing days
+      const daysContainer = document.querySelector('.monthly-days-grid');
+      if(daysContainer) {
+        const originalBorder = daysContainer.style.borderColor;
+        daysContainer.style.borderColor = '#ff6b6b';
+        setTimeout(() => {
+          daysContainer.style.borderColor = originalBorder;
+        }, 2000);
+      }
+      showValidationModal('Select Days Required', 'Please select at least one day of the week for this recurring task.');
+      return;
+    }
+
+    // Check for duplicate task names
+    const exists = db.monthly.find(t => t.title.toLowerCase() === title.toLowerCase() && (!t.month || t.month === monthKey));
+    if(exists) {
+      showValidationModal('Duplicate Task', 'A task with this name already exists for this month. Please choose a different name.');
+      titleEl?.focus();
+      return;
+    }
+
+    const id = uid();
+    db.monthly.push({ id, title, days, month: monthKey, createdAt: nowISO() });
+    
+    // Clear form
+    if(titleEl) titleEl.value = '';
+    const allCheckboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
+    allCheckboxes.forEach(cb => cb.checked = false);
+    
+    // Visual feedback for successful addition
+    const addBtn = document.getElementById('monthlyAdd');
+    const originalText = addBtn?.innerHTML;
+    if(addBtn) {
+      addBtn.innerHTML = '✅ Added!';
+      addBtn.style.background = '#22c55e';
+      addBtn.style.borderColor = '#22c55e';
+      setTimeout(() => {
+        addBtn.innerHTML = originalText;
+        addBtn.style.background = '';
+        addBtn.style.borderColor = '';
+      }, 1500);
+    }
+    
+    save();
+    drawMonthlyList();
+    titleEl?.focus(); // Keep focus for easy addition of more tasks
+  }
+  // Event handlers with improved UX
+  const addBtn = document.getElementById('monthlyAdd');
+  const clearBtn = document.getElementById('monthlyClear');
+  const titleInput = document.getElementById('monthlyTaskTitle');
+  
+  // Helper to track typing activity and prevent background sync interference
+  function setTypingState(isTyping) {
+    window._isTypingInForm = isTyping;
+    if(_typingTimer) clearTimeout(_typingTimer);
+    if(isTyping) {
+      // Clear the typing state after 3 seconds of inactivity
+      _typingTimer = setTimeout(() => {
+        window._isTypingInForm = false;
+      }, 3000);
+    }
+  }
+  
+  // Add task handler
+  if(addBtn) {
+    addBtn.onclick = handleAddTask;
+  }
+  
+  // Clear form handler
+  if(clearBtn) {
+    clearBtn.onclick = () => {
+      if(titleInput) titleInput.value = '';
+      const checkboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
+      checkboxes.forEach(cb => cb.checked = false);
+      titleInput?.focus();
     };
   }
+  
+  // Enter key to add task
+  if(titleInput) {
+    titleInput.onkeydown = (e) => {
+      if(e.key === 'Enter') {
+        e.preventDefault();
+        handleAddTask();
+      }
+    };
+    
+    // Track typing to prevent background sync interference
+    titleInput.oninput = () => {
+      setTypingState(true);
+    };
+    
+    titleInput.onfocus = () => setTypingState(true);
+    titleInput.onblur = () => setTypingState(false);
+  }
+  
+  // Track focus on days selection
+  const dayCheckboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
+  dayCheckboxes.forEach(cb => {
+    cb.onfocus = () => setTypingState(true);
+    cb.onblur = () => setTypingState(false);
+  });
+  
+  // Setup quick select buttons and view toggles
+  setupQuickSelect();
+  setupViewToggle();
+  
+  // Initial render
   drawMonthlyList();
 }
 
@@ -1775,7 +2155,7 @@ setInterval(async () => {
     // Always load the remote snapshot
     db = remote;
     // Ensure any missing collections are initialized
-    ['notes','tasks','projects','templates','settings','links'].forEach(k => {
+    ['notes','tasks','projects','templates','settings','links','monthly'].forEach(k => {
       if (!db[k]) db[k] = Array.isArray(seed[k]) ? [] : {};
     });
     // If a note is currently open, preserve its state on sync
@@ -1795,6 +2175,11 @@ setInterval(async () => {
       drawProjectsSidebar();
       // Re‑open the same note so the editor remains visible
       openNote(window._openNoteId);
+    } else if (window._isTypingInForm) {
+      // User is actively typing in a form - skip re-rendering to avoid interruption
+      // Still update the data but preserve the UI state
+      applyTheme();
+      drawProjectsSidebar();
     } else {
       // For all other routes, simply re‑render
       applyTheme();
