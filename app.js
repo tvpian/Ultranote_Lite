@@ -539,6 +539,22 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
     const n = createNote({title:t, content:document.getElementById('draftContent').value, tags, projectId, type, pinned: document.getElementById('draftPinned').checked});
     openNote(n.id);
   };
+  
+  // Add Ctrl+S shortcut for draft save
+  const draftKeyHandler = (e) => {
+    if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+      e.preventDefault();
+      e.stopPropagation();
+      document.getElementById('draftSave').click();
+      return false;
+    }
+  };
+  
+  // Add shortcut to draft form fields
+  ['draftTitle', 'draftTags', 'draftContent'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('keydown', draftKeyHandler);
+  });
   document.getElementById('draftCancel').onclick = ()=>{ if(projectId){ route='projects'; render(); } else { route='vault'; render(); } };
   const addSketchBtn = document.getElementById('draftAddSketch');
   if(typeof openSketchModal==='function') addSketchBtn.onclick = ()=>{
@@ -573,6 +589,20 @@ function renderToday(){
       createDailyNoteFor(key, contentVal);
       renderToday();
     };
+    
+    // Add Ctrl+S shortcut for create daily note
+    const createDailyKeyHandler = (e) => {
+      if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+        e.preventDefault();
+        e.stopPropagation();
+        document.getElementById('createDailyBtn').click();
+        return false;
+      }
+    };
+    
+    // Add shortcut to daily creation content field
+    const dailyNewContent = document.getElementById('dailyNewContent');
+    if(dailyNewContent) dailyNewContent.addEventListener('keydown', createDailyKeyHandler);
     return;
   }
   content.innerHTML = `
@@ -626,6 +656,22 @@ function renderToday(){
       </div>
     </div>`;
   $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); };
+  
+  // Add Ctrl+S shortcut for daily save
+  const dailyKeyHandler = (e) => {
+    if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+      e.preventDefault();
+      e.stopPropagation();
+      $("#saveDaily").click();
+      return false;
+    }
+  };
+  
+  // Add shortcut to daily form fields
+  const dailyTitle = $("#dailyTitle");
+  const dailyContent = $("#dailyContent");
+  if(dailyTitle) dailyTitle.addEventListener('keydown', dailyKeyHandler);
+  if(dailyContent) dailyContent.addEventListener('keydown', dailyKeyHandler);
   $("#templateSelect").onchange = async (e)=> {
     if(!e.target.value) return;
     const template = db.templates.find(t=> t.id === e.target.value);
@@ -1834,9 +1880,8 @@ function openNote(id){
         <input id="noteAttachFile" type="file" class="hidden" multiple />
       </div>
       <div class="row" style="margin-top:8px; gap:8px; align-items:center;">
-        <button id="editModeBtn" class="btn acc" style="font-size:12px;">✏️ Edit</button>
-        <button id="previewModeBtn" class="btn" style="font-size:12px;">👁️ Preview</button>
-        <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+P to toggle</span>
+        <button id="toggleModeBtn" class="btn acc" style="font-size:12px;">Edit</button>
+        <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+V to toggle | Ctrl+S to save</span>
       </div>
       <div style="margin-top:8px;">
         <textarea id="contentBox" style="min-height:300px;">${htmlesc(n.content||'')}</textarea>
@@ -1958,60 +2003,95 @@ function openNote(id){
   }
 
   // Initialize markdown preview toggle functionality
-  // This provides a clean edit/preview mode toggle instead of showing both simultaneously
+  // This provides a clean edit/preview mode toggle with single button
   const previewEl = document.getElementById('markdownPreview');
   const contentBoxEl = document.getElementById('contentBox');
-  const editModeBtn = document.getElementById('editModeBtn');
-  const previewModeBtn = document.getElementById('previewModeBtn');
+  const toggleModeBtn = document.getElementById('toggleModeBtn');
   
   let isPreviewMode = false;
   
-  const switchToEditMode = () => {
-    isPreviewMode = false;
-    contentBoxEl.style.display = 'block';
-    previewEl.style.display = 'none';
-    editModeBtn.classList.add('acc');
-    previewModeBtn.classList.remove('acc');
-  };
-  
-  const switchToPreviewMode = () => {
-    isPreviewMode = true;
-    // Update preview content before showing
-    previewEl.innerHTML = markdownToHtml(contentBoxEl.value);
-    contentBoxEl.style.display = 'none';
-    previewEl.style.display = 'block';
-    editModeBtn.classList.remove('acc');
-    previewModeBtn.classList.add('acc');
-  };
-  
-  // Button event listeners
-  if(editModeBtn) editModeBtn.onclick = switchToEditMode;
-  if(previewModeBtn) previewModeBtn.onclick = switchToPreviewMode;
-  
-  // Keyboard shortcut: Ctrl+Shift+P to toggle (only when editing this note)
-  const toggleKeyHandler = (e) => {
-    if(e.ctrlKey && e.shiftKey && e.key === 'P') {
-      e.preventDefault();
-      if(isPreviewMode) {
-        switchToEditMode();
-      } else {
-        switchToPreviewMode();
-      }
+  const toggleMode = () => {
+    if (isPreviewMode) {
+      // Switch to edit mode
+      isPreviewMode = false;
+      contentBoxEl.style.display = 'block';
+      previewEl.style.display = 'none';
+      toggleModeBtn.classList.add('acc');
+      toggleModeBtn.textContent = 'Edit';
+      // Focus the content box for immediate editing
+      contentBoxEl.focus();
+    } else {
+      // Switch to preview mode
+      isPreviewMode = true;
+      previewEl.innerHTML = markdownToHtml(contentBoxEl.value);
+      contentBoxEl.style.display = 'none';
+      previewEl.style.display = 'block';
+      toggleModeBtn.classList.remove('acc');
+      toggleModeBtn.textContent = 'Preview';
+      // Make preview focusable and focus it so shortcuts work
+      previewEl.setAttribute('tabindex', '0');
+      previewEl.focus();
     }
   };
   
-  // Add keyboard shortcut specifically for this note editor
+  // Button event listener
+  if(toggleModeBtn) toggleModeBtn.onclick = toggleMode;
+  
+  // Keyboard shortcuts for this note editor
+  const keyHandler = (e) => {
+    // Ctrl+Shift+V to toggle edit/preview
+    if(e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v' || e.code === 'KeyV' || e.keyCode === 86)) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleMode();
+      return false;
+    }
+    
+    // Ctrl+S to save note
+    if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Trigger the same save functionality as the save button
+      const saveBtn = document.getElementById('save');
+      if(saveBtn) {
+        saveBtn.click();
+      }
+      return false;
+    }
+  };
+  
+  // Add keyboard shortcuts with capture phase to ensure they work
+  // Document level listener first (highest priority)
+  document.addEventListener('keydown', keyHandler, true); // true = capture phase
+  
+  // Add to specific elements as backup
   if(contentBoxEl) {
-    contentBoxEl.addEventListener('keydown', toggleKeyHandler);
+    contentBoxEl.addEventListener('keydown', keyHandler);
   }
   // Also add to title field for convenience
   const titleEl = document.getElementById('title');
   if(titleEl) {
-    titleEl.addEventListener('keydown', toggleKeyHandler);
+    titleEl.addEventListener('keydown', keyHandler);
+  }
+  // Add to preview element so shortcuts work in preview mode
+  if(previewEl) {
+    previewEl.addEventListener('keydown', keyHandler);
   }
   
+  // Store the handler globally so it can be cleaned up when leaving the note
+  window._noteKeyHandler = keyHandler;
+  
   // Start in edit mode
-  switchToEditMode();
+  isPreviewMode = false;
+  contentBoxEl.style.display = 'block';
+  previewEl.style.display = 'none';
+  toggleModeBtn.classList.add('acc');
+  toggleModeBtn.textContent = 'Edit';
+  
+  // Make preview element focusable for keyboard shortcuts
+  if(previewEl) {
+    previewEl.setAttribute('tabindex', '0');
+  }
 }
 
 // --- Global app logic ---
@@ -2020,6 +2100,14 @@ function render(){
   // Reset the open note tracking so that background sync will not reopen a note when the user has navigated away.
   window._openNoteId = null;
   window._editorDirty = false;
+  
+  // Clean up note-specific keyboard shortcuts
+  if(window._noteKeyHandler) {
+    document.removeEventListener('keydown', window._noteKeyHandler, true); // Remove capture phase listener
+    document.removeEventListener('keydown', window._noteKeyHandler); // Remove bubble phase listener
+    window._noteKeyHandler = null;
+  }
+  
   // Apply current theme before rendering UI elements
   applyTheme();
   renderNav();

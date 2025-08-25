@@ -407,6 +407,13 @@ a {
   font-size: 15px;
   line-height: 1.6;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  outline: none; /* Remove default focus outline */
+}
+
+/* Focus state for keyboard navigation */
+.markdown-preview:focus {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 2px rgba(78, 161, 255, 0.2);
 }
 
 /* Enhanced typography hierarchy */
