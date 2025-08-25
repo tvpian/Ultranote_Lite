@@ -5,7 +5,7 @@
     "seenTip": true,
     "autoCarryTasks": false,
     "dailyTemplate": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
-    "scratchpad": "1) Journal the methods and the results obtained while trying out for Test the visuals from UR10E on UR5E to improve realism\n2) Look at the automated service startup script\n\n",
+    "scratchpad": "1) Journal the methods and the results obtained while trying out for Test the visuals from UR10E on UR5E to improve realism\n2) Look at the automated service startup script\n\nUltranote:\n- Glich while duplicating note and saving\n- Should project task be shown even after completion\n",
     "theme": "dark"
   },
   "projects": [
@@ -83,7 +83,7 @@
     {
       "id": "t0ypufuu",
       "title": "URDF import in Isaacsim",
-      "content": "In Isaacsim V5 by default, as per the instructions, when I tried to source the ROS2 workspace and tried to import the UR5e URDF, it was causing errors.\nWhat worked so far is using the absolute paths to mesh files.\n\nSecondly, having conflicting frame names like 'world' or 'World' dint seem like a problem.\n\nAll additional ROS 2-specific tags didn't cause any trouble in the import procedure.\n\nInitially, the movements of the joints seemed very abrupt. After setting the natural frequency to 300 for all the joints, it stabilized.\n\nSimilarly, on putting the natural frequency as 300 for the Robotiq gripper, it got stabilized as well.\n\nBasically for all the position based joints the natural frequency is set to 300 and for all the mimic joints, its set to 2500\n\nTwo errors that consistently showed up and dint get resolved yet \n - Limits not set for the left inner knuckle joint.\n - Multiple reference joints for the left inner knuckle joint.\n\n\n# Run this in Script Editor (Python) after your robot is loaded\n\nimport math\nimport omni.usd\nfrom pxr import Usd, Sdf, UsdPhysics   # Revolute joint attributes live here\nfrom pxr import PhysxSchema            # PhysxMimicJointAPI (multiple-apply schema)\n\nstage: Usd.Stage = omni.usd.get_context().get_stage()  # correct way to get the current stage in Kit apps\n# (Docs: omni.usd UsdContext/get_stage)  # https://docs.omniverse.nvidia.com/dev-guide/latest/programmer_ref/usd/stage/get-current-stage.html\n\ndef set_single_reference(follower_prim_path: str, source_joint_path: str):\n    prim = stage.GetPrimAtPath(follower_prim_path)\n    if not prim.IsValid():\n        print(\"Invalid prim:\", follower_prim_path); return\n    # A prim can have multiple mimic-API instances (rotX/rotY/rotZ). Fix all of them.\n    for api in PhysxSchema.PhysxMimicJointAPI.GetAll(prim):\n        # Keep exactly one referenceJoint target\n        rel = api.GetReferenceJointRel()\n        rel.ClearTargets(True)              # clear authored targets across the layer stack\n        rel.AddTarget(Sdf.Path(source_joint_path))\n        # Ensure gearing/offset exist (matches URDF defaults)\n        if api.GetGearingAttr().Get() is None:\n            api.CreateGearingAttr(1.0)\n        if api.GetOffsetAttr().Get() is None:\n            api.CreateOffsetAttr(0.0)\n        #print(f\"[OK] {follower_prim_path} -> reference {source_joint_path} (instance {api.GetName()})\")\n\ndef set_revolute_limits_rad(joint_path: str, lower_rad: float, upper_rad: float):\n    \"\"\"\n    Author finite limits on a UsdPhysics.RevoluteJoint. Converts radians->degrees for USD.\n    \"\"\"\n    prim = stage.GetPrimAtPath(joint_path)\n    if not prim.IsValid():\n        print(\"Invalid prim:\", joint_path); return\n    if not prim.IsA(UsdPhysics.RevoluteJoint):\n        print(\"Not a UsdPhysics.RevoluteJoint:\", joint_path); return\n    j = UsdPhysics.RevoluteJoint(prim)\n    lo_deg = math.degrees(lower_rad)\n    hi_deg = math.degrees(upper_rad)\n    # Create*/Get* are equivalent for authoring; Create* guarantees the attr exists.\n    j.CreateLowerLimitAttr().Set(lo_deg)\n    j.CreateUpperLimitAttr().Set(hi_deg)\n    print(f\"[OK] Set limits on {joint_path} to [{lo_deg:.3f}°, {hi_deg:.3f}°]\")\n\n# ---- Your existing mimic fixes (keep these) ----\nset_single_reference(\"/World/ur/joints/robotiq_85_left_inner_knuckle_joint\",  \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\nset_single_reference(\"/World/ur/joints/robotiq_85_left_finger_tip_joint\",     \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\nset_single_reference(\"/World/ur/joints/robotiq_85_right_inner_knuckle_joint\", \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\nset_single_reference(\"/World/ur/joints/robotiq_85_right_finger_tip_joint\",    \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\n\n# ---- NEW: author finite limits on both inner knuckle joints ----\n# left inner knuckle: +1 mapping of source [0, 0.8] rad\nset_revolute_limits_rad(\"/World/ur/joints/robotiq_85_left_inner_knuckle_joint\",  0.0,  0.8)\n\n# right inner knuckle: -1 mapping of source -> [-0.8, 0] rad\nset_revolute_limits_rad(\"/World/ur/joints/robotiq_85_right_inner_knuckle_joint\", -0.8, 0.0)\n",
+      "content": "In Isaacsim V5 by default, as per the instructions, when I tried to source the ROS2 workspace and tried to import the UR5e URDF, it was causing errors.\nWhat worked so far is using the absolute paths to mesh files.\n\nSecondly, having conflicting frame names like 'world' or 'World' dint seem like a problem.\n\nAll additional ROS 2-specific tags didn't cause any trouble in the import procedure.\n\nInitially, the movements of the joints seemed very abrupt. After setting the natural frequency to 300 for all the joints, it stabilized.\n\nSimilarly, on putting the natural frequency as 300 for the Robotiq gripper, it got stabilized as well.\n\nBasically for all the position based joints the natural frequency is set to 300 and for all the mimic joints, its set to 2500\n\nTwo errors that consistently showed up and dint get resolved yet \n - Limits not set for the left inner knuckle joint.\n - Multiple reference joints for the left inner knuckle joint.\n\n```python\n# Run this in Script Editor (Python) after your robot is loaded\n\nimport math\nimport omni.usd\nfrom pxr import Usd, Sdf, UsdPhysics   # Revolute joint attributes live here\nfrom pxr import PhysxSchema            # PhysxMimicJointAPI (multiple-apply schema)\n\nstage: Usd.Stage = omni.usd.get_context().get_stage()  # correct way to get the current stage in Kit apps\n# (Docs: omni.usd UsdContext/get_stage)  # https://docs.omniverse.nvidia.com/dev-guide/latest/programmer_ref/usd/stage/get-current-stage.html\n\ndef set_single_reference(follower_prim_path: str, source_joint_path: str):\n    prim = stage.GetPrimAtPath(follower_prim_path)\n    if not prim.IsValid():\n        print(\"Invalid prim:\", follower_prim_path); return\n    # A prim can have multiple mimic-API instances (rotX/rotY/rotZ). Fix all of them.\n    for api in PhysxSchema.PhysxMimicJointAPI.GetAll(prim):\n        # Keep exactly one referenceJoint target\n        rel = api.GetReferenceJointRel()\n        rel.ClearTargets(True)              # clear authored targets across the layer stack\n        rel.AddTarget(Sdf.Path(source_joint_path))\n        # Ensure gearing/offset exist (matches URDF defaults)\n        if api.GetGearingAttr().Get() is None:\n            api.CreateGearingAttr(1.0)\n        if api.GetOffsetAttr().Get() is None:\n            api.CreateOffsetAttr(0.0)\n        #print(f\"[OK] {follower_prim_path} -> reference {source_joint_path} (instance {api.GetName()})\")\n\ndef set_revolute_limits_rad(joint_path: str, lower_rad: float, upper_rad: float):\n    \"\"\"\n    Author finite limits on a UsdPhysics.RevoluteJoint. Converts radians->degrees for USD.\n    \"\"\"\n    prim = stage.GetPrimAtPath(joint_path)\n    if not prim.IsValid():\n        print(\"Invalid prim:\", joint_path); return\n    if not prim.IsA(UsdPhysics.RevoluteJoint):\n        print(\"Not a UsdPhysics.RevoluteJoint:\", joint_path); return\n    j = UsdPhysics.RevoluteJoint(prim)\n    lo_deg = math.degrees(lower_rad)\n    hi_deg = math.degrees(upper_rad)\n    # Create*/Get* are equivalent for authoring; Create* guarantees the attr exists.\n    j.CreateLowerLimitAttr().Set(lo_deg)\n    j.CreateUpperLimitAttr().Set(hi_deg)\n    print(f\"[OK] Set limits on {joint_path} to [{lo_deg:.3f}°, {hi_deg:.3f}°]\")\n\n# ---- Your existing mimic fixes (keep these) ----\nset_single_reference(\"/World/ur/joints/robotiq_85_left_inner_knuckle_joint\",  \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\nset_single_reference(\"/World/ur/joints/robotiq_85_left_finger_tip_joint\",     \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\nset_single_reference(\"/World/ur/joints/robotiq_85_right_inner_knuckle_joint\", \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\nset_single_reference(\"/World/ur/joints/robotiq_85_right_finger_tip_joint\",    \"/World/ur/joints/robotiq_85_left_knuckle_joint\")\n\n# ---- NEW: author finite limits on both inner knuckle joints ----\n# left inner knuckle: +1 mapping of source [0, 0.8] rad\nset_revolute_limits_rad(\"/World/ur/joints/robotiq_85_left_inner_knuckle_joint\",  0.0,  0.8)\n\n# right inner knuckle: -1 mapping of source -> [-0.8, 0] rad\nset_revolute_limits_rad(\"/World/ur/joints/robotiq_85_right_inner_knuckle_joint\", -0.8, 0.0)\n",
       "tags": [
         "urdf",
         "isaacsim",
@@ -94,7 +94,7 @@
       "type": "note",
       "pinned": false,
       "createdAt": "2025-08-15T01:47:05.036Z",
-      "updatedAt": "2025-08-21T18:01:06.194Z",
+      "updatedAt": "2025-08-24T21:59:26.157Z",
       "attachments": []
     },
     {
@@ -195,7 +195,7 @@
     {
       "id": "498mkuqj",
       "title": "Agent integration with IntraChat",
-      "content": "\n- It should be the one-stop control for the team to talk with the services and server.\n- One LLM-based interactive portal for starting demos.",
+      "content": "- It should be the one-stop control for the team to talk with the services and server.\n- One LLM-based interactive portal for starting demos.",
       "tags": [
         "llm",
         "agent",
@@ -206,7 +206,7 @@
       "type": "idea",
       "pinned": false,
       "createdAt": "2025-08-20T19:24:22.221Z",
-      "updatedAt": "2025-08-23T03:25:40.197Z",
+      "updatedAt": "2025-08-23T21:44:57.579Z",
       "attachments": []
     },
     {
@@ -275,16 +275,82 @@
       "attachments": []
     },
     {
-      "id": "206cdawu",
+      "id": "4fj9uozs",
       "title": "2025-08-23 — Daily",
-      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n### Tedx\n- How can we have better conversations?\n  - Understanding the type of conversations in each discussion is the key to be better at conversations.\n  - There are 3 different kinds of conversations:\n    - Practical\n    - Emotional\n    - Social\n  - Whenever someone comes to you asking for help, it is important to understand what kind of help they need, i.e, whether they want to be\n    - helped\n    - hugged\n    - heard\n  - The best way to understand what people want is by asking **Deep Questions**\n    - Deep questions are questions that would lead us to open up about our values, our beliefs, or our experiences.\n      - Instead of asking facts about someone's life, we should ask what they feel about their life.\n      - __Note__ When you hear vulnerability, we become vulnerable in return.\n---\n### Thinkschool:\n#### Anupam Mittal Podcast\n1. **What does he look for in a good team?**\n    - Evidence of exceptionalism in something - There should be some proxy for exceptionalism\n    - Business Acumen - It is not enough to make a great product, but to build a great business to be successful\n    - What is the non-obvious aspect of the business that someone has discovered?\n\n2. **How to develop business acumen?**\n    - Working in the finance sector early on\n    - Working as an investment banker\n\n3. What won't change?\n    - Travel business\n    - Cuisines\n    - Clothing - Digital natives would want variations\n\n*Note* \n-  Look for drivers that cultivate behaviours\n-  India is heavily underbranded\n-  Multipolar world - multiple countries become sources for aspiration\n-  Defence\n-  Institutions that are built in a democracy tend to stand the test of time for much longer\n-  Engage before educate\n-  Analysis Paralysis\n      \n\n\n\n\n## Journal\n\n## Wins\n",
       "tags": [],
       "projectId": null,
       "dateIndex": "2025-08-23",
       "type": "daily",
       "pinned": false,
-      "createdAt": "2025-08-23T05:32:56.746Z",
-      "updatedAt": "2025-08-23T05:32:56.746Z",
+      "createdAt": "2025-08-23T21:50:29.360Z",
+      "updatedAt": "2025-08-24T16:24:22.914Z",
+      "attachments": []
+    },
+    {
+      "id": "8zz7nj2n",
+      "title": "2025-08-24 — Daily",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n### <u>Tedx</u>\n<u>3 lessons on starting over</u>\n- Be curious - \n> \"Be curious, not judgmental\"\n- Believe that you can learn - Have the growth mindset - Learn to appreciate enthusiasm and hard work over talent\n- Take home wherever you go\n\n### <u>Thinkschool</u>\n- In China, your economic performance as a leader works more like your resume\n- It's never enough to know the bare minimum\n- Ghost cities - Vicious cycle: More Constructions -> Higher GDP Figures -> Better Career for local officials\n- Debt Swap Program \n\n<u> **Important Lessons** </u>\n- Growth without Demand is a Mirage - Infrastructure must follow real needs and not just targets\n- Transparency is not optional, but a protection\n- Incentives can drive the system for the better or worse.\n\n\n\n\n## Wins\n",
+      "tags": [],
+      "projectId": null,
+      "dateIndex": "2025-08-24",
+      "type": "daily",
+      "pinned": false,
+      "createdAt": "2025-08-24T07:35:33.454Z",
+      "updatedAt": "2025-08-24T20:27:01.640Z",
+      "attachments": []
+    },
+    {
+      "id": "s11ijn2y",
+      "title": "Robot Assembly using Fixed Joint",
+      "content": "\n## Robot Assembly in Isaac Sim using Fixed Joint (Lychee AI method)\n\n### Approach 1: Via URDF Importer\n- Both the arm and gripper were imported using their respective URDFs using the IsaacSim URDF Importer extension\n***Note: It's okay even if they are not imported in as flattened USDs***\n- Most likely, if they are not flattened, their main articulation joint is going to be placed on the root joint. Remove the articulation joint from the \n  root joint of the Robotiq gripper. \n***Note: You would have to delete the root joint itself to prevent any kind of unexpected behaviours when you play the simulation***\n- Next task is to align and position the gripper with the end effector link of the arm. This can be achieved in two ways:\n  1. Lychee AI method - \n      1. *Select Prim Transform* option under the *Keep Prim World Transform When Reparenting* option.\n      2.  Drag and place the gripper under the respective EE link of the arm for it to gracefully acquire the transform of the parent link.\n          Once done, revert the *Keep Prim World Transform When Reparenting* option to default.\n      3.  Finally, select the EE link, which in my case is the *tool0* link, and the gripper base link, which for me is *robotiq_85_base_link*, and\n          create a fixed joint between them.\n### Approach 2: Via USD from IsaacSim Assets\n- As the USDs would most likely be flattened in this case, the main articulation joint would be lying on the prim itself. So delete it.\n*All the other steps remain similar to Approach 1.*",
+      "tags": [
+        "digitaltwin",
+        "isaacsim",
+        "robotiq",
+        "ur5e"
+      ],
+      "projectId": "x58sfrwh",
+      "dateIndex": null,
+      "type": "note",
+      "pinned": false,
+      "createdAt": "2025-08-25T03:44:26.854Z",
+      "updatedAt": "2025-08-25T04:04:40.209Z",
+      "attachments": []
+    },
+    {
+      "id": "ls831cxq",
+      "title": "2025-08-25 — Daily",
+      "content": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n### <u>Tedx</u>\n<u> How to make learning as addictive as Social Media </u>\n- Freemium models - Another way to look at is as the rich paying for th education of the poor.\n- Streaks as an idea is what made the most difference in state of the art education platform.\n- Notification is the other idea that improved attendance because for an activity like eeducation people prefer to be educated.\n- Note: Its important to understand the content and timing of the notification also plays an important role in its effectiveness.\n\n<u> How to be happier according to science? </u>\n- Social Prediction Error : All the most often it feels like socializing will be awkward or tiring but research in general shows that the almost always feel happier after social interaction. Hence, before deciding not to participate in a social event, try to make it a point to step in there for 30 minutes and then see how it turns out later.\n- The Peak End Rule : The brain don't tend to remember all the experiences evenly.Rather, it remembers the most Intense movement, which is the peak and the ending.This means that even a bad day can be sandwiched if it ends on a high note. Hence end your day intensely on a good note.\n- Avoid \"Nutrasweet\" Connection : Social media is the neutrasweet version of connection. It reflects your brain into thinking, You are interacting, but it doesn't actually nourish you.\n- The Dopamine Rule : It's actually part of the Huberman's rule which says dopamine feels best when you earn it.If you constantly chase quick hits.By doing scrolling binch watching eating junk food.You train a brain to expect rewards without effort. stiff towarels effort based rewards - movements, learning or deep interactions.\n- The Gift & Curse of Hedonic Adaption : We quickly get used to both good and bad things.This is why achievements lose their excitement fast.But also why pain feeds over time. Hence, try to save the good Violet last pause and appreciate small joints before they fade into the background and when life gets hard, Remind yourself you will adjust.\n- Start a Delight Practise : Graduate is great, but sometimes can feel forced. Hence, it's always better to do something called as a Delight Practice where you train yourself to notice tiny moments of joy in real-time. Make it a point to notice at least one thing that made me smile every day.\n- Adults need to play too : Unstructured joyful activities with no productivity goal per se reset your brain in ways nothing else can.\n\n\n## Journal\n\n\n## Wins\n",
+      "tags": [
+        "happiness",
+        "todo"
+      ],
+      "projectId": null,
+      "dateIndex": "2025-08-25",
+      "type": "daily",
+      "pinned": false,
+      "createdAt": "2025-08-25T15:30:33.085Z",
+      "updatedAt": "2025-08-25T19:27:56.510Z",
+      "attachments": []
+    },
+    {
+      "id": "vrfg5ie8",
+      "title": "Robot Assembly using Robot Assembler",
+      "content": "## Robot Assembly in Isaac Sim using Robot Assembler\n\n### Approach 1: Via URDF Importer\n\n\n",
+      "tags": [
+        "digitaltwin",
+        "isaacsim",
+        "robotiq",
+        "ur5e",
+        "robotassembler"
+      ],
+      "projectId": "x58sfrwh",
+      "dateIndex": null,
+      "type": "note",
+      "pinned": false,
+      "createdAt": "2025-08-25T16:30:50.487Z",
+      "updatedAt": "2025-08-25T16:33:30.937Z",
       "attachments": []
     }
   ],
@@ -650,94 +716,205 @@
       "projectId": "x58sfrwh",
       "priority": "medium",
       "createdAt": "2025-08-23T03:06:31.381Z",
-      "completedAt": "2025-08-23T03:06:33.366Z"
+      "completedAt": "2025-08-24T20:27:55.459Z"
     },
     {
-      "id": "w0mj5ddk",
+      "id": "0fzmt5cu",
       "title": "Tedx",
-      "status": "TODO",
+      "status": "DONE",
       "due": null,
-      "noteId": "206cdawu",
+      "noteId": "8zz7nj2n",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-23T05:32:56.746Z",
-      "completedAt": null
+      "createdAt": "2025-08-24T07:35:33.466Z",
+      "completedAt": "2025-08-24T17:27:54.596Z"
     },
     {
-      "id": "ayfj9yqf",
+      "id": "zvazbcew",
       "title": "Thinkschool",
-      "status": "TODO",
+      "status": "DONE",
       "due": null,
-      "noteId": "206cdawu",
+      "noteId": "8zz7nj2n",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-23T05:32:56.746Z",
+      "createdAt": "2025-08-24T07:35:33.466Z",
+      "completedAt": "2025-08-24T17:27:55.535Z"
+    },
+    {
+      "id": "sshdakqq",
+      "title": "Mentalism",
+      "status": "TODO",
+      "due": null,
+      "noteId": "ls831cxq",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-25T15:30:33.085Z",
       "completedAt": null
     },
     {
-      "id": "bddri456",
+      "id": "xtiimmal",
+      "title": "SC/HC",
+      "status": "TODO",
+      "due": null,
+      "noteId": "ls831cxq",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-25T15:30:33.085Z",
+      "completedAt": null
+    },
+    {
+      "id": "uhx0u2bg",
+      "title": "Workout",
+      "status": "TODO",
+      "due": null,
+      "noteId": "ls831cxq",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-25T15:30:33.085Z",
+      "completedAt": null
+    },
+    {
+      "id": "5qptkc19",
+      "title": "Prayer",
+      "status": "DONE",
+      "due": null,
+      "noteId": "8zz7nj2n",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-24T07:35:33.466Z",
+      "completedAt": "2025-08-24T17:13:53.684Z"
+    },
+    {
+      "id": "w4mghhot",
+      "title": "Yoga",
+      "status": "TODO",
+      "due": null,
+      "noteId": "ls831cxq",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-25T15:30:33.085Z",
+      "completedAt": null
+    },
+    {
+      "id": "d8x1n05t",
       "title": "https://www.linkedin.com/posts/chriskielthy_hiring-robotics-gtm-activity-7361411215106949121-3PNG?utm_source=share&utm_medium=member_android&rcm=ACoAABmYRCwB4VRjjDiSREanVW4-OL2NFsUjdi0",
       "status": "TODO",
       "due": null,
-      "noteId": "206cdawu",
+      "noteId": "ls831cxq",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-23T06:54:20.696Z",
+      "createdAt": "2025-08-25T15:30:33.085Z",
       "completedAt": null
     },
     {
-      "id": "z4g98uju",
+      "id": "phblhkci",
       "title": "https://m.youtube.com/watch?v=32uzEGpvSog",
       "status": "TODO",
       "due": null,
-      "noteId": "206cdawu",
+      "noteId": "ls831cxq",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-23T06:54:40.386Z",
+      "createdAt": "2025-08-25T15:30:33.085Z",
       "completedAt": null
     },
     {
-      "id": "aoyah3lt",
+      "id": "aow4qlj1",
       "title": "https://ai.meta.com/dinov3/",
       "status": "TODO",
       "due": null,
-      "noteId": "206cdawu",
+      "noteId": "ls831cxq",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-23T06:55:16.675Z",
+      "createdAt": "2025-08-25T15:30:33.085Z",
       "completedAt": null
     },
     {
-      "id": "1vggcj6c",
-      "title": "Complete Isaac Sim Documentaion",
-      "status": "TODO",
-      "due": null,
-      "noteId": "206cdawu",
-      "projectId": null,
-      "priority": "medium",
-      "createdAt": "2025-08-23T06:55:55.545Z",
-      "completedAt": null
-    },
-    {
-      "id": "1o18gqc0",
+      "id": "iwbsychw",
       "title": "Master Robot Assembly process and Document the learning",
-      "status": "TODO",
+      "status": "DONE",
       "due": null,
-      "noteId": "206cdawu",
+      "noteId": "8zz7nj2n",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-23T06:58:23.339Z",
-      "completedAt": null
+      "createdAt": "2025-08-24T07:35:33.466Z",
+      "completedAt": "2025-08-25T03:42:08.718Z"
     },
     {
-      "id": "35hr3mka",
+      "id": "l38xhlxm",
       "title": "https://www.linkedin.com/posts/rohinik_hiring-remote-activity-7363790536115179525-2pVJ?utm_source=share&utm_medium=member_android&rcm=ACoAABmYRCwB4VRjjDiSREanVW4-OL2NFsUjdi",
       "status": "TODO",
       "due": null,
-      "noteId": "206cdawu",
+      "noteId": "ls831cxq",
       "projectId": null,
       "priority": "medium",
-      "createdAt": "2025-08-23T06:59:16.198Z",
+      "createdAt": "2025-08-25T15:30:33.085Z",
+      "completedAt": null,
+      "deletedAt": "2025-08-24T22:30:49.402Z"
+    },
+    {
+      "id": "7j7pwd1o",
+      "title": "Psychology - Behavioural, Body Language & Microexpression",
+      "status": "DONE",
+      "due": null,
+      "noteId": "ls831cxq",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-25T15:30:33.085Z",
+      "completedAt": "2025-08-25T19:26:26.893Z"
+    },
+    {
+      "id": "gzv5lz5w",
+      "title": "Tedx",
+      "status": "DONE",
+      "due": null,
+      "noteId": "ls831cxq",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-25T15:30:33.085Z",
+      "completedAt": "2025-08-25T19:02:23.742Z"
+    },
+    {
+      "id": "i64b80qi",
+      "title": "Thinkschool",
+      "status": "DONE",
+      "due": null,
+      "noteId": "ls831cxq",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-25T15:30:33.085Z",
+      "completedAt": "2025-08-25T19:02:24.846Z"
+    },
+    {
+      "id": "y8knwa2p",
+      "title": "Reading Book",
+      "status": "TODO",
+      "due": null,
+      "noteId": "ls831cxq",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-25T15:30:33.085Z",
+      "completedAt": null
+    },
+    {
+      "id": "5gymkjvc",
+      "title": "Prayer",
+      "status": "DONE",
+      "due": null,
+      "noteId": "ls831cxq",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-25T15:30:33.085Z",
+      "completedAt": "2025-08-25T17:34:09.423Z"
+    },
+    {
+      "id": "4c44ct30",
+      "title": "Isaacsim",
+      "status": "TODO",
+      "due": null,
+      "noteId": "ls831cxq",
+      "projectId": null,
+      "priority": "medium",
+      "createdAt": "2025-08-25T15:30:33.085Z",
       "completedAt": null
     }
   ],
@@ -903,6 +1080,16 @@
       "status": "NEW",
       "createdAt": "2025-08-20T19:51:10.181Z",
       "updatedAt": "2025-08-20T19:51:10.181Z"
+    },
+    {
+      "id": "3xywawu6",
+      "title": "Sensing for Autonomy",
+      "url": "https://m.youtube.com/playlist?list=PLoROMvodv4rOhE007XQu707Dy52qXiZGV",
+      "tags": [],
+      "pinned": false,
+      "status": "NEW",
+      "createdAt": "2025-08-24T13:40:23.012Z",
+      "updatedAt": "2025-08-24T13:40:23.012Z"
     }
   ],
   "monthly": [
@@ -976,6 +1163,87 @@
       ],
       "month": "2025-08",
       "createdAt": "2025-08-23T17:59:42.626Z"
+    },
+    {
+      "id": "0dat8tmk",
+      "title": "Workout",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        0
+      ],
+      "month": "2025-08",
+      "createdAt": "2025-08-23T21:48:07.473Z"
+    },
+    {
+      "id": "2pjgfxl3",
+      "title": "Prayer",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        0
+      ],
+      "month": "2025-08",
+      "createdAt": "2025-08-23T21:48:47.876Z"
+    },
+    {
+      "id": "cl7i4gxk",
+      "title": "Yoga",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        0
+      ],
+      "month": "2025-08",
+      "createdAt": "2025-08-23T21:49:00.499Z"
+    },
+    {
+      "id": "f09pcp52",
+      "title": "Isaacsim",
+      "days": [
+        1,
+        3,
+        5
+      ],
+      "month": "2025-08",
+      "createdAt": "2025-08-23T21:49:18.551Z"
+    },
+    {
+      "id": "794spfip",
+      "title": "Robot Learning - Reinforcement Learning",
+      "days": [
+        2,
+        4
+      ],
+      "month": "2025-08",
+      "createdAt": "2025-08-23T21:49:27.361Z"
+    },
+    {
+      "id": "5gdq9jkz",
+      "title": "Psychology - Behavioural, Body Language & Microexpression",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        0
+      ],
+      "month": "2025-08",
+      "createdAt": "2025-08-23T22:25:21.684Z"
     }
   ]
 }
