@@ -27,6 +27,9 @@ body {
   font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial;
   background: var(--bg);
   color: var(--fg);
+  /* Improve readability on all devices by increasing base font size and line height. */
+  font-size: 15px;
+  line-height: 1.5;
 }
 
 header {
@@ -347,6 +350,31 @@ nav button.active {
 .list {
   display: grid;
   gap: 8px;
+}
+
+/*
+ * Ensure task titles wrap cleanly on small screens or when very long.
+ * Without this, long titles can overflow and push action buttons off screen.
+ */
+#taskList .row span,
+#projectTaskList .row span,
+#backlogList .row span {
+  /* Allow text to wrap onto multiple lines */
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  /* Let the text column grow and shrink within its row */
+  flex: 1;
+  min-width: 0;
+}
+
+/* Align multi-line rows to the top instead of center so that
+ * checkboxes and buttons remain aligned when titles wrap.
+ */
+#taskList .row,
+#projectTaskList .row,
+#backlogList .row {
+  align-items: flex-start;
 }
 
 .muted {

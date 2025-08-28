@@ -193,6 +193,41 @@ function save(){ persistDB(); }
 // Debounced override to reduce write frequency
 let _saveTimer; function save(){ clearTimeout(_saveTimer); _saveTimer = setTimeout(()=>persistDB(), 400); }
 
+// ------------------------------------------------------------------
+// Reminder notifications
+//
+// The following helper schedules desktop notifications for tasks with due
+// dates matching today's date. When the page loads, we request
+// permission from the user. Once granted, we poll the tasks every
+// minute and show a notification for each uncompleted task due today.
+// Notifications are only fired once per task to avoid repeated alerts.
+
+let _notifiedDueTasks = new Set();
+function startDueTaskNotifications() {
+  // Only proceed if the Notifications API is available
+  if (typeof Notification === 'undefined') return;
+  Notification.requestPermission().then((permission) => {
+    if (permission !== 'granted') return;
+    setInterval(() => {
+      try {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        db.tasks.forEach((t) => {
+          if (
+            t.due === todayStr &&
+            t.status !== 'DONE' &&
+            !_notifiedDueTasks.has(t.id)
+          ) {
+            new Notification('Task due today', { body: t.title });
+            _notifiedDueTasks.add(t.id);
+          }
+        });
+      } catch (err) {
+        // Silently ignore any errors (e.g., db not ready)
+      }
+    }, 60000); // check every minute
+  });
+}
+
 async function initApp(){
   // 1. Try server
   let serverData = await fetchDB();
@@ -228,7 +263,26 @@ function createTask({title, due=null, noteId=null, projectId=null, priority="med
   const t = { id:uid(), title, status:"TODO", due, noteId, projectId, priority, createdAt:nowISO(), completedAt:null };
   db.tasks.push(t); save(); return t;
 }
-function setTaskStatus(id, status){ const t=db.tasks.find(x=>x.id===id); if(!t) return; t.status=status; t.completedAt = status==="DONE"? nowISO(): null; save(); }
+function setTaskStatus(id, status){
+  const t = db.tasks.find(x => x.id === id);
+  if (!t) return;
+  t.status = status;
+  t.completedAt = status === 'DONE' ? nowISO() : null;
+  save();
+  // If a project task status changes, update the Today page project tasks button count
+  const ptBtn = document.getElementById('showProjectTasks');
+  if (ptBtn) {
+    const count = db.tasks.filter(
+      (tk) =>
+        tk.projectId &&
+        !tk.noteId &&
+        tk.status !== 'BACKLOG' &&
+        tk.status !== 'DONE' &&
+        !tk.deletedAt
+    ).length;
+    ptBtn.textContent = `${count} project tasks`;
+  }
+}
 // New helper to move a task to backlog
 function moveToBacklog(id){ const t=db.tasks.find(x=>x.id===id); if(!t) return; t.status='BACKLOG'; save(); }
 // Soft-delete a task by marking it archived. Tasks are not removed from DB to allow history viewing.
@@ -270,7 +324,14 @@ function getActiveTasks(){
 }
 
 function getTrashedTasks(){
-  return db.tasks.filter(t => t.deletedAt);
+  // Return all tasks that have been soft-deleted, sorted by deletion date in descending order
+  return db.tasks
+    .filter(t => t.deletedAt)
+    .sort((a, b) => {
+      const aDate = new Date(a.deletedAt);
+      const bDate = new Date(b.deletedAt);
+      return bDate - aDate;
+    });
 }
 function createProject(name){ const p={id:uid(), name, createdAt:nowISO()}; db.projects.push(p); save(); return p; }
 function createTemplate(name, content){ const t={id:uid(), name, content, createdAt:nowISO()}; db.templates.push(t); save(); return t; }
@@ -518,6 +579,8 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
         .replace(/\[Project Name\]/g, projectId? (db.projects.find(p=>p.id===projectId)?.name || '') : '');
     }
   }
+  // Reset draft sketches array when opening a new draft so previous sketches don't persist
+  window._draftSketches = [];
   content.innerHTML = `
     <div class="card">
       <div class="muted" style="margin-bottom:6px;">Draft (not saved yet)</div>
@@ -533,11 +596,19 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
         <button id="draftCancel" class="btn">Cancel</button>
       </div>
     </div>`;
-  document.getElementById('draftSave').onclick = ()=>{
+  document.getElementById('draftSave').onclick = () => {
     const t = document.getElementById('draftTitle').value.trim() || 'Untitled';
-    const tags = (document.getElementById('draftTags').value||'').split(/\s+/).map(x=>x.startsWith('#')?x.slice(1):x).filter(Boolean);
-    const n = createNote({title:t, content:document.getElementById('draftContent').value, tags, projectId, type, pinned: document.getElementById('draftPinned').checked});
-    openNote(n.id);
+    const tags = (document.getElementById('draftTags').value || '').split(/\s+/).map(x => x.startsWith('#') ? x.slice(1) : x).filter(Boolean);
+    const newNote = createNote({ title: t, content: document.getElementById('draftContent').value, tags, projectId, type, pinned: document.getElementById('draftPinned').checked });
+    // If there are sketches attached to the draft, assign them as attachments to the new note
+    if (window._draftSketches && window._draftSketches.length) {
+      // Clone sketches to avoid reusing the same object reference
+      newNote.attachments = window._draftSketches.map(att => ({ ...att }));
+      save();
+      // Clear the draft sketches so they don't leak into subsequent drafts
+      window._draftSketches = [];
+    }
+    openNote(newNote.id);
   };
   
   // Add Ctrl+S shortcut for draft save
@@ -571,7 +642,22 @@ function renderToday(){
   const key = selectedDailyDate || todayKey();
   const daily = db.notes.find(n=>n.type==='daily' && n.dateIndex===key) || null;
   // Exclude archived tasks (deletedAt) when gathering project tasks pool
-  const projectTasks = db.tasks.filter(t=> t.projectId && !t.noteId && t.status!=='BACKLOG' && !t.deletedAt).sort((a,b)=> { const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); });
+  // Gather project tasks for today. Exclude backlog tasks and completed tasks so
+  // that only outstanding items appear in the Today view. Deleted tasks are
+  // also excluded.
+  const projectTasks = db.tasks
+    .filter(
+      (t) =>
+        t.projectId &&
+        !t.noteId &&
+        t.status !== 'BACKLOG' &&
+        t.status !== 'DONE' &&
+        !t.deletedAt
+    )
+    .sort((a, b) => {
+      const priorities = { high: 3, medium: 2, low: 1 };
+      return (priorities[b.priority] || 2) - (priorities[a.priority] || 2);
+    });
   if(!daily){
     const tpl = db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n";
     content.innerHTML = `
@@ -757,14 +843,32 @@ function renderToday(){
     list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); drawProjectTasks(); drawBacklog(); });
     list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
   }
-  function drawBacklog(){ const list = $("#backlogList"); if(!list || list.style.display==='none') return; const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status==='BACKLOG' && !t.deletedAt); list.innerHTML = tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;'>
+  function drawBacklog(){
+    const list = $("#backlogList");
+    if(!list || list.style.display==='none') return;
+    const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status==='BACKLOG' && !t.deletedAt);
+    // Compose a header showing backlog count styled like the project page
+    let html = `<div class='muted' style='font-size:12px;margin-bottom:4px;'>Backlog (${tasks.length})</div>`;
+    if (tasks.length) {
+      html += tasks
+        .map(t =>
+          `<div class='row' style='justify-content:space-between;'>
       <span class='muted' style='font-size:12px;'>${htmlesc(t.title)}</span>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-r='${t.id}' style='font-size:11px;'>Restore</button>
         <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
       </div>
-    </div>`).join('') : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`; list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=>{ setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawBacklog(); }); }
-  function drawProjectTasks(){ const list = $("#projectTaskList"); if(!list) return; const tasks = projectTasks.slice(0,10); list.innerHTML = tasks.map(t=> { const proj=db.projects.find(p=>p.id===t.projectId); const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;'>
+    </div>`
+        )
+        .join('');
+    } else {
+      html += `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`;
+    }
+    list.innerHTML = html;
+    list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=>{ setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); });
+    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawBacklog(); });
+  }
+  function drawProjectTasks(){ const list = $("#projectTaskList"); if(!list) return; const tasks = db.tasks.filter(t=> t.projectId && !t.noteId && t.status!=='BACKLOG' && t.status!=='DONE' && !t.deletedAt).sort((a,b)=>{ const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); }).slice(0,10); list.innerHTML = tasks.map(t=> { const proj=db.projects.find(p=>p.id===t.projectId); const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
         <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
         <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;'>${htmlesc(t.title)}${t.due ? ` <span class='pill'>${new Date(t.due).toLocaleDateString()}</span>` : ''} <span class='pill'>${proj?htmlesc(proj.name):'Unknown'}</span></span>
@@ -1030,7 +1134,10 @@ function renderReview(){
     const note = t.noteId ? db.notes.find(n=> n.id === t.noteId) : null;
     const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type === 'daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
     const dateStr = t.completedAt ? new Date(t.completedAt).toLocaleDateString() : '';
-    return `<div class='row' style='justify-content:space-between;'><span style='flex:1;'>${htmlesc(t.title)} ${ctx} <span class='pill'>${dateStr}</span></span></div>`;
+    return `<div class='row' style='justify-content:space-between;align-items:center;'>
+      <span style='flex:1;'>${htmlesc(t.title)} ${ctx} <span class='pill'>${dateStr}</span></span>
+      <button class='btn' data-restore='${t.id}' style='font-size:11px;'>Restore</button>
+    </div>`;
   }).join('') : '<div class="muted">No completed tasks</div>';
 
   content.innerHTML = `
@@ -1140,7 +1247,22 @@ function renderReview(){
   content.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> openNote(b.dataset.open));
   content.querySelectorAll('[data-open-note]').forEach(b=> b.onclick=()=> openNote(b.dataset.openNote));
   content.querySelectorAll('[data-done]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.done,'DONE'); renderReview(); });
-  content.querySelectorAll('[data-restore]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.restore,'TODO'); renderReview(); });
+  content.querySelectorAll('[data-restore]').forEach(b=> b.onclick=()=>{
+    const id = b.dataset.restore;
+    const task = db.tasks.find(t => t.id === id);
+    if(task){
+      // If restoring a completed task (status DONE), reassign it to today's daily note
+      if(task.status === 'DONE'){
+        const key = selectedDailyDate || todayKey();
+        let daily = db.notes.find(n => n.type === 'daily' && n.dateIndex === key);
+        if(!daily) daily = createDailyNoteFor(key);
+        // Assign task to today's daily note
+        task.noteId = daily.id;
+      }
+    }
+    setTaskStatus(id,'TODO');
+    renderReview();
+  });
   content.querySelectorAll('[data-tag]').forEach(b=> b.onclick=()=>{ route='vault'; document.getElementById('q').value='#'+b.dataset.tag; render(); });
 
   // Trash handlers
@@ -2094,6 +2216,257 @@ function openNote(id){
   }
 }
 
+// --- Sketch modal functionality ---
+// Opens a modal with a canvas for drawing sketches. Users can draw with touch or mouse,
+// choose brush color and size, undo strokes, clear the canvas, and insert the drawing
+// into the current note or draft as a Markdown image. The modal uses elements defined
+// in index.html with IDs: sketchModal, sketchPad, sketchColor, sketchSize, sketchUndo,
+// sketchClear, sketchInsert and sketchClose.
+function openSketchModal(noteId) {
+  const modal = document.getElementById('sketchModal');
+  const canvas = document.getElementById('sketchPad');
+  if (!modal || !canvas) return;
+  const ctx = canvas.getContext('2d');
+  const colorInput = document.getElementById('sketchColor');
+  const sizeInput = document.getElementById('sketchSize');
+  const undoBtn = document.getElementById('sketchUndo');
+  const clearBtn = document.getElementById('sketchClear');
+  const insertBtn = document.getElementById('sketchInsert');
+  const closeBtn = document.getElementById('sketchClose');
+  // Drawing state
+  let drawing = false;
+  let lines = [];
+  let currentLine = [];
+  let brushColor = colorInput ? colorInput.value : '#ffffff';
+  let brushSize = sizeInput ? parseInt(sizeInput.value, 10) : 3;
+  // Resize canvas to fit its container while preserving aspect ratio
+  function resizeCanvas() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const maxWidth = rect.width - 32; // leave padding
+    const ratio = canvas.height / canvas.width;
+    canvas.width = maxWidth > 0 ? maxWidth : 600;
+    canvas.height = canvas.width * ratio;
+    // Clear and redraw existing lines
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    lines.forEach(line => {
+      ctx.strokeStyle = line.color;
+      ctx.lineWidth = line.size;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      line.points.forEach((pt, idx) => {
+        if (idx === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      });
+      ctx.stroke();
+    });
+  }
+  // Convert pointer/touch event to canvas coordinates
+  function getCanvasPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    let clientX, clientY;
+    if (e.touches && e.touches.length) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }
+  function startDrawing(e) {
+    e.preventDefault();
+    drawing = true;
+    currentLine = [];
+    const pos = getCanvasPos(e);
+    currentLine.push(pos);
+  }
+  function draw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const pos = getCanvasPos(e);
+    currentLine.push(pos);
+    const len = currentLine.length;
+    if (len > 1) {
+      const p1 = currentLine[len - 2];
+      const p2 = currentLine[len - 1];
+      ctx.strokeStyle = brushColor;
+      ctx.lineWidth = brushSize;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+    }
+  }
+  function stopDrawing(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    drawing = false;
+    if (currentLine.length) {
+      lines.push({ points: currentLine.slice(), color: brushColor, size: brushSize });
+    }
+  }
+  function undoStroke() {
+    if (!lines.length) return;
+    lines.pop();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    lines.forEach(line => {
+      ctx.strokeStyle = line.color;
+      ctx.lineWidth = line.size;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      line.points.forEach((pt, idx) => {
+        if (idx === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      });
+      ctx.stroke();
+    });
+  }
+  function clearCanvas() {
+    lines = [];
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+  function closeModal() {
+    modal.style.display = 'none';
+    canvas.removeEventListener('pointerdown', startDrawing);
+    canvas.removeEventListener('pointermove', draw);
+    canvas.removeEventListener('pointerup', stopDrawing);
+    canvas.removeEventListener('pointerleave', stopDrawing);
+    canvas.removeEventListener('touchstart', startDrawing);
+    canvas.removeEventListener('touchmove', draw);
+    canvas.removeEventListener('touchend', stopDrawing);
+    if (undoBtn) undoBtn.removeEventListener('click', undoStroke);
+    if (clearBtn) clearBtn.removeEventListener('click', clearCanvas);
+    if (insertBtn) insertBtn.removeEventListener('click', handleInsert);
+    if (closeBtn) closeBtn.removeEventListener('click', closeModal);
+    if (colorInput) colorInput.removeEventListener('change', updateColor);
+    if (sizeInput) sizeInput.removeEventListener('change', updateSize);
+  }
+  function handleInsert() {
+    const dataURL = canvas.toDataURL('image/png');
+    // If inserting into an existing note, attach as an attachment rather than inline markdown
+    if (noteId === '__draft__') {
+      // For drafts, accumulate sketches as attachments in a global array. These will
+      // be applied as attachments when the draft is saved. Do not insert
+      // markdown into the draft content.
+      if (!window._draftSketches) window._draftSketches = [];
+      const sketchName = `Sketch ${window._draftSketches.length + 1}.png`;
+      window._draftSketches.push({ id: uid(), name: sketchName, type: 'image/png', data: dataURL });
+    } else {
+      // For an existing note, attach the sketch directly to the note's attachments array.
+      const note = db.notes.find(n => n.id === noteId);
+      if (note) {
+        if (!note.attachments) note.attachments = [];
+        const sketchName = `Sketch ${note.attachments.length + 1}.png`;
+        note.attachments.push({ id: uid(), name: sketchName, type: 'image/png', data: dataURL });
+        save();
+        // Update the attachments list if the note editor is open.
+        const attList = document.getElementById('attachments');
+        if (attList) {
+          // Simple re-render: rebuild the list and bind remove handlers.
+          if (!note.attachments || note.attachments.length === 0) {
+            attList.innerHTML = '';
+          } else {
+            attList.innerHTML = note.attachments.map(att => {
+              const isImg = att.type && att.type.startsWith('image');
+              const preview = isImg ? `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />` : `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+              return `<div class='row' style='justify-content:space-between;align-items:center;'>
+        <div style='flex:1;'>${preview}</div>
+        <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
+      </div>`;
+            }).join('');
+            attList.querySelectorAll('[data-remove]').forEach(b => {
+              b.onclick = () => {
+                const id = b.dataset.remove;
+                note.attachments = note.attachments.filter(x => x.id !== id);
+                save();
+                // Refresh list after deletion
+                if (!note.attachments || note.attachments.length === 0) {
+                  attList.innerHTML = '';
+                } else {
+                  attList.innerHTML = note.attachments.map(att => {
+                    const isImg2 = att.type && att.type.startsWith('image');
+                    const preview2 = isImg2 ? `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />` : `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+                    return `<div class='row' style='justify-content:space-between;align-items:center;'>
+        <div style='flex:1;'>${preview2}</div>
+        <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
+      </div>`;
+                  }).join('');
+                  // Re-bind remove handlers after updating
+                  attList.querySelectorAll('[data-remove]').forEach(btn => {
+                    btn.onclick = () => {
+                      const id2 = btn.dataset.remove;
+                      note.attachments = note.attachments.filter(x => x.id !== id2);
+                      save();
+                      if (!note.attachments || note.attachments.length === 0) {
+                        attList.innerHTML = '';
+                      } else {
+                        attList.innerHTML = note.attachments.map(att => {
+                          const isImg3 = att.type && att.type.startsWith('image');
+                          const preview3 = isImg3 ? `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />` : `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+                          return `<div class='row' style='justify-content:space-between;align-items:center;'>
+        <div style='flex:1;'>${preview3}</div>
+        <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
+      </div>`;
+                        }).join('');
+                        // Final re-bind to avoid stale handlers
+                        attList.querySelectorAll('[data-remove]').forEach(reBtn => {
+                          reBtn.onclick = () => {
+                            const id3 = reBtn.dataset.remove;
+                            note.attachments = note.attachments.filter(x => x.id !== id3);
+                            save();
+                            if (!note.attachments || note.attachments.length === 0) {
+                              attList.innerHTML = '';
+                            } else {
+                              attList.innerHTML = note.attachments.map(att => {
+                                const isImg4 = att.type && att.type.startsWith('image');
+                                const preview4 = isImg4 ? `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />` : `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+                                return `<div class='row' style='justify-content:space-between;align-items:center;'>
+        <div style='flex:1;'>${preview4}</div>
+        <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
+      </div>`;
+                              }).join('');
+                            }
+                          };
+                        });
+                      }
+                    };
+                  });
+                }
+              };
+            });
+          }
+        }
+      }
+    }
+    closeModal();
+  }
+  function updateColor() { brushColor = colorInput.value; }
+  function updateSize() { brushSize = parseInt(sizeInput.value, 10) || 3; }
+  // Show modal and set canvas size
+  modal.style.display = 'flex';
+  resizeCanvas();
+  // Attach listeners
+  canvas.addEventListener('pointerdown', startDrawing);
+  canvas.addEventListener('pointermove', draw);
+  canvas.addEventListener('pointerup', stopDrawing);
+  canvas.addEventListener('pointerleave', stopDrawing);
+  canvas.addEventListener('touchstart', startDrawing, { passive: false });
+  canvas.addEventListener('touchmove', draw, { passive: false });
+  canvas.addEventListener('touchend', stopDrawing);
+  if (undoBtn) undoBtn.addEventListener('click', undoStroke);
+  if (clearBtn) clearBtn.addEventListener('click', clearCanvas);
+  if (insertBtn) insertBtn.addEventListener('click', handleInsert);
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (colorInput) colorInput.addEventListener('change', updateColor);
+  if (sizeInput) sizeInput.addEventListener('change', updateSize);
+  // Resize canvas on window resize
+  window.addEventListener('resize', resizeCanvas, { once: true });
+}
+
 // --- Global app logic ---
 function render(){
   // When rendering a new section (today, projects, ideas, etc.), we are no longer editing a note.
@@ -2318,7 +2691,10 @@ document.addEventListener("keydown", (e)=>{
 });
 
 // Export
-document.addEventListener('DOMContentLoaded', ()=>{
+// Make this DOMContentLoaded handler asynchronous so we can await
+// initialization functions such as initApp(). Without the async keyword,
+// using await inside will cause a syntax error.
+document.addEventListener('DOMContentLoaded', async () => {
   const exportBtn = document.getElementById('exportBtn');
   if(exportBtn){
     exportBtn.onclick = ()=>{
@@ -2363,7 +2739,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(e.target.matches('main, main *')){ document.body.classList.remove('drawer-open'); }
     }
   });
-  initApp();
+  // Await initialization to avoid race conditions on first user actions.
+  await initApp();
+  // Begin checking for due task notifications after the app has been
+  // initialized. This ensures db is loaded and available.
+  startDueTaskNotifications();
 });
 
 // ------------------------------------------------------------------
