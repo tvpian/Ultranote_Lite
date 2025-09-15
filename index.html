@@ -73,6 +73,8 @@
       <button id="exportBtn" class="btn acc">Export</button>
       <label class="muted" style="margin-left:8px;"><input id="dailyRollover" type="checkbox"> Rollover incomplete tasks daily</label>
       <label class="muted" style="margin-left:8px;"><input id="autoCarryTasks" type="checkbox"> Auto-carry project tasks</label>
+      <!-- Auto reload toggle to allow disabling periodic sync -->
+      <label class="muted" style="margin-left:8px;"><input id="autoReload" type="checkbox"> Auto-sync updates</label>
       <button id="themeToggle" class="btn" title="Toggle light/dark mode" style="margin-left:8px;">🌓</button>
       <button id="logoutBtn" class="btn danger">Logout</button>
     </div>
@@ -145,6 +147,69 @@
         <button class="btn" id="sketchClear">Clear</button>
         <button class="btn acc" id="sketchInsert">Insert</button>
         <button class="btn" id="sketchClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Voice recorder modal -->
+  <div id="voiceModal" class="hidden">
+    <div class="sketchInner">
+      <div class="row" style="flex-wrap:wrap;gap:10px;align-items:center;">
+        <button id="voiceStart" class="btn">Start</button>
+        <button id="voiceStop" class="btn" disabled>Stop</button>
+        <button id="voiceInsert" class="btn acc" disabled>Attach</button>
+        <button id="voiceClose" class="btn">Close</button>
+        <span id="voiceTimer" class="muted">00:00</span>
+      </div>
+      <div style="margin-top:10px;">
+        <audio id="voicePreview" controls style="width:100%;"></audio>
+      </div>
+      <!-- Fallback file input for devices/browsers where MediaRecorder is unavailable or mic access fails. -->
+      <!-- Hidden by default; triggered programmatically when needed. -->
+      <input id="voiceFileFallback" type="file" accept="audio/*" capture="microphone" class="hidden" />
+    </div>
+  </div>
+
+  <!-- Link note modal -->
+  <div id="linkModal" class="hidden">
+    <div class="sketchInner">
+      <h3 style="margin-top:0;">Link Note</h3>
+      <!-- Added search box to filter notes when linking -->
+      <input id="linkSearch" type="text" placeholder="Search notes…" style="width:100%; padding:8px; background:var(--input-bg); border:1px solid var(--input-border); color:var(--fg); border-radius:8px; margin-bottom:8px;" />
+      <select id="linkSelect" style="width:100%; padding:8px; background:var(--input-bg); border:1px solid var(--input-border); color:var(--fg); border-radius:8px;"></select>
+      <div class="row" style="margin-top:12px; justify-content:flex-end; gap:8px;">
+        <button id="linkAdd" class="btn acc">Add</button>
+        <button id="linkCancel" class="btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task edit modal -->
+  <div id="taskModal" class="hidden">
+    <div class="sketchInner">
+      <h3 style="margin-top:0;">Edit Task</h3>
+      <div class="list" style="gap:8px;">
+        <label style="font-size:12px;">Title <input id="taskEditTitle" type="text"/></label>
+        <label style="font-size:12px;">Priority
+          <select id="taskEditPriority">
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <label style="font-size:12px;">Due <input id="taskEditDue" type="date"/></label>
+        <label style="font-size:12px;">Description <textarea id="taskEditDesc" style="min-height:80px;"></textarea></label>
+        <div>
+          <div class="row" style="justify-content:space-between;align-items:center;">
+            <strong style="font-size:12px;">Subtasks</strong>
+            <button id="subtaskAdd" class="btn" style="font-size:12px;">Add Subtask</button>
+          </div>
+          <div id="subtaskList" class="list" style="margin-top:6px;"></div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px; justify-content:flex-end; gap:8px; flex-wrap:wrap;">
+        <button id="taskSave" class="btn acc">Save</button>
+        <button id="taskCancel" class="btn">Cancel</button>
       </div>
     </div>
   </div>
@@ -395,7 +460,22 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
 function renderToday(){
   const key = selectedDailyDate || todayKey();
   const daily = db.notes.find(n=>n.type==='daily' && n.dateIndex===key) || null;
-  const projectTasks = db.tasks.filter(t=> t.projectId && !t.noteId && t.status!=='BACKLOG').sort((a,b)=> { const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); });
+  // Recompute the list of open project tasks for Today on each render.
+  // Exclude tasks that are backlogged, completed or soft-deleted. Sorting by
+  // priority ensures high priority tasks appear first.
+  const projectTasks = db.tasks
+    .filter(
+      (t) =>
+        t.projectId &&
+        !t.noteId &&
+        t.status !== 'BACKLOG' &&
+        t.status !== 'DONE' &&
+        !t.deletedAt
+    )
+    .sort((a, b) => {
+      const priorities = { high: 3, medium: 2, low: 1 };
+      return (priorities[b.priority] || 2) - (priorities[a.priority] || 2);
+    });
   if(!daily){
     const tpl = db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n";
     content.innerHTML = `
@@ -485,7 +565,23 @@ function renderToday(){
       </div>
     </div>`; }).join('');
     list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawTasks(); drawBacklog(); });
-    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(); drawTasks(); drawProjectTasks(); drawBacklog(); });
+    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ 
+      console.log('Delete button clicked for daily task:', b.dataset.del);
+      if (typeof deleteTask === 'function') {
+        deleteTask(b.dataset.del); 
+        drawTasks(); drawProjectTasks(); drawBacklog();
+      } else {
+        console.error('deleteTask function not available');
+        // Fallback to direct deletion if deleteTask is not available
+        const taskId = b.dataset.del;
+        const t = db.tasks.find(x => x.id === taskId);
+        if (t) {
+          t.deletedAt = new Date().toISOString();
+          save();
+          drawTasks(); drawProjectTasks(); drawBacklog();
+        }
+      }
+    });
     list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
   }
   function drawBacklog(){ const list = $("#backlogList"); if(!list || list.style.display==='none') return; const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status==='BACKLOG'); list.innerHTML = tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;'>
@@ -494,17 +590,71 @@ function renderToday(){
         <button class='btn' data-r='${t.id}' style='font-size:11px;'>Restore</button>
         <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
       </div>
-    </div>`).join('') : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`; list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=>{ setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(); drawBacklog(); }); }
-  function drawProjectTasks(){ const list = $("#projectTaskList"); if(!list) return; const tasks = projectTasks.slice(0,10); list.innerHTML = tasks.map(t=> { const proj=db.projects.find(p=>p.id===t.projectId); const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;'>
+    </div>`).join('') : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`; list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=>{ setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ 
+      console.log('Delete button clicked for backlog task:', b.dataset.del);
+      if (typeof deleteTask === 'function') {
+        deleteTask(b.dataset.del); 
+        drawBacklog();
+      } else {
+        console.error('deleteTask function not available');
+        // Fallback to direct deletion if deleteTask is not available
+        const taskId = b.dataset.del;
+        const t = db.tasks.find(x => x.id === taskId);
+        if (t) {
+          t.deletedAt = new Date().toISOString();
+          save();
+          drawBacklog();
+        }
+      }
+    }); }
+  function drawProjectTasks(){
+    const list = $("#projectTaskList");
+    if(!list) return;
+    // Include tasks even if they have a deletedAt flag. Some legacy data may mark
+    // recently created tasks as deleted due to old versions. We only exclude
+    // completed and backlogged tasks.
+    const tasks = db.tasks
+      .filter(t =>
+        t.projectId && !t.noteId && t.status !== 'BACKLOG' && t.status !== 'DONE'
+      )
+      .sort((a, b) => {
+        const priorities = { high: 3, medium: 2, low: 1 };
+        return (priorities[b.priority] || 2) - (priorities[a.priority] || 2);
+      });
+    list.innerHTML = tasks.map(t => {
+      const proj = db.projects.find(p => p.id === t.projectId);
+      const colors = { high: '#ff6b6b', medium: '#4ea1ff', low: '#64748b' };
+      return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
         <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
-        <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;'>${htmlesc(t.title)} <span class='pill'>${proj?htmlesc(proj.name):'Unknown'}</span></span>
+        <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;'>${htmlesc(t.title)}${t.due ? ` <span class='pill'>${new Date(t.due).toLocaleDateString()}</span>` : ''} <span class='pill'>${proj?htmlesc(proj.name):'Unknown'}</span></span>
       </label>
       <div class='row' style='gap:6px;'>
+        <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
         ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
         <button class='btn' data-del='${t.id}'>✕</button>
       </div>
-    </div>`; }).join(''); list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawProjectTasks(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(); drawProjectTasks(); }); list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawProjectTasks(); });
+    </div>`; }).join('');
+      list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawProjectTasks(); });
+      list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ 
+        console.log('Delete button clicked for task:', b.dataset.del);
+        if (typeof deleteTask === 'function') {
+          deleteTask(b.dataset.del); 
+          drawProjectTasks();
+        } else {
+          console.error('deleteTask function not available');
+          // Fallback to direct deletion if deleteTask is not available
+          const taskId = b.dataset.del;
+          const t = db.tasks.find(x => x.id === taskId);
+          if (t) {
+            t.deletedAt = new Date().toISOString();
+            save();
+            drawProjectTasks();
+          }
+        }
+      });
+      list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawProjectTasks(); });
+      list.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{ openTaskModal(b.dataset.edit); });
   }
   drawTasks(); drawBacklog();
 }
@@ -619,14 +769,34 @@ function renderProjects(){
           ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
           <button class='btn' data-del='${t.id}'>✕</button>
         </div>
-      </div>`; }).join(""); list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked?"DONE":"TODO"); drawTasks(); refreshStats(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(db); drawTasks(); refreshStats(); drawBacklog(); }); list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); refreshStats(); }); }
-  function drawBacklog(){ const list = document.getElementById('projBacklogList'); const tasks = getProjectBacklog(); list.innerHTML = `<div class='muted' style='font-size:12px;margin-bottom:4px;'>Backlog (${tasks.length})</div>` + (tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;'>
-      <span class='muted' style='font-size:12px;'>${htmlesc(t.title)}</span>
-      <div class='row' style='gap:6px;'>
-        <button class='btn' data-r='${t.id}' style='font-size:11px;'>Restore</button>
-        <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
-      </div>
-    </div>`).join("") : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`); list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=> { setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> { db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(db); drawBacklog(); refreshStats(); });
+      </div>`; }).join("");
+    list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked?"DONE":"TODO"); drawTasks(); refreshStats(); drawBacklog(); });
+    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ db.tasks = db.tasks.filter(x=>x.id!==b.dataset.del); save(); drawTasks(); refreshStats(); drawBacklog(); });
+    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); refreshStats(); }); }
+  function drawBacklog(){
+    const list = document.getElementById('projBacklogList');
+    const tasks = getProjectBacklog();
+    list.innerHTML = `<div class='muted' style='font-size:12px;margin-bottom:4px;'>Backlog (${tasks.length})</div>` +
+      (tasks.length ? tasks.map(t => `
+        <div class='row' style='justify-content:space-between;'>
+          <span class='muted' style='font-size:12px;'>${htmlesc(t.title)}</span>
+          <div class='row' style='gap:6px;'>
+            <button class='btn' data-r='${t.id}' style='font-size:11px;'>Restore</button>
+            <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
+          </div>
+        </div>
+      `).join("") : `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`);
+    list.querySelectorAll('[data-r]').forEach(b => b.onclick = () => {
+      setTaskStatus(b.dataset.r,'TODO');
+      drawTasks();
+      drawBacklog();
+    });
+    list.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+      db.tasks = db.tasks.filter(x => x.id !== b.dataset.del);
+      save();
+      drawBacklog();
+      refreshStats();
+    });
   }
   drawTasks();
   drawNotes();

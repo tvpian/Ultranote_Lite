@@ -164,7 +164,9 @@ nav button.active {
   border: 1px solid var(--input-border);
   border-radius: 8px;
   padding: 6px;
-  height: 160px;
+  /* Let the container grow up to seven rows (~28px each) and scroll if necessary. */
+  max-height: 196px;
+  overflow-y: auto;
 }
 
 .monthly-day-option {
@@ -386,6 +388,32 @@ nav button.active {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+/* Responsive grid: stack cards on narrow screens */
+@media (max-width: 600px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Review page specific layout tweaks */
+.review .row {
+  /* Allow rows to wrap on small screens so content doesn’t overflow */
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+/* Keep inner action rows (button groups) on one line */
+.review .row > .row {
+  flex-wrap: nowrap;
+}
+
+/* Allow tables in review to scroll horizontally if they exceed width */
+.review table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 footer {
@@ -854,6 +882,88 @@ a {
     width: 100%;
   }
 
+/* Voice recorder modal */
+#voiceModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 16px;
+}
+
+#voiceModal.show {
+  display: flex;
+}
+
+#voiceModal .sketchInner {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  max-width: 100%;
+}
+
+/* Make the mobile bar scroll horizontally on small screens */
+#mobileBar {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+}
+
+#mobileBar .btn {
+  /* Override inline flex values on mobile bar buttons to allow horizontal scrolling */
+  flex: 0 0 auto !important;
+  scroll-snap-align: start;
+  white-space: nowrap;
+}
+
+/* Add subtle gradient edges to hint scrollability */
+#mobileBar::before,
+#mobileBar::after {
+  content: "";
+  position: sticky;
+  top: 0;
+  width: 16px;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+
+#mobileBar::before {
+  left: 0;
+  background: linear-gradient(to right, var(--header-bg), rgba(14, 20, 29, 0));
+}
+
+#mobileBar::after {
+  right: 0;
+  background: linear-gradient(to left, var(--header-bg), rgba(14, 20, 29, 0));
+}
+
+/* Monthly day selector overflow adjustments */
+.monthly-days-grid {
+  overflow-y: auto;
+  max-height: 196px;
+}
+
+.monthly .monthly-select select {
+  height: auto;
+  /* Match the height of seven day items (~196px) and allow scroll */
+  max-height: 196px;
+  overflow-y: auto;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.monthly-day-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
   /* Remove sticky positioning of project selector on mobile */
   #projectSelectorContainer {
     /* previously sticky; now static so it scrolls naturally */
@@ -882,4 +992,57 @@ a {
 .btn.danger:hover {
   background: var(--danger-color, #ff6b6b);
   color: var(--bg, #fff);
+}
+
+/* Modal styling for link and task edit modals */
+#linkModal,
+#taskModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 16px;
+}
+#linkModal.show,
+#taskModal.show {
+  display: flex;
+}
+#linkModal .sketchInner,
+#taskModal .sketchInner {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  max-width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* Simple mind map styling */
+.mind-map {
+  list-style: none;
+  padding-left: 0;
+}
+.mind-map ul {
+  list-style: none;
+  margin-left: 20px;
+  padding-left: 0;
+  border-left: 1px solid var(--border);
+}
+.mind-map li {
+  margin: 4px 0;
+  padding-left: 8px;
+  position: relative;
+}
+.mind-map li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.8em;
+  width: 12px;
+  height: 1px;
+  background: var(--border);
 }

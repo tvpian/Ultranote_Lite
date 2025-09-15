@@ -101,7 +101,7 @@ async function persistDB(){
 
 const seed = {
   version:1,
-  settings:{rollover:true, seenTip:false, autoCarryTasks:true, dailyTemplate:"# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"},
+  settings:{rollover:true, seenTip:false, autoCarryTasks:true, autoReload:true, dailyTemplate:"# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"},
   projects:[{id:"p1", name:"Sample Project", createdAt:nowISO()}],
   notes:[
     {id:"n1", title:"2025-01-01 — Daily", content:"# Top 3\n- [ ] Example task A\n- [ ] Example task B\n\n## Journal\nTried UltraNote Lite.\n", tags:[], projectId:null, dateIndex:"2025-01-01", type:"daily", createdAt:nowISO(), updatedAt:nowISO(), pinned:false},
@@ -255,13 +255,24 @@ async function initApp(){
 
 // Patch model functions to call save() without args
 function createNote({title, content="", tags=[], projectId=null, dateIndex=null, type="note", pinned=false}){
-  const n = { id:uid(), title, content, tags, projectId, dateIndex, type, pinned, createdAt:nowISO(), updatedAt:nowISO(), attachments: [] };
+  // Initialize each note with an empty links array so related notes can be stored
+  const n = { id:uid(), title, content, tags, projectId, dateIndex, type, pinned, createdAt:nowISO(), updatedAt:nowISO(), attachments: [], links: [] };
   db.notes.push(n); save(); return n;
 }
 function updateNote(id, patch){ const n=db.notes.find(x=>x.id===id); if(!n) return; Object.assign(n, patch, {updatedAt:nowISO()}); save(); return n; }
-function createTask({title, due=null, noteId=null, projectId=null, priority="medium"}){
-  const t = { id:uid(), title, status:"TODO", due, noteId, projectId, priority, createdAt:nowISO(), completedAt:null };
-  db.tasks.push(t); save(); return t;
+function createTask({title, due=null, noteId=null, projectId=null, priority="medium", description="", subtasks=[]}){
+  // Tasks now support an optional description and a list of subtasks. Subtasks should be an array of
+  // objects with id, title and status. If none provided, default to empty array.
+  const t = { id: uid(), title, status: "TODO", due, noteId, projectId, priority, description, subtasks, createdAt: nowISO(), completedAt: null };
+  db.tasks.push(t);
+  // When creating a project task, update the Today page counter if present. This must occur
+  // before returning so the counter updates immediately on task creation. Note: checking
+  // for existence of updateProjectTasksButton guards against calling it before it is defined.
+  if (projectId && typeof updateProjectTasksButton === 'function') {
+    updateProjectTasksButton();
+  }
+  save();
+  return t;
 }
 function setTaskStatus(id, status){
   const t = db.tasks.find(x => x.id === id);
@@ -272,25 +283,74 @@ function setTaskStatus(id, status){
   // If a project task status changes, update the Today page project tasks button count
   const ptBtn = document.getElementById('showProjectTasks');
   if (ptBtn) {
-    const count = db.tasks.filter(
-      (tk) =>
-        tk.projectId &&
-        !tk.noteId &&
-        tk.status !== 'BACKLOG' &&
-        tk.status !== 'DONE' &&
-        !tk.deletedAt
-    ).length;
-    ptBtn.textContent = `${count} project tasks`;
+    // Defer updating project tasks count to a helper for consistency
+    if (typeof updateProjectTasksButton === 'function') updateProjectTasksButton();
   }
 }
 // New helper to move a task to backlog
-function moveToBacklog(id){ const t=db.tasks.find(x=>x.id===id); if(!t) return; t.status='BACKLOG'; save(); }
+function moveToBacklog(id) {
+  const t = db.tasks.find(x => x.id === id);
+  if (!t) return;
+  // Mark task as backlog
+  t.status = 'BACKLOG';
+  save();
+  // If it's a project task (belongs to a project but not attached to a note) then update the
+  // project task button counter on the Today page. This ensures the badge reflects the new
+  // backlog status without automatically revealing the list.
+  if (t.projectId && !t.noteId && typeof updateProjectTasksButton === 'function') {
+    updateProjectTasksButton();
+  }
+}
 // Soft-delete a task by marking it archived. Tasks are not removed from DB to allow history viewing.
 function deleteTask(id){
   const t = db.tasks.find(x => x.id === id);
-  if(!t) return;
+  if (!t) return;
   t.deletedAt = nowISO();
   save();
+  // If deleting a project task, update the Today page project task counter. Removing
+  // the task from the DB should immediately reflect in the badge count.
+  if (t.projectId && !t.noteId && typeof updateProjectTasksButton === 'function') {
+    updateProjectTasksButton();
+  }
+}
+
+// Helper to update the project tasks button count on the Today page. This is used to reflect
+// the number of outstanding project tasks (not done or backlog) without automatically
+// revealing the list. It is safe to call even if the Today page is not currently rendered.
+function updateProjectTasksButton() {
+  const ptBtn = document.getElementById('showProjectTasks');
+  if (!ptBtn) return;
+  // Count outstanding project tasks (not completed, not backlogged) and exclude
+  // any tasks that have been soft-deleted. Without filtering deleted tasks, the
+  // badge count would not decrease after a user deletes a task. The old logic
+  // ignored deletedAt flags for legacy datasets, but this caused confusion when
+  // tasks remained visible after deletion. Now we treat deleted tasks as
+  // removed from the count.
+  const count = db.tasks.filter(
+    (t) =>
+      t.projectId &&
+      !t.noteId &&
+      t.status !== 'BACKLOG' &&
+      t.status !== 'DONE' &&
+      !t.deletedAt
+  ).length;
+  ptBtn.textContent = `${count} project tasks`;
+
+  // If the project task list is currently visible on the Today page, re-render it so
+  // that newly added or removed tasks appear immediately. Without this check, users
+  // reported the list not updating even though the counter changes.
+  const list = document.getElementById('projectTaskList');
+  if (list && list.style && list.style.display !== 'none') {
+    // drawProjectTasks is defined within renderToday. We guard against calling it
+    // outside of its scope by checking if it exists on the window or via closure.
+    try {
+      if (typeof drawProjectTasks === 'function') {
+        drawProjectTasks();
+      }
+    } catch (e) {
+      // If drawProjectTasks is not in scope (e.g., we are not on Today page), ignore
+    }
+  }
 }
 
 // === SOFT DELETE SYSTEM ===
@@ -359,6 +419,7 @@ const sections = [
   {id:"projects", label:"📁 Projects"},
   {id:"ideas", label:"💡 Ideas"},
   {id:"links", label:"🔗 Links"}, // NEW
+  {id:"map", label:"🗺️ Map"}, // NEW: map view to visualize note links
   {id:"vault", label:"🔍 Vault"},
   // NEW: monthly planning view
   {id:"monthly", label:"🗓️ Monthly"},
@@ -581,6 +642,8 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
   }
   // Reset draft sketches array when opening a new draft so previous sketches don't persist
   window._draftSketches = [];
+  // Reset draft voices array when opening a new draft so previous voices don't persist
+  window._draftVoices = [];
   content.innerHTML = `
     <div class="card">
       <div class="muted" style="margin-bottom:6px;">Draft (not saved yet)</div>
@@ -589,6 +652,7 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
         <input id="draftTags" type="text" placeholder="Tags (space separated)" />
         <label style="margin-left:8px;"><input id="draftPinned" type="checkbox"> Pin</label>
         <button id="draftAddSketch" class="btn" style="font-size:12px;">Add Sketch</button>
+        <button id="draftAddVoice" class="btn" style="font-size:12px;">Add Voice</button>
       </div>
       <div style="margin-top:8px;"><textarea id="draftContent" style="min-height:300px;">${htmlesc(contentTxt)}</textarea></div>
       <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;">
@@ -607,6 +671,14 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
       save();
       // Clear the draft sketches so they don't leak into subsequent drafts
       window._draftSketches = [];
+    }
+    // If there are voices attached to the draft, append them as attachments
+    if (window._draftVoices && window._draftVoices.length) {
+      if (!newNote.attachments) newNote.attachments = [];
+      newNote.attachments = newNote.attachments.concat(window._draftVoices.map(att => ({ ...att })));
+      save();
+      // Clear the draft voices so they don't leak into subsequent drafts
+      window._draftVoices = [];
     }
     openNote(newNote.id);
   };
@@ -635,6 +707,12 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
     openSketchModal('__draft__');
     // Monkey patch insertion handler after modal opens handled in existing code (not perfect, kept simple)
   };
+
+  // Voice button handler for draft
+  const addVoiceBtn = document.getElementById('draftAddVoice');
+  if(typeof openVoiceModal==='function' && addVoiceBtn){
+    addVoiceBtn.onclick = () => openVoiceModal('__draft__');
+  }
 }
 
 // --- Views ---
@@ -829,19 +907,39 @@ function renderToday(){
     const list = $("#taskList"); if(!list) return;
     const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG' && !t.deletedAt)
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
-    list.innerHTML = tasks.map(t=> { const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;'>
+    list.innerHTML = tasks.map(t=> {
+      const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'};
+      return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
         <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
         <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;'>${htmlesc(t.title)}${t.due ? ` <span class='pill'>${new Date(t.due).toLocaleDateString()}</span>` : ''}</span>
       </label>
       <div class='row' style='gap:6px;'>
+        <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
         ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
         <button class='btn' data-del='${t.id}' title='Delete'>✕</button>
       </div>
-    </div>`; }).join('');
+    </div>`;
+    }).join('');
+    // bind handlers
     list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawTasks(); drawBacklog(); });
-    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); drawProjectTasks(); drawBacklog(); });
-    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
+    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{
+      // Delete the task and re-render local lists. We intentionally avoid calling
+      // drawProjectTasks() here to prevent auto-revealing the project tasks list.
+      deleteTask(b.dataset.del);
+      drawTasks();
+      drawBacklog();
+      // Update the project task badge if necessary. deleteTask already triggers
+      // updateProjectTasksButton for project tasks, so no additional call needed.
+    });
+    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{
+      // Move task to backlog. Avoid calling drawProjectTasks() here to respect the
+      // user's toggle state. The badge will update via moveToBacklog().
+      moveToBacklog(b.dataset.b);
+      drawTasks();
+      drawBacklog();
+    });
+    list.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{ openTaskModal(b.dataset.edit); });
   }
   function drawBacklog(){
     const list = $("#backlogList");
@@ -868,17 +966,64 @@ function renderToday(){
     list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=>{ setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); });
     list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawBacklog(); });
   }
-  function drawProjectTasks(){ const list = $("#projectTaskList"); if(!list) return; const tasks = db.tasks.filter(t=> t.projectId && !t.noteId && t.status!=='BACKLOG' && t.status!=='DONE' && !t.deletedAt).sort((a,b)=>{ const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); }).slice(0,10); list.innerHTML = tasks.map(t=> { const proj=db.projects.find(p=>p.id===t.projectId); const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;'>
+  function drawProjectTasks(){
+    const list = $("#projectTaskList");
+    if(!list) return;
+    // Gather outstanding project tasks that are neither completed nor backlogged and have not
+    // been deleted. Filtering out tasks with a deletedAt flag ensures that once a user
+    // removes a task from a project it no longer appears in the Today page. Sorting
+    // prioritizes high-priority tasks first.
+    const tasks = db.tasks
+      .filter(t =>
+        t.projectId && !t.noteId && t.status !== 'BACKLOG' && t.status !== 'DONE' && !t.deletedAt
+      )
+      .sort((a, b) => {
+        const priorities = { high: 3, medium: 2, low: 1 };
+        return (priorities[b.priority] || 2) - (priorities[a.priority] || 2);
+      });
+    list.innerHTML = tasks
+      .map(t => {
+        const proj = db.projects.find(p => p.id === t.projectId);
+        const colors = { high: '#ff6b6b', medium: '#4ea1ff', low: '#64748b' };
+        return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
-        <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
-        <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;'>${htmlesc(t.title)}${t.due ? ` <span class='pill'>${new Date(t.due).toLocaleDateString()}</span>` : ''} <span class='pill'>${proj?htmlesc(proj.name):'Unknown'}</span></span>
+        <input type='checkbox' ${t.status === 'DONE' ? 'checked' : ''} data-id='${t.id}'/>
+        <span class='${t.status === 'DONE' ? 'muted' : ''}' style='border-left:3px solid ${colors[t.priority || 'medium']};padding-left:8px;'>${htmlesc(t.title)}${t.due ? ` <span class='pill'>${new Date(t.due).toLocaleDateString()}</span>` : ''} <span class='pill'>${proj ? htmlesc(proj.name) : 'Unknown'}</span></span>
       </label>
       <div class='row' style='gap:6px;'>
-        ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
+        <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
+        ${t.status !== 'DONE' ? `<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>` : ''}
         <button class='btn' data-del='${t.id}'>✕</button>
       </div>
-    </div>`; }).join(''); list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawProjectTasks(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawProjectTasks(); }); list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawProjectTasks(); });
+    </div>`;
+      })
+      .join('');
+    list.querySelectorAll("input[type=checkbox]").forEach(cb => (cb.onchange = () => {
+      setTaskStatus(cb.dataset.id, cb.checked ? 'DONE' : 'TODO');
+      drawProjectTasks();
+    }));
+    list.querySelectorAll('[data-del]').forEach(
+      b => (b.onclick = () => {
+        deleteTask(b.dataset.del);
+        drawProjectTasks();
+      })
+    );
+    list.querySelectorAll('[data-b]').forEach(
+      b => (b.onclick = () => {
+        moveToBacklog(b.dataset.b);
+        drawProjectTasks();
+      })
+    );
+    list.querySelectorAll('[data-edit]').forEach(
+      b => (b.onclick = () => {
+        openTaskModal(b.dataset.edit);
+      })
+    );
   }
+  // Expose the drawProjectTasks function globally so other helpers (like
+  // updateProjectTasksButton) can invoke it when necessary. This is safe
+  // because renderToday redefines drawProjectTasks on each invocation.
+  window.drawProjectTasks = drawProjectTasks;
   drawTasks(); drawBacklog();
 }
 function renderProjects(){
@@ -960,8 +1105,22 @@ function renderProjects(){
       </div>
     </div>`;
   // Exclude deleted tasks when retrieving project tasks/backlog
-  function getProjectTasks(){ return db.tasks.filter(t=> t.projectId===currentProjectId && t.status!=='BACKLOG' && !t.deletedAt); }
-  function getProjectBacklog(){ return db.tasks.filter(t=> t.projectId===currentProjectId && t.status==='BACKLOG' && !t.deletedAt); }
+  function getProjectTasks(){
+    // Exclude tasks that have been soft-deleted (deletedAt) or moved to backlog. Only
+    // return active tasks (TODO/DONE) for this project. Filtering out deleted tasks
+    // ensures that once a user deletes a project task it no longer appears in the list.
+    return db.tasks.filter(
+      t => t.projectId === currentProjectId && t.status !== 'BACKLOG' && !t.deletedAt
+    );
+  }
+  function getProjectBacklog(){
+    // Return backlog tasks for the current project, excluding any that have been
+    // soft-deleted. Without filtering deleted tasks, users would still see
+    // supposedly removed tasks in the backlog.
+    return db.tasks.filter(
+      t => t.projectId === currentProjectId && t.status === 'BACKLOG' && !t.deletedAt
+    );
+  }
   function getProjectNotes(){ return db.notes.filter(n=> n.projectId===currentProjectId && (!n.type || n.type==='note')); }
   function drawNotes(){
     const notes = getProjectNotes().sort((a,b)=> sortBy==="title"? a.title.localeCompare(b.title) : b.updatedAt.localeCompare(a.updatedAt));
@@ -1029,16 +1188,28 @@ function renderProjects(){
   document.getElementById("projTaskTitle").onkeydown = e=>{ if(e.key==="Enter") document.getElementById("projAddTask").click(); };
   document.getElementById("sortTitle").onclick = ()=>{ sortBy="title"; drawNotes(); };
   document.getElementById("sortDate").onclick = ()=>{ sortBy="date"; drawNotes(); };
-  function drawTasks(){ const tasks = getProjectTasks().sort((a,b)=>{ if(a.status !== b.status) return a.status==="DONE"?1:-1; const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); }); const list = document.getElementById("taskList"); list.innerHTML = tasks.map(t=>{ const colors={high:"#ff6b6b",medium:"#4ea1ff",low:"#64748b"}; return `<div class="row" style="justify-content:space-between;">
+  function drawTasks(){
+    const tasks = getProjectTasks().sort((a,b)=>{ if(a.status !== b.status) return a.status==="DONE"?1:-1; const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); });
+    const list = document.getElementById("taskList");
+    list.innerHTML = tasks.map(t=>{
+      const colors={high:"#ff6b6b",medium:"#4ea1ff",low:"#64748b"};
+      return `<div class="row" style="justify-content:space-between;">
         <label class="row" style="gap:8px;">
           <input type="checkbox" ${t.status==="DONE"?"checked":''} data-id="${t.id}"/>
           <span class="${t.status==='DONE'?'muted':''}" style="border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;">${htmlesc(t.title)}${t.due ? ` <span class='pill'>${new Date(t.due).toLocaleDateString()}</span>` : ''}</span>
         </label>
         <div class='row' style='gap:6px;'>
+          <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
           ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
           <button class='btn' data-del='${t.id}'>✕</button>
         </div>
-      </div>`; }).join(""); list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked?"DONE":"TODO"); drawTasks(); refreshStats(); drawBacklog(); }); list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); refreshStats(); drawBacklog(); }); list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); refreshStats(); }); }
+      </div>`;
+    }).join("");
+    list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked?"DONE":"TODO"); drawTasks(); refreshStats(); drawBacklog(); });
+    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); refreshStats(); drawBacklog(); });
+    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); refreshStats(); });
+    list.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{ openTaskModal(b.dataset.edit); });
+  }
   function drawBacklog(){ const list = document.getElementById('projBacklogList'); const tasks = getProjectBacklog(); list.innerHTML = `<div class='muted' style='font-size:12px;margin-bottom:4px;'>Backlog (${tasks.length})</div>` + (tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;'>
       <span class='muted' style='font-size:12px;'>${htmlesc(t.title)}</span>
       <div class='row' style='gap:6px;'>
@@ -1141,6 +1312,7 @@ function renderReview(){
   }).join('') : '<div class="muted">No completed tasks</div>';
 
   content.innerHTML = `
+    <div class="review">
     <div class="grid-2">
       <div class="card">
         <strong>📊 Analytics</strong>
@@ -1243,6 +1415,7 @@ function renderReview(){
         const count = noteCount + linkCount;
         return `<button class='pill' data-tag='${tag}' style='cursor:pointer;margin:2px;'>#${htmlesc(tag)} (${count})</button>`;
       }).join('') || '<div class="muted">No tags yet</div>'}</div>
+    </div>
     </div>`;
   content.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> openNote(b.dataset.open));
   content.querySelectorAll('[data-open-note]').forEach(b=> b.onclick=()=> openNote(b.dataset.openNote));
@@ -1296,6 +1469,210 @@ function renderReview(){
       renderReview();
     };
   }
+}
+
+// --- Map view ---
+function renderMap() {
+  // Build a structured mind-map view. We consider only notes that either link to others
+  // or are linked to. To make the visualization more intuitive, we treat notes with no
+  // incoming links as roots and build trees from them. If cycles exist, the first
+  // unvisited note becomes the root of its own tree. Each note appears only once to
+  // prevent infinite loops. This results in a clean, hierarchical overview of your
+  // linked notes network.
+  const notes = db.notes || [];
+  // Identify notes involved in at least one link (as source or target)
+  const connected = notes.filter(n => {
+    const hasOut = Array.isArray(n.links) && n.links.length > 0;
+    const hasIn = notes.some(other => Array.isArray(other.links) && other.links.includes(n.id));
+    return hasOut || hasIn;
+  });
+  // Build a map from note id to list of incoming link counts
+  const incomingCount = {};
+  connected.forEach(n => { incomingCount[n.id] = 0; });
+  connected.forEach(n => {
+    if (Array.isArray(n.links)) {
+      n.links.forEach(target => {
+        if (incomingCount[target] !== undefined) incomingCount[target]++;
+      });
+    }
+  });
+  // Determine root notes: those with no incoming links. If none found (cycle), treat
+  // all connected notes as potential roots and rely on visited set to avoid repeats.
+  const roots = connected.filter(n => incomingCount[n.id] === 0);
+  const visited = new Set();
+  function buildList(note, depth) {
+    // Avoid infinite recursion and deep nesting
+    if (!note || visited.has(note.id) || depth > 20) return '';
+    visited.add(note.id);
+    // Determine children from the note's links. Only include children that are in the
+    // connected set to avoid showing unrelated notes.
+    const children = Array.isArray(note.links) ? note.links.map(id => connected.find(m => m.id === id)).filter(Boolean) : [];
+    const childHtml = children.length
+      ? `<ul>${children.map(child => buildList(child, depth + 1)).join('')}</ul>`
+      : '';
+    return `<li><a href="#" data-note="${note.id}">${htmlesc(note.title)}</a>${childHtml}</li>`;
+  }
+  // Build HTML for the map. Use roots if available; otherwise fall back to all connected
+  // notes. Sorting by title improves predictability of ordering.
+  const sourceList = roots.length ? roots : connected;
+  sourceList.sort((a,b) => a.title.localeCompare(b.title));
+  const mapHtml = `<ul class="mind-map">${sourceList.map(n => {
+    if (visited.has(n.id)) return '';
+    return buildList(n, 0);
+  }).join('')}</ul>`;
+  content.innerHTML = `<div class="card"><h2>Note Map</h2>${mapHtml}</div>`;
+  // Bind click events on map links to open notes. Use event delegation for safety.
+  content.querySelectorAll('[data-note]').forEach(el => {
+    el.onclick = (e) => {
+      e.preventDefault();
+      const id = el.dataset.note;
+      openNote(id);
+    };
+  });
+}
+
+// --- Link note modal ---
+let _linkTargetNoteId = null;
+function openLinkModal(noteId) {
+  const modal = document.getElementById('linkModal');
+  const select = document.getElementById('linkSelect');
+  const searchInput = document.getElementById('linkSearch');
+  const addBtn = document.getElementById('linkAdd');
+  const cancelBtn = document.getElementById('linkCancel');
+  _linkTargetNoteId = noteId;
+  // Populate select with all other notes
+  const populate = (filter='') => {
+    const opts = db.notes.filter(n => n.id !== noteId && n.title.toLowerCase().includes(filter.toLowerCase())).map(n => `<option value="${n.id}">${htmlesc(n.title)}</option>`).join('');
+    select.innerHTML = opts;
+  };
+  // Reset search field and populate options
+  if(searchInput) searchInput.value = '';
+  populate('');
+  // Filter notes on input
+  if(searchInput) {
+    searchInput.oninput = () => {
+      populate(searchInput.value || '');
+    };
+  }
+  modal.classList.add('show');
+  // define handlers
+  addBtn.onclick = () => {
+    const selectedId = select.value;
+    if(selectedId) {
+      const note = db.notes.find(n => n.id === _linkTargetNoteId);
+      if(note) {
+        if(!Array.isArray(note.links)) note.links = [];
+        if(!note.links.includes(selectedId)) {
+          note.links.push(selectedId);
+          save();
+        }
+      }
+      modal.classList.remove('show');
+      // re-render linked notes list if editor is open
+      if(typeof window._renderLinkedNotes === 'function') {
+        window._renderLinkedNotes();
+      }
+    }
+  };
+  cancelBtn.onclick = () => {
+    modal.classList.remove('show');
+  };
+}
+
+// --- Task edit modal ---
+let _editingTaskId = null;
+function openTaskModal(taskId) {
+  const modal = document.getElementById('taskModal');
+  const titleEl = document.getElementById('taskEditTitle');
+  const priorityEl = document.getElementById('taskEditPriority');
+  const dueEl = document.getElementById('taskEditDue');
+  const descEl = document.getElementById('taskEditDesc');
+  const subtaskListEl = document.getElementById('subtaskList');
+  const addSubtaskBtn = document.getElementById('subtaskAdd');
+  const saveBtn = document.getElementById('taskSave');
+  const cancelBtn = document.getElementById('taskCancel');
+  const t = db.tasks.find(x => x.id === taskId);
+  if(!t) return;
+  _editingTaskId = taskId;
+  // Ensure subtasks array
+  if(!Array.isArray(t.subtasks)) t.subtasks = [];
+  // Populate fields
+  titleEl.value = t.title || '';
+  priorityEl.value = t.priority || 'medium';
+  dueEl.value = t.due ? new Date(t.due).toISOString().slice(0,10) : '';
+  descEl.value = t.description || '';
+  // Render subtasks
+  function renderSubtasks() {
+    subtaskListEl.innerHTML = t.subtasks.map(sub => {
+      return `<div class='row' data-subid='${sub.id}' style='gap:6px;align-items:center;'>
+        <input type='checkbox' class='subtask-status' ${sub.status==='DONE'?'checked':''} style='margin-right:4px;' />
+        <input type='text' class='subtask-title' value='${htmlesc(sub.title||'')}' style='flex:1;' />
+        <button class='btn' data-remove-sub='${sub.id}' style='font-size:11px;'>✕</button>
+      </div>`;
+    }).join('');
+    // Bind remove buttons
+    subtaskListEl.querySelectorAll('[data-remove-sub]').forEach(btn => {
+      btn.onclick = () => {
+        const subId = btn.dataset.removeSub;
+        t.subtasks = t.subtasks.filter(s => s.id !== subId);
+        renderSubtasks();
+      };
+    });
+  }
+  renderSubtasks();
+  addSubtaskBtn.onclick = () => {
+    // Before adding a new subtask, sync current UI values back into t.subtasks so that
+    // partially entered titles are not lost. We iterate over each row, preserving its
+    // id and reading the title/status from the inputs. Without this, adding a new
+    // subtask would re-render the list from the stale t.subtasks array and erase
+    // unsaved titles.
+    const rows = subtaskListEl.querySelectorAll('[data-subid]');
+    const updatedSubs = [];
+    rows.forEach(row => {
+      const sid = row.dataset.subid;
+      const titleVal = row.querySelector('.subtask-title').value.trim();
+      const statusVal = row.querySelector('.subtask-status').checked ? 'DONE' : 'TODO';
+      updatedSubs.push({ id: sid, title: titleVal, status: statusVal });
+    });
+    t.subtasks = updatedSubs;
+    // Add a new empty subtask placeholder
+    t.subtasks.push({ id: uid(), title: '', status: 'TODO' });
+    renderSubtasks();
+  };
+  // Save handler
+  saveBtn.onclick = () => {
+    t.title = titleEl.value.trim();
+    t.priority = priorityEl.value;
+    t.due = dueEl.value ? dueEl.value : null;
+    t.description = descEl.value;
+    // Update subtasks from UI
+    const rows = subtaskListEl.querySelectorAll('[data-subid]');
+    const newSubs = [];
+    rows.forEach(row => {
+      const id = row.dataset.subid;
+      const title = row.querySelector('.subtask-title').value.trim();
+      const status = row.querySelector('.subtask-status').checked ? 'DONE' : 'TODO';
+      newSubs.push({ id, title, status });
+    });
+    t.subtasks = newSubs;
+    // If all subtasks are done and at least one subtask exists, automatically mark the
+    // parent task as DONE; otherwise set it to TODO. This optional behavior helps
+    // streamline task management. If there are no subtasks, leave the status unchanged.
+    if (t.subtasks.length > 0) {
+      const allDone = t.subtasks.every(sub => sub.status === 'DONE');
+      t.status = allDone ? 'DONE' : 'TODO';
+      // record completion time if moving to DONE
+      t.completedAt = allDone ? nowISO() : null;
+    }
+    save();
+    modal.classList.remove('show');
+    // Re-render relevant views
+    render();
+  };
+  cancelBtn.onclick = () => {
+    modal.classList.remove('show');
+  };
+  modal.classList.add('show');
 }
 
 // --- Monthly planning view ---
@@ -1997,6 +2374,7 @@ function openNote(id){
         <input id="tags" type="text" placeholder="Tags (space separated)" value="${(n.tags||[]).map(t=>'#'+t).join(' ')}" />
         <label style="margin-left:8px;"><input id="pinned" type="checkbox" ${n.pinned?'checked':''}> Pin</label>
         <button id="addSketch" class="btn" style="font-size:12px;">Add Sketch</button>
+        <button id="addVoice" class="btn" style="font-size:12px;">Add Voice</button>
         <!-- Attachment uploader -->
         <label class="btn" for="noteAttachFile" style="font-size:12px;">Attach</label>
         <input id="noteAttachFile" type="file" class="hidden" multiple />
@@ -2010,6 +2388,14 @@ function openNote(id){
         <div id="markdownPreview" class="markdown-preview" style="min-height:300px; display:none;"></div>
       </div>
       <div id="attachments" class="list" style="margin-top:8px;"></div>
+      <!-- Linked notes section -->
+      <div id="linkedNotesSection" style="margin-top:8px;">
+        <div class="row" style="justify-content:space-between; align-items:center;">
+          <h3 style="margin:0;font-size:16px;">Linked Notes</h3>
+          <button id="addLinkBtn" class="btn" style="font-size:12px;">Add Link</button>
+        </div>
+        <div id="linkedNotesList" class="list" style="margin-top:6px;"></div>
+      </div>
       <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;">
         <button id="save" class="btn acc">Save</button>
         <button id="back" class="btn">Back</button>
@@ -2077,6 +2463,12 @@ function openNote(id){
   const addSketchBtn = document.getElementById('addSketch');
   if(typeof openSketchModal === 'function') addSketchBtn.onclick = ()=> openSketchModal(n.id);
 
+  // Voice button handler
+  const addVoiceBtn = document.getElementById('addVoice');
+  if(typeof openVoiceModal === 'function' && addVoiceBtn){
+    addVoiceBtn.onclick = () => openVoiceModal(n.id);
+  }
+
   // Attachments handling
   // Ensure attachments array exists on note
   if(!n.attachments) n.attachments = [];
@@ -2089,9 +2481,17 @@ function openNote(id){
       return;
     }
     attList.innerHTML = n.attachments.map(att=>{
-      // Show image preview for image types, else show file name
+      // Show image or audio preview for supported types, else show file name
       const isImg = att.type && att.type.startsWith('image');
-      const preview = isImg ? `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />` : `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+      const isAudio = att.type && att.type.startsWith('audio');
+      let preview;
+      if(isImg){
+        preview = `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />`;
+      } else if(isAudio){
+        preview = `<audio controls src="${att.data}" style="width:100%;"></audio>`;
+      } else {
+        preview = `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+      }
       return `<div class='row' style='justify-content:space-between;align-items:center;'>
         <div style='flex:1;'>${preview}</div>
         <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
@@ -2121,6 +2521,49 @@ function openNote(id){
       });
       // Reset input so same file can be selected again
       e.target.value = '';
+    };
+  }
+
+  // Expose attachment renderer so other modals (e.g., voice, sketch) can refresh attachments
+  window._renderAttachments = renderAttachmentsList;
+
+  // Ensure links array exists on the note
+  if(!Array.isArray(n.links)) n.links = [];
+  // Linked notes rendering
+  const linkListEl = document.getElementById('linkedNotesList');
+  function renderLinkedList() {
+    if(!linkListEl) return;
+    if(!n.links || n.links.length === 0) {
+      linkListEl.innerHTML = `<div class='muted' style='font-size:12px;'>No linked notes</div>`;
+    } else {
+      linkListEl.innerHTML = n.links.map(lid => {
+        const ln = db.notes.find(x => x.id === lid);
+        return ln ? `<div class='row' style='justify-content:space-between;align-items:center;'>
+          <a href='#' data-open-note='${ln.id}' style='flex:1;'>${htmlesc(ln.title)}</a>
+          <button class='btn' data-unlink='${lid}' style='font-size:11px;'>✕</button>
+        </div>` : '';
+      }).join('');
+    }
+    // Attach handlers
+    linkListEl.querySelectorAll('[data-open-note]').forEach(el => {
+      el.onclick = (ev) => { ev.preventDefault(); openNote(el.dataset.openNote); };
+    });
+    linkListEl.querySelectorAll('[data-unlink]').forEach(btn => {
+      btn.onclick = () => {
+        const idToRemove = btn.dataset.unlink;
+        n.links = n.links.filter(x => x !== idToRemove);
+        save();
+        renderLinkedList();
+      };
+    });
+  }
+  renderLinkedList();
+  // expose renderer to global so modal can refresh
+  window._renderLinkedNotes = renderLinkedList;
+  const addLinkBtn = document.getElementById('addLinkBtn');
+  if(addLinkBtn) {
+    addLinkBtn.onclick = () => {
+      openLinkModal(n.id);
     };
   }
 
@@ -2363,6 +2806,10 @@ function openSketchModal(noteId) {
         const sketchName = `Sketch ${note.attachments.length + 1}.png`;
         note.attachments.push({ id: uid(), name: sketchName, type: 'image/png', data: dataURL });
         save();
+        // Trigger global attachment re-renderer if available to ensure voice/sketch coexist
+        if (typeof window._renderAttachments === 'function') {
+          window._renderAttachments();
+        }
         // Update the attachments list if the note editor is open.
         const attList = document.getElementById('attachments');
         if (attList) {
@@ -2372,7 +2819,15 @@ function openSketchModal(noteId) {
           } else {
             attList.innerHTML = note.attachments.map(att => {
               const isImg = att.type && att.type.startsWith('image');
-              const preview = isImg ? `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />` : `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+              const isAudio = att.type && att.type.startsWith('audio');
+              let preview;
+              if (isImg) {
+                preview = `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />`;
+              } else if (isAudio) {
+                preview = `<audio controls src="${att.data}" style="width:100%;"></audio>`;
+              } else {
+                preview = `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+              }
               return `<div class='row' style='justify-content:space-between;align-items:center;'>
         <div style='flex:1;'>${preview}</div>
         <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
@@ -2389,7 +2844,15 @@ function openSketchModal(noteId) {
                 } else {
                   attList.innerHTML = note.attachments.map(att => {
                     const isImg2 = att.type && att.type.startsWith('image');
-                    const preview2 = isImg2 ? `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />` : `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+                    const isAudio2 = att.type && att.type.startsWith('audio');
+                    let preview2;
+                    if (isImg2) {
+                      preview2 = `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />`;
+                    } else if (isAudio2) {
+                      preview2 = `<audio controls src="${att.data}" style="width:100%;"></audio>`;
+                    } else {
+                      preview2 = `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+                    }
                     return `<div class='row' style='justify-content:space-between;align-items:center;'>
         <div style='flex:1;'>${preview2}</div>
         <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
@@ -2491,6 +2954,7 @@ function render(){
   else if(route==='vault') renderVault();
   else if(route==='monthly') renderMonthly(); // NEW
   else if(route==='review') renderReview();
+  else if(route==='map') renderMap(); // handle map view
   // Update mobile bar active states
   const mb = document.getElementById('mobileBar');
   if(mb){
@@ -2511,6 +2975,16 @@ function render(){
   if(autoCarryEl){
     autoCarryEl.checked = !!db.settings.autoCarryTasks;
     autoCarryEl.onchange = ()=>{ db.settings.autoCarryTasks = autoCarryEl.checked; save(db); };
+  }
+
+  // Bind auto-reload toggle. If undefined, default to true for legacy DBs.
+  const autoReloadEl = document.getElementById('autoReload');
+  if(autoReloadEl){
+    autoReloadEl.checked = (db.settings.autoReload !== false);
+    autoReloadEl.onchange = () => {
+      db.settings.autoReload = autoReloadEl.checked;
+      save(db);
+    };
   }
   const dateInput = document.getElementById('dailyDateNav');
   if(dateInput){
@@ -2548,6 +3022,247 @@ document.getElementById("addProject").onclick = ()=> { const name = document.get
   if(projInput){
     projInput.addEventListener('keydown', e=>{ if(e.key === 'Enter') document.getElementById('addProject').click(); });
   }
+}
+
+// --- Voice recorder modal ---
+function openVoiceModal(noteId) {
+  const modal = document.getElementById('voiceModal');
+  if (!modal) return;
+  const startBtn = document.getElementById('voiceStart');
+  const stopBtn = document.getElementById('voiceStop');
+  const insertBtn = document.getElementById('voiceInsert');
+  const closeBtn = document.getElementById('voiceClose');
+  const previewEl = document.getElementById('voicePreview');
+  const timerEl = document.getElementById('voiceTimer');
+  // Recording state
+  let chunks = [];
+  let mediaRecorder = null;
+  let timerInterval = null;
+  let startTime = 0;
+  // Update timer display
+  function updateTimer() {
+    const now = Date.now();
+    const elapsed = now - startTime;
+    const secs = Math.floor(elapsed / 1000);
+    const mins = String(Math.floor(secs / 60)).padStart(2, '0');
+    const sec = String(secs % 60).padStart(2, '0');
+    if (timerEl) timerEl.textContent = `${mins}:${sec}`;
+  }
+  // Reset state
+  function reset() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      try { mediaRecorder.stop(); } catch (err) { }
+    }
+    chunks = [];
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+    if (timerEl) timerEl.textContent = '00:00';
+    if (startBtn) startBtn.disabled = false;
+    if (stopBtn) stopBtn.disabled = true;
+    if (insertBtn) insertBtn.disabled = true;
+    if (previewEl) previewEl.src = '';
+    // Clear the fallback file input value so that subsequent recordings can re-trigger capture
+    const fallbackInput = document.getElementById('voiceFileFallback');
+    if (fallbackInput) fallbackInput.value = '';
+  }
+  if (closeBtn) {
+    closeBtn.onclick = () => {
+      reset();
+      modal.style.display = 'none';
+      modal.classList.remove('show');
+    };
+  }
+  if (startBtn) {
+    // Feature detection and fallback: attempt to use MediaRecorder on secure origins. Otherwise, fall back to
+    // a file input that triggers the native recorder (works on most mobile browsers).
+    startBtn.onclick = async () => {
+      // Determine if the environment is considered secure for getUserMedia (https or localhost). Some mobile
+      // browsers block microphone access on file:// or custom origins.
+      const isSecure = (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+      const hasMediaRecorder = typeof window.MediaRecorder !== 'undefined';
+      // Helper to check supported MIME types when MediaRecorder is available
+      const supportsType = (t) => {
+        try {
+          return hasMediaRecorder && window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(t);
+        } catch (e) {
+          return false;
+        }
+      };
+      // Preferred MIME types in order of common support: modern Chrome/Edge uses webm; Safari often uses mp4.
+      const preferredTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/ogg;codecs=opus'
+      ];
+      const chosenType = preferredTypes.find(supportsType) || '';
+      const fallbackInput = document.getElementById('voiceFileFallback');
+
+      // If MediaRecorder is unavailable or the context is not secure, use fallback
+      if (!hasMediaRecorder || !isSecure) {
+        if (fallbackInput) {
+          // Trigger native file/audio capture. The onchange handler will handle the file.
+          fallbackInput.click();
+        } else {
+          alert('Recording is not supported in this environment.');
+        }
+        return;
+      }
+      try {
+        // Request microphone stream
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Initialize MediaRecorder with supported MIME type if provided
+        mediaRecorder = chosenType ? new MediaRecorder(stream, { mimeType: chosenType }) : new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+        mediaRecorder.onstop = () => {
+          // When recording stops, create blob and preview
+          const blobType = chosenType || 'audio/webm';
+          const blob = new Blob(chunks, { type: blobType });
+          const url = URL.createObjectURL(blob);
+          if (previewEl) previewEl.src = url;
+          if (insertBtn) insertBtn.disabled = false;
+          // Stop capturing from microphone
+          stream.getTracks().forEach(t => t.stop());
+        };
+        // Reset chunks and start recording
+        chunks = [];
+        mediaRecorder.start();
+        startTime = Date.now();
+        timerInterval = setInterval(updateTimer, 200);
+        startBtn.disabled = true;
+        if (stopBtn) stopBtn.disabled = false;
+        if (insertBtn) insertBtn.disabled = true;
+      } catch (err) {
+        // If microphone access fails, fall back to file input if available
+        if (fallbackInput) {
+          alert('Could not access microphone. Using the system recorder instead.');
+          fallbackInput.click();
+        } else {
+          alert('Could not access microphone: ' + err.message);
+        }
+      }
+    };
+  }
+  if (stopBtn) {
+    stopBtn.onclick = () => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+        stopBtn.disabled = true;
+      }
+    };
+  }
+  async function blobToDataURL(blob) {
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+  if (insertBtn) {
+    insertBtn.onclick = async () => {
+      if (!chunks.length) return;
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const dataUrl = await blobToDataURL(blob);
+      const name = `Voice ${new Date().toLocaleString()}.webm`;
+      if (noteId === '__draft__') {
+        if (!window._draftVoices) window._draftVoices = [];
+        window._draftVoices.push({ id: uid(), name, type: 'audio/webm', data: dataUrl });
+      } else {
+        const note = db.notes.find(n => n.id === noteId);
+        if (note) {
+          if (!note.attachments) note.attachments = [];
+          note.attachments.push({ id: uid(), name, type: 'audio/webm', data: dataUrl });
+          save();
+        }
+      }
+      // Update attachments list in open note view
+      if (noteId !== '__draft__') {
+        const attList = document.getElementById('attachments');
+        if (attList) {
+          const note = db.notes.find(n => n.id === noteId);
+          if (note) {
+            attList.innerHTML = (note.attachments || []).map(att => {
+              const isImg = att.type && att.type.startsWith('image');
+              const isAudio = att.type && att.type.startsWith('audio');
+              let preview;
+              if (isImg) {
+                preview = `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />`;
+              } else if (isAudio) {
+                preview = `<audio controls src="${att.data}" style="width:100%;"></audio>`;
+              } else {
+                preview = `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+              }
+              return `<div class='row' style='justify-content:space-between;align-items:center;'>
+        <div style='flex:1;'>${preview}</div>
+        <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
+      </div>`;
+            }).join('');
+            attList.querySelectorAll('[data-remove]').forEach(b => {
+              b.onclick = () => {
+                const id2 = b.dataset.remove;
+                note.attachments = note.attachments.filter(x => x.id !== id2);
+                save();
+                // Remove the row and update list
+                const parent = b.closest('.row');
+                if (parent) parent.remove();
+              };
+            });
+          }
+        }
+      }
+      // After inserting audio, ensure the attachments list is refreshed using the global renderer
+      if(noteId !== '__draft__' && typeof window._renderAttachments === 'function') {
+        window._renderAttachments();
+      }
+      reset();
+      modal.style.display = 'none';
+      modal.classList.remove('show');
+    };
+  }
+
+  // Fallback input change handler: triggered when the user records audio via native recorder (file input capture).
+  {
+    const fallbackInput = document.getElementById('voiceFileFallback');
+    if (fallbackInput) {
+      fallbackInput.onchange = async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        // Clear previous timer and reset UI
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+        if (timerEl) timerEl.textContent = '00:00';
+        // Create a clone of the blob to maintain consistent type property
+        const arrayBuffer = await file.arrayBuffer();
+        const blobClone = new Blob([arrayBuffer], { type: file.type || 'audio/mp4' });
+        // Replace chunks with the single blob
+        chunks = [blobClone];
+        // Update preview
+        const url = URL.createObjectURL(blobClone);
+        if (previewEl) previewEl.src = url;
+        // Enable insert button
+        if (insertBtn) insertBtn.disabled = false;
+        // Ensure buttons reflect idle state
+        if (startBtn) startBtn.disabled = false;
+        if (stopBtn) stopBtn.disabled = true;
+        // Clear the file input value so the same file can be recorded again later
+        fallbackInput.value = '';
+      };
+    }
+  }
+  // Show modal
+  modal.style.display = 'flex';
+  modal.classList.add('show');
 }
 document.getElementById("newDaily").onclick = createOrOpenDaily;
 document.getElementById("newNoteBtn").onclick = ()=> {
@@ -2754,6 +3469,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 // current route. This runs every 10 seconds.
 setInterval(async () => {
   try {
+    // If auto reload is disabled in settings, skip periodic sync entirely. This helps avoid
+    // interference while the user is actively editing notes or experiencing glitches.
+    if(db && db.settings && db.settings.autoReload === false) return;
     const remote = await fetchDB().catch(() => null);
     if (!remote) return;
     // Deep equality check via JSON string
