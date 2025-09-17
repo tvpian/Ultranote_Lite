@@ -1021,6 +1021,31 @@ a {
   overflow-y: auto;
 }
 
+/* Enhanced width and layout specifically for the Task Edit modal to better show long subtasks */
+#taskModal .sketchInner {
+  width: 720px;              /* Give the edit panel a comfortable readable width */
+  max-width: 95vw;           /* Still remain responsive on very small screens */
+}
+
+/* Allow subtask rows to wrap text nicely */
+#taskModal .subtask-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+#taskModal .subtask-row input.subtask-title {
+  flex: 1;
+  min-width: 0;              /* Prevent overflow when long words exist */
+  white-space: normal;        /* Allow wrapping */
+}
+
+/* Slightly taller description area for better visibility */
+#taskModal textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
 /* Simple mind map styling */
 .mind-map {
   list-style: none;
