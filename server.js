@@ -15,17 +15,22 @@ const LOCK_MS = 2 * 60 * 1000;   // 2 minutes lock
 const APP_PASSWORD = process.env.APP_PASSWORD || 'change-me';
 
 // Whitelisted IPs (always allow loopback)
-const allowedIps = new Set(['127.0.0.1', '::1']);
+const allowedIps = new Set(['127.0.0.1', '::1', '26.57.15.177']);
 
 // Middlewares to parse JSON and URL‑encoded bodies
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Session middleware – the session data lives server‑side:contentReference[oaicite:0]{index=0}
+// Session middleware – the session data lives server‑side with improved persistence
 app.use(session({
   secret: 'ultranote-session-secret',
   resave: false,
-  saveUninitialized: false
+  saveUninitialized: false,
+  cookie: { 
+    secure: false,    // Set to true if using HTTPS
+    httpOnly: true,   // Prevent XSS attacks
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours (instead of session-only)
+  }
 }));
 
 
@@ -64,6 +69,10 @@ app.use((req, res, next) => {
   }
   // Let the login routes through
   if (req.path === '/login' && ['GET','POST'].includes(req.method)) {
+    return next();
+  }
+  // Allow API endpoints for authenticated sessions (even from non-localhost IPs)
+  if (req.path.startsWith('/api/') && req.session.authorized) {
     return next();
   }
   // Otherwise, force unauthenticated users to login

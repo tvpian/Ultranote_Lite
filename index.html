@@ -74,7 +74,8 @@
       <label class="muted" style="margin-left:8px;"><input id="dailyRollover" type="checkbox"> Rollover incomplete tasks daily</label>
       <label class="muted" style="margin-left:8px;"><input id="autoCarryTasks" type="checkbox"> Auto-carry project tasks</label>
       <!-- Auto reload toggle to allow disabling periodic sync -->
-      <label class="muted" style="margin-left:8px;"><input id="autoReload" type="checkbox"> Auto-sync updates</label>
+  <label class="muted" style="margin-left:8px;"><input id="autoReload" type="checkbox"> Auto-sync</label>
+  <button id="syncNowBtn" class="btn" title="Manually sync now" style="font-size:12px;">Sync Now</button>
       <button id="themeToggle" class="btn" title="Toggle light/dark mode" style="margin-left:8px;">🌓</button>
       <button id="logoutBtn" class="btn danger">Logout</button>
     </div>
@@ -1337,6 +1338,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
 -->
     <!-- Include marked.js for enhanced markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+    <!-- Auto-sync system for real-time cross-session updates -->
+    <script src="autosync.js"></script>
     <!-- Externalized JavaScript logic -->
     <script src="app.js"></script>
 </body>

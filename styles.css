@@ -1045,4 +1045,1051 @@ a {
   width: 12px;
   height: 1px;
   background: var(--border);
+}/* Extracted styles from index.html to make the project easier to maintain.
+   This file contains all of the CSS previously inlined in the HTML.
+   Color variables and responsive rules have been preserved. */
+
+:root {
+  --bg: #0b0f14;
+  --fg: #e8eef7;
+  --muted: #a9b6c6;
+  --card: #121924;
+  --acc: #4ea1ff;
+  /* Additional semantic color variables for borders, buttons and inputs */
+  --border: #1e2938;
+  --btn-bg: #122134;
+  --btn-border: #274768;
+  --pill-border: #334759;
+  --header-bg: #0e141d;
+  --input-bg: #0f1621;
+  --input-border: #203041;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial;
+  background: var(--bg);
+  color: var(--fg);
+  /* Improve readability on all devices by increasing base font size and line height. */
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--header-bg);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.search {
+  flex: 1;
+  max-width: 520px;
+}
+
+input[type="text"],
+textarea {
+  width: 100%;
+  /* Use !important to override inline attributes in HTML */
+  background: var(--input-bg) !important;
+  border: 1px solid var(--input-border) !important;
+  color: var(--fg) !important;
+  padding: 10px;
+  border-radius: 10px;
+  outline: none;
+}
+
+textarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+/* Override inline styles for date inputs to use theme variables */
+input[type="date"] {
+  background: var(--input-bg) !important;
+  border: 1px solid var(--input-border) !important;
+  color: var(--fg) !important;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  padding: 16px;
+}
+
+aside {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  height: calc(100dvh - 88px);
+  position: sticky;
+  top: 88px;
+  overflow: auto;
+}
+
+nav button {
+  width: 100%;
+  text-align: left;
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--fg);
+  padding: 10px 12px;
+  margin: 6px 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+nav button.active {
+  border-color: var(--acc);
+  outline: 2px solid color-mix(in oklab, var(--acc) 40%, transparent);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.btn {
+  /* Force override of any inline button color definitions */
+  background: var(--btn-bg) !important;
+  border: 1px solid var(--btn-border) !important;
+  color: var(--fg) !important;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.btn.acc {
+  border-color: var(--acc) !important;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--pill-border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 6px;
+}
+
+/* --- Monthly view styling --- */
+/* Monthly page now uses standard app styling for consistency */
+
+/* Improved day selection with checkboxes */
+.monthly-days-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  padding: 6px;
+  /* Let the container grow up to seven rows (~28px each) and scroll if necessary. */
+  max-height: 196px;
+  overflow-y: auto;
+}
+
+.monthly-day-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.2s ease;
+}
+
+.monthly-day-option:hover {
+  background: var(--card);
+}
+
+.monthly-day-option input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--acc);
+}
+
+.monthly-day-option input[type="checkbox"]:checked + span {
+  font-weight: 500;
+  color: var(--acc);
+}
+
+/* Task list view modes */
+.monthly-tasks-container.grid-view {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.monthly-tasks-container.list-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.monthly-tasks-container.grid-view .monthly-task-item {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  padding: 12px;
+  transition: all 0.2s ease;
+  min-height: 80px;
+}
+
+.monthly-tasks-container.list-view .monthly-task-item {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  transition: all 0.2s ease;
+}
+
+.monthly-task-item:hover {
+  border-color: var(--acc);
+  transform: translateY(-1px);
+}
+
+.monthly-task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 6px;
+}
+
+.monthly-task-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+  line-height: 1.3;
+  flex: 1;
+  margin-right: 8px;
+}
+
+.monthly-task-delete {
+  padding: 3px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid #ff6b6b;
+  color: #ff6b6b;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.monthly-task-delete:hover {
+  background: #ff6b6b;
+  color: white;
+}
+
+.monthly-task-schedule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.monthly-schedule-badge {
+  background: var(--acc);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* View toggle buttons */
+#monthlyViewGrid.active,
+#monthlyViewList.active {
+  background: var(--acc);
+  color: white;
+  border-color: var(--acc);
+}
+
+/* Legacy styles maintained for backward compatibility */
+.monthly .monthly-select {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 120px;
+}
+
+.monthly .monthly-select label {
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
+.monthly .monthly-select select {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--fg);
+  padding: 6px;
+  border-radius: 8px;
+  width: 100px;
+  height: 160px;
+}
+
+/* Style each scheduled task row in the monthly list */
+.monthly #monthlyTasksList > .row {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+
+/* Make the pill stand out a bit more in the monthly list */
+.monthly #monthlyTasksList .pill {
+  background: var(--btn-bg);
+  border-color: var(--pill-border);
+  color: var(--acc);
+}
+
+/* Responsive grid layout for monthly form */
+@media (max-width: 700px) {
+  .monthly-container .card:first-child > div:nth-child(2) {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  
+  .monthly-container .card:first-child .row:last-child {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  
+  .monthly-container .card:first-child .row:last-child > div:first-child {
+    justify-content: center;
+  }
+  
+  .monthly-tasks-container.grid-view {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+.list {
+  display: grid;
+  gap: 8px;
+}
+
+/*
+ * Ensure task titles wrap cleanly on small screens or when very long.
+ * Without this, long titles can overflow and push action buttons off screen.
+ */
+#taskList .row span,
+#projectTaskList .row span,
+#backlogList .row span {
+  /* Allow text to wrap onto multiple lines */
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  /* Let the text column grow and shrink within its row */
+  flex: 1;
+  min-width: 0;
+}
+
+/* Align multi-line rows to the top instead of center so that
+ * checkboxes and buttons remain aligned when titles wrap.
+ */
+#taskList .row,
+#projectTaskList .row,
+#backlogList .row {
+  align-items: flex-start;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* Responsive grid: stack cards on narrow screens */
+@media (max-width: 600px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Review page specific layout tweaks */
+.review .row {
+  /* Allow rows to wrap on small screens so content doesn’t overflow */
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+/* Keep inner action rows (button groups) on one line */
+.review .row > .row {
+  flex-wrap: nowrap;
+}
+
+/* Allow tables in review to scroll horizontally if they exceed width */
+.review table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+footer {
+  padding: 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+a {
+  color: var(--acc);
+}
+
+.tip {
+  position: fixed;
+  inset: auto 16px 16px 16px;
+  background: var(--header-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.tip h4 {
+  margin: 0 0 6px 0;
+}
+
+.kbd {
+  border: 1px solid var(--kbd-border);
+  border-radius: 6px;
+  padding: 0 6px;
+  margin: 0 3px;
+}
+
+.hidden {
+  display: none;
+}
+
+/* Markdown preview styling - Enhanced for better readability */
+.markdown-preview {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  background: var(--input-bg);
+  max-height: 400px;
+  overflow-y: auto;
+  color: var(--fg);
+  font-size: 15px;
+  line-height: 1.6;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  outline: none; /* Remove default focus outline */
+}
+
+/* Focus state for keyboard navigation */
+.markdown-preview:focus {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 2px rgba(78, 161, 255, 0.2);
+}
+
+/* Enhanced typography hierarchy */
+.markdown-preview h1 { 
+  font-size: 1.8em; 
+  margin-top: 1.2em; 
+  margin-bottom: 0.6em; 
+  font-weight: 700;
+  color: var(--acc);
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 0.3em;
+}
+.markdown-preview h2 { 
+  font-size: 1.5em; 
+  margin-top: 1.1em; 
+  margin-bottom: 0.5em; 
+  font-weight: 600;
+  color: var(--fg);
+}
+.markdown-preview h3 { 
+  font-size: 1.3em; 
+  margin-top: 1em; 
+  margin-bottom: 0.5em; 
+  font-weight: 600;
+  color: var(--fg);
+}
+.markdown-preview h4 { 
+  font-size: 1.2em; 
+  margin-top: 0.9em; 
+  margin-bottom: 0.4em; 
+  font-weight: 600;
+  color: var(--muted);
+}
+.markdown-preview h5 { 
+  font-size: 1.1em; 
+  margin-top: 0.8em; 
+  margin-bottom: 0.4em; 
+  font-weight: 600;
+  color: var(--muted);
+}
+.markdown-preview h6 { 
+  font-size: 1em; 
+  margin-top: 0.8em; 
+  margin-bottom: 0.4em; 
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Enhanced paragraph spacing */
+.markdown-preview p {
+  margin-bottom: 1em;
+  line-height: 1.7;
+}
+
+/* Better list styling */
+.markdown-preview ul, .markdown-preview ol { 
+  margin: 0.8em 0 1.2em 1.5em; 
+  padding-left: 0; 
+}
+.markdown-preview li { 
+  margin-bottom: 0.6em; 
+  line-height: 1.6;
+}
+.markdown-preview ul li {
+  list-style-type: disc;
+}
+.markdown-preview ol li {
+  list-style-type: decimal;
+}
+
+/* Enhanced code blocks */
+.markdown-preview pre {
+  background: var(--card);
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 1.2em 0;
+  border: 1px solid var(--border);
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* Enhanced inline code */
+.markdown-preview code {
+  background: var(--card);
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9em;
+  color: var(--acc);
+  border: 1px solid var(--border);
+}
+
+/* Code blocks should not have the inline code styling */
+.markdown-preview pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--fg);
+  font-size: inherit;
+}
+
+/* Enhanced blockquotes */
+.markdown-preview blockquote {
+  border-left: 4px solid var(--acc);
+  padding: 12px 16px;
+  margin: 1.2em 0;
+  background: var(--card);
+  border-radius: 0 8px 8px 0;
+  font-style: italic;
+  color: var(--muted);
+}
+
+/* Enhanced links */
+.markdown-preview a {
+  color: var(--acc);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s ease;
+}
+.markdown-preview a:hover {
+  border-bottom-color: var(--acc);
+}
+
+/* Enhanced tables */
+.markdown-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.2em 0;
+  background: var(--card);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.markdown-preview th, .markdown-preview td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.markdown-preview th {
+  background: var(--bg);
+  font-weight: 600;
+  color: var(--acc);
+}
+
+/* Enhanced horizontal rules */
+.markdown-preview hr {
+  border: none;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+  margin: 2em 0;
+}
+
+/* Enhanced emphasis */
+.markdown-preview strong {
+  font-weight: 700;
+  color: var(--fg);
+}
+.markdown-preview em {
+  font-style: italic;
+  color: var(--muted);
+}
+
+/* Project selector container for mobile: visible on small screens, hidden on desktop */
+#projectSelectorContainer {
+  /* Container for the project drop‑down in mobile view */
+  margin-bottom: 8px;
+}
+@media (min-width: 901px) {
+  /* Hide the selector on larger screens; the sidebar is used instead */
+  #projectSelectorContainer {
+    display: none;
+  }
+}
+
+/* Remove sticky positioning so the selector doesn’t float over content on mobile */
+@media (max-width: 900px) {
+  #projectSelectorContainer {
+    position: static;
+    top: auto;
+    z-index: auto;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Custom modal styles for confirmations and prompts                  */
+/* These modals are used instead of native browser dialogs to match  */
+/* the app’s look and feel.                                          */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+}
+.modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  width: 90%;
+  max-width: 360px;
+  color: var(--fg);
+}
+.modal-body {
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+.modal-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.modal input[type="text"],
+.modal input[type="date"],
+.modal textarea {
+  width: 100%;
+  margin-top: 8px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 8px;
+  box-sizing: border-box;
+}
+.modal .btn {
+  /* Buttons inside modal should follow theme */
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.modal .btn.acc {
+  border-color: var(--acc);
+}
+
+/* Project sidebar buttons */
+.projBtn {
+  width: 100%;
+  text-align: left;
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--fg);
+  padding: 8px 10px;
+  margin: 4px 0;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.projBtn.active {
+  border-color: var(--acc);
+  outline: 2px solid color-mix(in oklab, var(--acc) 40%, transparent);
+}
+
+.projBtn .projDel {
+  font-size: 12px;
+  opacity: 0.55;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.projBtn .projDel:hover {
+  opacity: 1;
+  background: var(--btn-active-bg);
+  color: #ff6b6b;
+}
+
+/* Responsive enhancements */
+#menuToggle {
+  display: none;
+  margin-right: 8px;
+}
+
+.hide-mobile {
+  display: block;
+}
+
+#mobileBar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--header-bg);
+  border-top: 1px solid var(--border);
+  display: none;
+  z-index: 120;
+  padding: 6px 8px;
+  gap: 6px;
+}
+
+#sketchModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 16px;
+}
+
+#sketchModal.show {
+  display: flex;
+}
+
+#sketchModal .sketchInner {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  max-width: 100%;
+}
+
+#sketchPad {
+  background: var(--input-bg);
+  border: 1px solid var(--btn-border);
+  border-radius: 12px;
+  touch-action: none;
+  max-width: 100%;
+  height: auto;
+}
+
+#mobileBar .btn.active {
+  border-color: var(--acc);
+  background: var(--btn-active-bg);
+}
+
+@media (max-width: 900px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+  aside {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100dvh;
+    transform: translateX(-100%);
+    transition: transform 0.25s;
+    background: var(--card);
+    width: 260px;
+    z-index: 200;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.4);
+  }
+  body.drawer-open aside {
+    transform: translateX(0);
+  }
+  body.drawer-open:after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(2px);
+    z-index: 150;
+  }
+  #menuToggle {
+    display: inline-block;
+  }
+  .hide-mobile {
+    display: none;
+  }
+  #mobileBar {
+    display: flex;
+  }
+  body {
+    padding-bottom: 74px;
+  }
+  header {
+    gap: 6px;
+  }
+  /* Stack cards when grid-2 is used on mobile to prevent narrow columns */
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+  /* Increase scratchpad height on mobile to make it usable */
+  #scratch {
+    min-height: 250px;
+  }
+  /* Show a visible add button for quick task entry in mobile */
+  #taskAddBtn {
+    display: inline-block;
+  }
+
+  /* Stack quick capture input and button vertically on narrow screens for better accessibility */
+  #quickCapture {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+  }
+  #captureBtn {
+    width: 100%;
+  }
+
+  /* Stack task input, priority, due date, and Add button vertically on mobile */
+  #taskTitle,
+  #taskPriority,
+  #taskDueDate,
+  #taskAddBtn {
+    width: 100%;
+  }
+
+/* Voice recorder modal */
+#voiceModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 16px;
+}
+
+#voiceModal.show {
+  display: flex;
+}
+
+#voiceModal .sketchInner {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  max-width: 100%;
+}
+
+/* Make the mobile bar scroll horizontally on small screens */
+#mobileBar {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+}
+
+#mobileBar .btn {
+  /* Override inline flex values on mobile bar buttons to allow horizontal scrolling */
+  flex: 0 0 auto !important;
+  scroll-snap-align: start;
+  white-space: nowrap;
+}
+
+/* Add subtle gradient edges to hint scrollability */
+#mobileBar::before,
+#mobileBar::after {
+  content: "";
+  position: sticky;
+  top: 0;
+  width: 16px;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+
+#mobileBar::before {
+  left: 0;
+  background: linear-gradient(to right, var(--header-bg), rgba(14, 20, 29, 0));
+}
+
+#mobileBar::after {
+  right: 0;
+  background: linear-gradient(to left, var(--header-bg), rgba(14, 20, 29, 0));
+}
+
+/* Monthly day selector overflow adjustments */
+.monthly-days-grid {
+  overflow-y: auto;
+  max-height: 196px;
+}
+
+.monthly .monthly-select select {
+  height: auto;
+  /* Match the height of seven day items (~196px) and allow scroll */
+  max-height: 196px;
+  overflow-y: auto;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.monthly-day-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+  /* Remove sticky positioning of project selector on mobile */
+  #projectSelectorContainer {
+    /* previously sticky; now static so it scrolls naturally */
+    position: static;
+    top: auto;
+    z-index: auto;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    margin-bottom: 8px;
+  }
+}
+
+/* Hide the task add button on larger screens since Enter key works well */
+@media (min-width: 901px) {
+  #taskAddBtn {
+    display: none;
+  }
+}
+
+.btn.danger {
+  color: var(--danger-color, #ff6b6b);
+  border-color: var(--danger-color, #ff6b6b);
+  background: transparent;
+}
+.btn.danger:hover {
+  background: var(--danger-color, #ff6b6b);
+  color: var(--bg, #fff);
+}
+
+/* Modal styling for link and task edit modals */
+#linkModal,
+#taskModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 16px;
+}
+#linkModal.show,
+#taskModal.show {
+  display: flex;
+}
+#linkModal .sketchInner,
+#taskModal .sketchInner {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  max-width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* Simple mind map styling */
+.mind-map {
+  list-style: none;
+  padding-left: 0;
+}
+.mind-map ul {
+  list-style: none;
+  margin-left: 20px;
+  padding-left: 0;
+  border-left: 1px solid var(--border);
+}
+.mind-map li {
+  margin: 4px 0;
+  padding-left: 8px;
+  position: relative;
+}
+.mind-map li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.8em;
+  width: 12px;
+  height: 1px;
+  background: var(--border);
 }

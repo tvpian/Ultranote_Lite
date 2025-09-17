@@ -85,18 +85,56 @@ function createOrOpenDaily(){
 async function fetchDB(){
   try{
     const r = await fetch('/api/db');
-    if(!r.ok) throw new Error('Fetch failed');
-    const data = await r.json();
+    if(!r.ok) {
+      console.error(`❌ API request failed: ${r.status} ${r.statusText}`);
+      if (r.status === 302 || r.status === 401) {
+        console.error('🔒 Session expired or not authenticated - redirected to login');
+      }
+      throw new Error(`Fetch failed: ${r.status}`);
+    }
+    const text = await r.text();
+    if (!text) {
+      console.warn('📭 Empty response from server');
+      return null;
+    }
+    const data = JSON.parse(text);
     if(!data || !Object.keys(data).length) return null;
     return data;
-  }catch(e){ console.warn('Fetch DB error', e); return null; }
+  }catch(e){ 
+    if (e.name === 'SyntaxError') {
+      console.error('❌ Server returned non-JSON response (likely HTML login page)');
+      console.error('🔒 Session authentication problem - check if you\'re logged in');
+    }
+    console.warn('Fetch DB error', e); 
+    return null; 
+  }
 }
 async function persistDB(){
-  try{
-    await fetch('/api/db', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(db)});
-  }catch(e){ console.error('Persist failed', e); }
-  // Always keep a browser backup too (legacy compatibility / offline resilience)
-  try { localStorage.setItem(storeKey, JSON.stringify(db)); } catch(err) { /* ignore */ }
+  try {
+    // Persist the current local DB to the server. We rely on the server to merge
+    // concurrent updates from other devices. Do not merge remote changes into the
+    // outgoing snapshot here, as that would reintroduce items that the user
+    // intentionally deleted on this device.
+    await fetch('/api/db', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(db)
+    });
+    // Optionally refresh local data from the server after saving to incorporate
+    // remote merges. If fetch fails we silently ignore; the periodic sync will
+    // update the state.
+  // IMPORTANT: Removed immediate post-save fetch/overwrite because it was
+  // clobbering in‑progress user edits when the server still had an older
+  // snapshot (especially under slow network / multiple tabs). Remote
+  // changes now flow in ONLY through the autosync merge loop.
+  } catch (e) {
+    console.error('Persist failed', e);
+  }
+  try {
+    localStorage.setItem(storeKey, JSON.stringify(db));
+  } catch(err) {
+    /* ignore */
+  }
 }
 
 const seed = {
@@ -250,6 +288,26 @@ async function initApp(){
   drawProjectsSidebar();
   applyTheme();
   render();
+  
+  // Start auto-sync for real-time cross-session updates
+  if (typeof startAutoSync === 'function') {
+    console.log('🔄 Starting auto-sync system...');
+    startAutoSync();
+    console.log('✅ Auto-sync started successfully');
+  } else {
+    console.error('❌ startAutoSync function not available - autosync.js not loaded?');
+  }
+
+  // Lightweight typing guard so autosync doesn't re-render while the user is
+  // actively entering text (was perceived as a "refresh").
+  window.__typingUntil = 0;
+  const markTyping = () => { window.__typingUntil = Date.now() + 4000; };
+  ['input','textarea'].forEach(sel => {
+    document.querySelectorAll(sel).forEach(el => {
+      el.addEventListener('keydown', markTyping, { passive:true });
+      el.addEventListener('input', markTyping, { passive:true });
+    });
+  });
 }
 // --- End restored runtime glue ---
 
@@ -369,29 +427,25 @@ function restoreTask(id){
 }
 
 function hardDeleteTask(id){
-  db.tasks = db.tasks.filter(x => x.id !== id);
+  // Permanently delete the task from the database
+  const taskIndex = db.tasks.findIndex(x => x.id === id);
+  if (taskIndex === -1) return;
+  db.tasks.splice(taskIndex, 1);
   save();
 }
 
-function emptyTrash(){
-  db.tasks = db.tasks.filter(t => !t.deletedAt);
-  save();
+function emptyTrash() {
+  showConfirm("Are you sure you want to permanently delete all trashed items?", () => {
+    // Remove all tasks that have deletedAt set
+    db.tasks = db.tasks.filter(x => !x.deletedAt);
+    save();
+    loadTrashedTasks();
+  });
 }
-
-// Helper to get active (non-deleted) tasks
-function getActiveTasks(){
-  return db.tasks.filter(t => !t.deletedAt);
-}
-
+// Helper used in Review view to list soft-deleted (trashed) tasks
 function getTrashedTasks(){
-  // Return all tasks that have been soft-deleted, sorted by deletion date in descending order
-  return db.tasks
-    .filter(t => t.deletedAt)
-    .sort((a, b) => {
-      const aDate = new Date(a.deletedAt);
-      const bDate = new Date(b.deletedAt);
-      return bDate - aDate;
-    });
+  if(!db || !Array.isArray(db.tasks)) return [];
+  return db.tasks.filter(t => t.deletedAt);
 }
 function createProject(name){ const p={id:uid(), name, createdAt:nowISO()}; db.projects.push(p); save(); return p; }
 function createTemplate(name, content){ const t={id:uid(), name, content, createdAt:nowISO()}; db.templates.push(t); save(); return t; }
@@ -430,7 +484,14 @@ let currentProjectId = null; // NEW: selected project
 
 function renderNav(){
   nav.innerHTML = sections.map(s => `<button data-route="${s.id}" class="${route===s.id?'active':''}">${s.label}</button>`).join("");
-  nav.querySelectorAll("button").forEach(b=> b.onclick = ()=>{ route=b.dataset.route; if(route==='today') selectedDailyDate = todayKey(); render(); });
+  nav.querySelectorAll("button").forEach(b=> b.onclick = ()=>{
+    const next = b.dataset.route;
+    // Debug aid for Review routing issue
+    if(next==='review') console.log('📊 Navigating to Review view');
+    route = next;
+    if(route==='today') selectedDailyDate = todayKey();
+    render();
+  });
 }
 
 function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
@@ -1307,7 +1368,10 @@ function renderReview(){
     const dateStr = t.completedAt ? new Date(t.completedAt).toLocaleDateString() : '';
     return `<div class='row' style='justify-content:space-between;align-items:center;'>
       <span style='flex:1;'>${htmlesc(t.title)} ${ctx} <span class='pill'>${dateStr}</span></span>
-      <button class='btn' data-restore='${t.id}' style='font-size:11px;'>Restore</button>
+      <div class='row' style='gap:4px;'>
+        <button class='btn' data-open-task='${t.id}' style='font-size:11px;'>Open</button>
+        <button class='btn' data-restore='${t.id}' style='font-size:11px;'>Restore</button>
+      </div>
     </div>`;
   }).join('') : '<div class="muted">No completed tasks</div>';
 
@@ -1329,7 +1393,7 @@ function renderReview(){
     <div class="card">
       <strong>📅 Upcoming Tasks (${upcoming.length})</strong>
       <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
-        ${upcoming.map(t=>{
+  ${upcoming.map(t=>{
           const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null;
           const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null;
           const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
@@ -1339,7 +1403,7 @@ function renderReview(){
           return `<div class='row' style='justify-content:space-between;align-items:center;'>
             <span style='border-left:3px solid ${col};padding-left:6px;'>${htmlesc(t.title)} ${ctx} <span class='pill'>${dueStr}</span></span>
             <div class='row' style='gap:4px;'>
-              ${note ? `<button class='btn' data-open-note='${note.id}' style='font-size:11px;'>Open</button>` : ''}
+              <button class='btn' data-open-task='${t.id}' style='font-size:11px;'>Open</button>
               <button class='btn' data-done='${t.id}' style='font-size:11px;'>✓</button>
             </div>
           </div>`;
@@ -1352,7 +1416,7 @@ function renderReview(){
         ${pendingAll.map(t=>{ const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null; const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null; const label = htmlesc(t.title); const ctx = proj? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily'? `<span class='pill'>${note.dateIndex}</span>` : ''); const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;align-items:center;'>
           <span style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:6px;'>${label} ${ctx}</span>
           <div class='row' style='gap:4px;'>
-            ${note? `<button class='btn' data-open-note='${note.id}' style='font-size:11px;'>Open</button>`:''}
+            <button class='btn' data-open-task='${t.id}' style='font-size:11px;'>Open</button>
             <button class='btn' data-done='${t.id}' style='font-size:11px;'>✓</button>
           </div>
         </div>`; }).join('') || '<div class="muted">No pending tasks</div>'}
@@ -1364,7 +1428,7 @@ function renderReview(){
         ${backlogAll.map(t=>{ const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null; const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null; const label = htmlesc(t.title); const ctx = proj? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily'? `<span class='pill'>${note.dateIndex}</span>` : ''); return `<div class='row' style='justify-content:space-between;align-items:center;'>
           <span class='muted' style='padding-left:6px;'>${label} ${ctx}</span>
           <div class='row' style='gap:4px;'>
-            ${note? `<button class='btn' data-open-note='${note.id}' style='font-size:11px;'>Open</button>`:''}
+            <button class='btn' data-open-task='${t.id}' style='font-size:11px;'>Open</button>
             <button class='btn' data-restore='${t.id}' style='font-size:11px;'>Restore</button>
           </div>
         </div>`; }).join('') || '<div class="muted">No backlog tasks</div>'}
@@ -1387,7 +1451,7 @@ function renderReview(){
         <button id="emptyTrashBtn" class="btn" style="font-size:12px;">Empty Trash</button>
       </div>
       <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
-        ${getTrashedTasks().map(t=>{
+  ${getTrashedTasks().map(t=>{
           const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null;
           const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null;
           const label = htmlesc(t.title);
@@ -1396,6 +1460,7 @@ function renderReview(){
           return `<div class='row' style='justify-content:space-between;align-items:center;'>
             <span class='muted' style='padding-left:6px;'>${label} ${ctx} <span class='pill'>Deleted: ${deletedDate}</span></span>
             <div class='row' style='gap:4px;'>
+              <button class='btn' data-open-task='${t.id}' style='font-size:11px;'>Open</button>
               <button class='btn' data-restore-task='${t.id}' style='font-size:11px;'>Restore</button>
               <button class='btn' data-hard-delete='${t.id}' style='font-size:11px;color:#ff6b6b;'>Delete Forever</button>
             </div>
@@ -1420,6 +1485,15 @@ function renderReview(){
   content.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> openNote(b.dataset.open));
   content.querySelectorAll('[data-open-note]').forEach(b=> b.onclick=()=> openNote(b.dataset.openNote));
   content.querySelectorAll('[data-done]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.done,'DONE'); renderReview(); });
+  // Generic task opener
+  function openTaskContext(id){
+    const t = db.tasks.find(x=> x.id===id);
+    if(!t) return;
+    if(t.noteId){ openNote(t.noteId); return; }
+    if(t.projectId){ currentProjectId = t.projectId; route='projects'; render(); return; }
+    route='today'; render();
+  }
+  content.querySelectorAll('[data-open-task]').forEach(b=> b.onclick=()=> openTaskContext(b.dataset.openTask));
   content.querySelectorAll('[data-restore]').forEach(b=> b.onclick=()=>{
     const id = b.dataset.restore;
     const task = db.tasks.find(t => t.id === id);
@@ -1453,7 +1527,12 @@ function renderReview(){
       const deletedTasks = getTrashedTasks();
       if(deletedTasks.length === 0) return;
       const ok = await showConfirm(`Permanently delete all ${deletedTasks.length} tasks from trash? This cannot be undone.`, 'Empty Trash', 'Cancel');
-      if(ok) { emptyTrash(); renderReview(); }
+      if(ok) {
+        // Directly purge all trashed tasks
+        db.tasks = db.tasks.filter(t=> !t.deletedAt);
+        save();
+        renderReview();
+      }
     };
   }
 
@@ -2980,12 +3059,12 @@ function render(){
   // Bind auto-reload toggle. If undefined, default to true for legacy DBs.
   const autoReloadEl = document.getElementById('autoReload');
   if(autoReloadEl){
-    autoReloadEl.checked = (db.settings.autoReload !== false);
-    autoReloadEl.onchange = () => {
-      db.settings.autoReload = autoReloadEl.checked;
-      save(db);
-    };
+    if(typeof db.settings.autoReload === 'undefined') db.settings.autoReload = false; // default OFF for stability
+    autoReloadEl.checked = !!db.settings.autoReload;
+    autoReloadEl.onchange = () => { db.settings.autoReload = autoReloadEl.checked; save(); };
   }
+  const syncBtn = document.getElementById('syncNowBtn');
+  if(syncBtn){ syncBtn.onclick = async ()=>{ if(typeof fetchDB==='function'){ const remote = await fetchDB(); if(remote){ window.__typingUntil = Date.now()+1000; /* short guard */ } } }; }
   const dateInput = document.getElementById('dailyDateNav');
   if(dateInput){
     dateInput.value = selectedDailyDate;

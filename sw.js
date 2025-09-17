@@ -1,4 +1,4 @@
-const CACHE = 'ultranote-lite-v3-full';
+const CACHE = 'ultranote-lite-v4-full'; // bumped to force refresh after autosync adjustments
 const ASSETS = ['/', '/index.html', '/manifest.json', '/styles.css', '/app.js'];
 self.addEventListener('install', e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
