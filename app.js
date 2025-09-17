@@ -115,7 +115,7 @@ async function persistDB(){
     // concurrent updates from other devices. Do not merge remote changes into the
     // outgoing snapshot here, as that would reintroduce items that the user
     // intentionally deleted on this device.
-    await fetch('/api/db', {
+  await fetch('/api/db', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(db)
@@ -123,10 +123,8 @@ async function persistDB(){
     // Optionally refresh local data from the server after saving to incorporate
     // remote merges. If fetch fails we silently ignore; the periodic sync will
     // update the state.
-  // IMPORTANT: Removed immediate post-save fetch/overwrite because it was
-  // clobbering in‑progress user edits when the server still had an older
-  // snapshot (especially under slow network / multiple tabs). Remote
-  // changes now flow in ONLY through the autosync merge loop.
+  // Removed immediate post-save fetch to avoid overwriting in-progress edits; inbound merges handled by autosync/manual sync.
+  window.db = db;
   } catch (e) {
     console.error('Persist failed', e);
   }
@@ -139,7 +137,7 @@ async function persistDB(){
 
 const seed = {
   version:1,
-  settings:{rollover:true, seenTip:false, autoCarryTasks:true, autoReload:true, dailyTemplate:"# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"},
+  settings:{rollover:true, seenTip:false, autoCarryTasks:true, autoReload:false, dailyTemplate:"# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"},
   projects:[{id:"p1", name:"Sample Project", createdAt:nowISO()}],
   notes:[
     {id:"n1", title:"2025-01-01 — Daily", content:"# Top 3\n- [ ] Example task A\n- [ ] Example task B\n\n## Journal\nTried UltraNote Lite.\n", tags:[], projectId:null, dateIndex:"2025-01-01", type:"daily", createdAt:nowISO(), updatedAt:nowISO(), pinned:false},
@@ -271,11 +269,13 @@ async function initApp(){
   let serverData = await fetchDB();
   if(serverData && Object.keys(serverData).length){
     db = serverData;
+  window.db = db; // expose globally for autosync
   } else {
     // 2. Fallback to any localStorage copy
     try { db = JSON.parse(localStorage.getItem(storeKey)||'null'); } catch(_) { db = null; }
     if(!db) db = JSON.parse(JSON.stringify(defaults));
     await persistDB();
+  window.db = db;
   }
   // Defensive: ensure collections exist (added links)
   // Ensure all collections exist on db. Include new 'monthly' plan storage.
@@ -297,17 +297,78 @@ async function initApp(){
   } else {
     console.error('❌ startAutoSync function not available - autosync.js not loaded?');
   }
-
-  // Lightweight typing guard so autosync doesn't re-render while the user is
-  // actively entering text (was perceived as a "refresh").
+  // --- Typing guard (re-add) ---
+  // Prevent background sync UI refresh while user is actively typing in any editable field.
   window.__typingUntil = 0;
-  const markTyping = () => { window.__typingUntil = Date.now() + 4000; };
-  ['input','textarea'].forEach(sel => {
-    document.querySelectorAll(sel).forEach(el => {
-      el.addEventListener('keydown', markTyping, { passive:true });
-      el.addEventListener('input', markTyping, { passive:true });
+  const bumpTyping = () => { window.__typingUntil = Date.now() + 4000; };
+  const bindTypingGuards = () => {
+    document.querySelectorAll('input[type="text"], input[type="search"], textarea, [contenteditable="true"]').forEach(el => {
+      if(el.dataset.typingBound) return;
+      el.addEventListener('keydown', bumpTyping, { passive:true });
+      el.addEventListener('input', bumpTyping, { passive:true });
+      el.dataset.typingBound = '1';
     });
-  });
+  };
+  bindTypingGuards();
+  // Re-bind after each render by monkey-patching render once (idempotent)
+  if(!window.__originalRender){
+    window.__originalRender = render;
+    window.render = function(){
+      window.__originalRender.apply(this, arguments);
+  window.db = db; // keep global pointer current
+      bindTypingGuards();
+    };
+  }
+  // Bind Sync Now button if present
+  const syncBtn = document.getElementById('syncNowBtn');
+  if(syncBtn){
+    if(syncBtn.dataset.syncAttached==='1') {
+      // Already attached; skip
+    } else {
+      syncBtn.dataset.syncAttached='1';
+    }
+    const attachSyncHandler = () => {
+      syncBtn.onclick = async () => {
+        if(syncBtn.dataset.syncing==='1') return;
+        syncBtn.dataset.syncing='1';
+        const original = syncBtn.textContent;
+        syncBtn.textContent='Syncing…';
+        try {
+          if(typeof manualSync==='function') {
+            await manualSync();
+          } else if (typeof fetchDB==='function') {
+            const remote = await fetchDB();
+            if(remote && typeof remote==='object'){
+              const keepAuto = db.settings && db.settings.autoReload;
+              const list = ['notes','tasks','projects','templates','links','monthly'];
+              const mapify = a=>{const m=new Map(); a.forEach(o=>m.set(o.id,o)); return m;};
+              list.forEach(k=>{
+                const localArr = Array.isArray(db[k])? db[k]:[];
+                const remoteArr = Array.isArray(remote[k])? remote[k]:[];
+                const m = mapify(localArr);
+                remoteArr.forEach(r=>{
+                  const l=m.get(r.id); if(!l){m.set(r.id,r); return;}
+                  const lt=Date.parse(l.updatedAt||l.createdAt||0); const rt=Date.parse(r.updatedAt||r.createdAt||0);
+                  if(rt>lt) m.set(r.id,r);
+                });
+                db[k]=Array.from(m.values());
+              });
+              db.settings = { ...(remote.settings||{}), ...(db.settings||{}) };
+              db.settings.autoReload = keepAuto;
+              window.db = db; // refresh global reference post-merge
+              render();
+            }
+          }
+        } finally {
+          syncBtn.textContent=original;
+          delete syncBtn.dataset.syncing;
+        }
+      };
+    };
+    // If manualSync not yet defined (script load order), retry shortly
+    if(typeof manualSync!=='function') setTimeout(()=>{ if(!syncBtn.onclick || String(syncBtn.onclick).includes('manualSync')===false) attachSyncHandler(); }, 500);
+    attachSyncHandler();
+  }
 }
 // --- End restored runtime glue ---
 
@@ -435,17 +496,13 @@ function hardDeleteTask(id){
 }
 
 function emptyTrash() {
-  showConfirm("Are you sure you want to permanently delete all trashed items?", () => {
-    // Remove all tasks that have deletedAt set
+  showConfirm("Permanently delete ALL trashed tasks? This cannot be undone.", 'Empty Trash', 'Cancel').then(ok=>{
+    if(!ok) return;
+    const before = db.tasks.length;
     db.tasks = db.tasks.filter(x => !x.deletedAt);
-    save();
-    loadTrashedTasks();
+    if(db.tasks.length !== before) save();
+    if(route==='review') renderReview();
   });
-}
-// Helper used in Review view to list soft-deleted (trashed) tasks
-function getTrashedTasks(){
-  if(!db || !Array.isArray(db.tasks)) return [];
-  return db.tasks.filter(t => t.deletedAt);
 }
 function createProject(name){ const p={id:uid(), name, createdAt:nowISO()}; db.projects.push(p); save(); return p; }
 function createTemplate(name, content){ const t={id:uid(), name, content, createdAt:nowISO()}; db.templates.push(t); save(); return t; }
@@ -484,14 +541,7 @@ let currentProjectId = null; // NEW: selected project
 
 function renderNav(){
   nav.innerHTML = sections.map(s => `<button data-route="${s.id}" class="${route===s.id?'active':''}">${s.label}</button>`).join("");
-  nav.querySelectorAll("button").forEach(b=> b.onclick = ()=>{
-    const next = b.dataset.route;
-    // Debug aid for Review routing issue
-    if(next==='review') console.log('📊 Navigating to Review view');
-    route = next;
-    if(route==='today') selectedDailyDate = todayKey();
-    render();
-  });
+  nav.querySelectorAll("button").forEach(b=> b.onclick = ()=>{ route=b.dataset.route; if(route==='today') selectedDailyDate = todayKey(); render(); });
 }
 
 function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
@@ -1329,6 +1379,36 @@ function renderIdeas(){
   draw();
 }
 
+function getTrashedTasks(){
+  return db.tasks.filter(t=> t.deletedAt);
+}
+function openTaskContext(taskId){
+  const t = db.tasks.find(x=>x.id===taskId);
+  if(!t) return;
+  if(t.noteId){
+    openNote(t.noteId);
+    return;
+  }
+  if(t.projectId){
+    route='projects';
+    render();
+    const btn = document.querySelector(`[data-project-id="${t.projectId}"]`);
+    if(btn) btn.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+  route='today';
+  render();
+}
+
+function openProjectContext(projectId){
+  if(!projectId) return;
+  currentProjectId = projectId;
+  route='projects';
+  render();
+  const btn = document.querySelector(`[data-project-id="${projectId}"]`);
+  if(btn) btn.scrollIntoView({behavior:'smooth', block:'center'});
+}
+
 function renderReview(){
   // Exclude deleted tasks from analytics
   const done = db.tasks.filter(t=> t.status==='DONE' && !t.deletedAt);
@@ -1386,7 +1466,13 @@ function renderReview(){
       <div class="card">
         <strong>🎯 Project Progress</strong>
         <div class="list" style="margin-top:8px;">
-          ${projectStats.map(s=>`<div class='row' style='justify-content:space-between;'><span>${htmlesc(s.project.name)}</span><span class='muted'>${s.completed}/${s.total} (${s.progress}%)</span></div>`).join('') || '<div class="muted">No project tasks yet</div>'}
+          ${projectStats.map(s=>`<div class='row' style='justify-content:space-between;align-items:center;'>
+            <span>${htmlesc(s.project.name)}</span>
+            <div class='row' style='gap:6px;align-items:center;'>
+              <span class='muted'>${s.completed}/${s.total} (${s.progress}%)</span>
+              <button class='btn' data-open-project='${s.project.id}' style='font-size:11px;'>Open</button>
+            </div>
+          </div>`).join('') || '<div class="muted">No project tasks yet</div>'}
         </div>
       </div>
     </div>
@@ -1462,7 +1548,7 @@ function renderReview(){
             <div class='row' style='gap:4px;'>
               <button class='btn' data-open-task='${t.id}' style='font-size:11px;'>Open</button>
               <button class='btn' data-restore-task='${t.id}' style='font-size:11px;'>Restore</button>
-              <button class='btn' data-hard-delete='${t.id}' style='font-size:11px;color:#ff6b6b;'>Delete Forever</button>
+              <button class='btn' data-hard-delete='${t.id}' style='font-size:11px;color:#ff6b6b;'>Delete</button>
             </div>
           </div>`;
         }).join('') || '<div class="muted">Trash is empty</div>'}
@@ -1484,16 +1570,9 @@ function renderReview(){
     </div>`;
   content.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> openNote(b.dataset.open));
   content.querySelectorAll('[data-open-note]').forEach(b=> b.onclick=()=> openNote(b.dataset.openNote));
-  content.querySelectorAll('[data-done]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.done,'DONE'); renderReview(); });
-  // Generic task opener
-  function openTaskContext(id){
-    const t = db.tasks.find(x=> x.id===id);
-    if(!t) return;
-    if(t.noteId){ openNote(t.noteId); return; }
-    if(t.projectId){ currentProjectId = t.projectId; route='projects'; render(); return; }
-    route='today'; render();
-  }
   content.querySelectorAll('[data-open-task]').forEach(b=> b.onclick=()=> openTaskContext(b.dataset.openTask));
+  content.querySelectorAll('[data-open-project]').forEach(b=> b.onclick=()=> openProjectContext(b.dataset.openProject));
+  content.querySelectorAll('[data-done]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.done,'DONE'); renderReview(); });
   content.querySelectorAll('[data-restore]').forEach(b=> b.onclick=()=>{
     const id = b.dataset.restore;
     const task = db.tasks.find(t => t.id === id);
@@ -1527,12 +1606,7 @@ function renderReview(){
       const deletedTasks = getTrashedTasks();
       if(deletedTasks.length === 0) return;
       const ok = await showConfirm(`Permanently delete all ${deletedTasks.length} tasks from trash? This cannot be undone.`, 'Empty Trash', 'Cancel');
-      if(ok) {
-        // Directly purge all trashed tasks
-        db.tasks = db.tasks.filter(t=> !t.deletedAt);
-        save();
-        renderReview();
-      }
+      if(ok) { emptyTrash(); renderReview(); }
     };
   }
 
@@ -3059,12 +3133,10 @@ function render(){
   // Bind auto-reload toggle. If undefined, default to true for legacy DBs.
   const autoReloadEl = document.getElementById('autoReload');
   if(autoReloadEl){
-    if(typeof db.settings.autoReload === 'undefined') db.settings.autoReload = false; // default OFF for stability
+    if(typeof db.settings.autoReload === 'undefined') db.settings.autoReload = false; // stability default OFF
     autoReloadEl.checked = !!db.settings.autoReload;
     autoReloadEl.onchange = () => { db.settings.autoReload = autoReloadEl.checked; save(); };
   }
-  const syncBtn = document.getElementById('syncNowBtn');
-  if(syncBtn){ syncBtn.onclick = async ()=>{ if(typeof fetchDB==='function'){ const remote = await fetchDB(); if(remote){ window.__typingUntil = Date.now()+1000; /* short guard */ } } }; }
   const dateInput = document.getElementById('dailyDateNav');
   if(dateInput){
     dateInput.value = selectedDailyDate;
