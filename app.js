@@ -12,6 +12,19 @@ const todayKey = () => {
   const localDate = new Date(now.getTime() - tzOffsetMs).toISOString().slice(0, 10);
   return localDate;
 };
+
+// Helper function to format date strings without timezone issues
+const formatDateString = (dateStr) => {
+  if (!dateStr) return '';
+  // If it's in YYYY-MM-DD format, create a local date to avoid timezone shifts
+  if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    const [year, month, day] = dateStr.split('-');
+    const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    return date.toLocaleDateString();
+  }
+  // Fallback for other date formats
+  return new Date(dateStr).toLocaleDateString();
+};
 // NEW: selected daily date (default today)
 let selectedDailyDate = todayKey();
 function createDailyNoteFor(dateKey, contentOverride){
@@ -509,9 +522,14 @@ function createTemplate(name, content){ const t={id:uid(), name, content, create
 function addTag(text){ const tags = extractTags(text); if(tags.length) { const uniqueTags = [...new Set([...getAllTags(), ...tags])]; } return tags; }
 // Collect unique tags from notes and links (ideas/notes use tags on note; links have their own tags)
 function getAllTags(){
+  // Tags explicitly stored on notes
   const noteTags = db.notes.flatMap(n => n.tags || []);
+  // Inline hashtags inside note content (e.g. "#research")
+  const inlineContentTags = db.notes.flatMap(n => extractTags(n.content || ''));
+  // Tags stored on links
   const linkTags = db.links ? db.links.flatMap(l => l.tags || []) : [];
-  return [...new Set([...noteTags, ...linkTags].filter(Boolean))];
+  // Merge + dedupe
+  return [...new Set([...noteTags, ...inlineContentTags, ...linkTags].filter(Boolean))].sort((a,b)=> a.localeCompare(b));
 }
 function extractTags(text){ return (text.match(/#[\w-]+/g) || []).map(tag => tag.slice(1)); }
 // --- Links helpers ---
@@ -912,7 +930,7 @@ function renderToday(){
             <option value="high">High</option>
           </select>
           <!-- Optional due date input -->
-          <input id="taskDueDate" type="date" title="mm/dd/yyyy" placeholder="mm/dd/yyyy" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;" ${key!==todayKey()? 'disabled':''}/>
+          <input id="taskDueDate" type="date" title="mm/dd/yyyy" placeholder="mm/dd/yyyy" style="padding:8px;background:var(--input-bg);border:1px solid var(--input-border);color:var(--fg);border-radius:6px;" />
           <!-- Add button for mobile or accessibility -->
           <button id="taskAddBtn" class="btn">Add</button>
         </div>
@@ -964,7 +982,11 @@ function renderToday(){
       const titleVal = taskInput.value.trim();
       if(!titleVal) return;
       const dueInput = document.getElementById('taskDueDate');
-      const dueVal = dueInput && dueInput.value ? dueInput.value : null;
+      let dueVal = null;
+      if(dueInput && dueInput.value) {
+        // Store the date as YYYY-MM-DD string to avoid timezone issues
+        dueVal = dueInput.value;
+      }
       createTask({title: titleVal, noteId: daily.id, priority: $("#taskPriority").value, due: dueVal});
       taskInput.value = '';
       if(dueInput) dueInput.value = '';
@@ -993,7 +1015,11 @@ function renderToday(){
       const title = taskInput?.value.trim();
       if(!title) return;
       const dueInput = document.getElementById('taskDueDate');
-      const dueVal = dueInput && dueInput.value ? dueInput.value : null;
+      let dueVal = null;
+      if(dueInput && dueInput.value) {
+        // Store the date as YYYY-MM-DD string to avoid timezone issues
+        dueVal = dueInput.value;
+      }
       createTask({title, noteId: daily.id, priority: $("#taskPriority").value, due: dueVal});
       if(taskInput) taskInput.value='';
       if(dueInput) dueInput.value='';
@@ -1023,7 +1049,7 @@ function renderToday(){
       return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
         <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
-        <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;'>${htmlesc(t.title)}${t.due ? ` <span class='pill'>${new Date(t.due).toLocaleDateString()}</span>` : ''}</span>
+        <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;'>${htmlesc(t.title)}${t.due ? ` <span class='pill'>${formatDateString(t.due)}</span>` : ''}</span>
       </label>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
@@ -1099,7 +1125,7 @@ function renderToday(){
         return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
         <input type='checkbox' ${t.status === 'DONE' ? 'checked' : ''} data-id='${t.id}'/>
-        <span class='${t.status === 'DONE' ? 'muted' : ''}' style='border-left:3px solid ${colors[t.priority || 'medium']};padding-left:8px;'>${htmlesc(t.title)}${t.due ? ` <span class='pill'>${new Date(t.due).toLocaleDateString()}</span>` : ''} <span class='pill'>${proj ? htmlesc(proj.name) : 'Unknown'}</span></span>
+        <span class='${t.status === 'DONE' ? 'muted' : ''}' style='border-left:3px solid ${colors[t.priority || 'medium']};padding-left:8px;'>${htmlesc(t.title)}${t.due ? ` <span class='pill'>${formatDateString(t.due)}</span>` : ''} <span class='pill'>${proj ? htmlesc(proj.name) : 'Unknown'}</span></span>
       </label>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
@@ -1198,7 +1224,7 @@ function renderProjects(){
             <option value="medium" selected>Medium</option>
             <option value="high">High</option>
           </select>
-          <input id="projTaskDueDate" type="date" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;"/>
+          <input id="projTaskDueDate" type="date" style="padding:8px;background:var(--input-bg);border:1px solid var(--input-border);color:var(--fg);border-radius:6px;"/>
           <button id="projAddTask" class="btn">Add Task</button>
         </div>
         <div id="taskList" class="list" style="margin-top:8px;"></div>
@@ -1307,7 +1333,7 @@ function renderProjects(){
       return `<div class="row" style="justify-content:space-between;">
         <label class="row" style="gap:8px;">
           <input type="checkbox" ${t.status==="DONE"?"checked":''} data-id="${t.id}"/>
-          <span class="${t.status==='DONE'?'muted':''}" style="border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;">${htmlesc(t.title)}${t.due ? ` <span class='pill'>${new Date(t.due).toLocaleDateString()}</span>` : ''}</span>
+          <span class="${t.status==='DONE'?'muted':''}" style="border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;">${htmlesc(t.title)}${t.due ? ` <span class='pill'>${formatDateString(t.due)}</span>` : ''}</span>
         </label>
         <div class='row' style='gap:6px;'>
           <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
@@ -1483,7 +1509,7 @@ function renderReview(){
           const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null;
           const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null;
           const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
-          const dueStr = t.due ? new Date(t.due).toLocaleDateString() : '';
+          const dueStr = t.due ? formatDateString(t.due) : '';
           const colors = { high: '#ff6b6b', medium: '#4ea1ff', low: '#64748b' };
           const col = colors[t.priority || 'medium'];
           return `<div class='row' style='justify-content:space-between;align-items:center;'>
@@ -1560,7 +1586,7 @@ function renderReview(){
     </div>
     <div class="card">
       <strong>🏷️ Tag Cloud</strong>
-      <div style="margin-top:8px;">${getAllTags().slice(0,20).map(tag=>{
+  <div style="margin-top:8px;">${getAllTags().map(tag=>{
         const noteCount = db.notes.filter(n=> (n.tags||[]).includes(tag)).length;
         const linkCount = db.links ? db.links.filter(l=> (l.tags||[]).includes(tag)).length : 0;
         const count = noteCount + linkCount;
@@ -1752,7 +1778,7 @@ function openTaskModal(taskId) {
   // Populate fields
   titleEl.value = t.title || '';
   priorityEl.value = t.priority || 'medium';
-  dueEl.value = t.due ? new Date(t.due).toISOString().slice(0,10) : '';
+  dueEl.value = t.due || '';
   descEl.value = t.description || '';
   // Render subtasks
   function renderSubtasks() {
