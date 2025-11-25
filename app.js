@@ -553,6 +553,7 @@ const sections = [
   // NEW: monthly planning view
   {id:"monthly", label:"🗓️ Monthly"},
   {id:"review", label:"📊 Review"},
+  // NEW: assistant view for AI‑powered queries
 ];
 let route = "today";
 let currentProjectId = null; // NEW: selected project
@@ -1162,6 +1163,45 @@ function renderToday(){
   // because renderToday redefines drawProjectTasks on each invocation.
   window.drawProjectTasks = drawProjectTasks;
   drawTasks(); drawBacklog();
+
+  // ------------------------------------------------------------------
+  // Global Ctrl+S binding for the Today view
+  //
+  // The daily page has several input elements (title, content, scratchpad,
+  // quick task field) that may capture keyboard focus. Previously the
+  // Ctrl+S shortcut only bound to specific fields like the title and
+  // content boxes, meaning pressing Ctrl+S elsewhere would trigger the
+  // browser’s default “Save page” dialog. To address this, we bind a
+  // single capture‑phase listener on the document that intercepts
+  // Ctrl+S regardless of focus and triggers the save action. The
+  // handler reference is stored on window._todayKeyHandler so it can
+  // be removed when navigating away from this view.
+  // Remove any previously registered Ctrl+S handler. We attach our handler on both
+  // document and window because some input elements may stop propagation at the
+  // document level. If a previous handler exists, remove it from both targets.
+  if (window._todayKeyHandler) {
+    document.removeEventListener('keydown', window._todayKeyHandler, true);
+    window.removeEventListener('keydown', window._todayKeyHandler, true);
+  }
+  const globalDailyKeyHandler = (e) => {
+    // Support Ctrl (Windows/Linux) and Meta (Mac) without Shift
+    const isCtrl = e.ctrlKey || e.metaKey;
+    if (isCtrl && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const btn = document.getElementById('saveDaily');
+      if (btn) btn.click();
+      return false;
+    }
+  };
+  // Register our new handler on both document and window. Using capture phase
+  // ensures the shortcut fires before focus handlers on input/textarea fields.
+  // Use options object to explicitly disable passive mode. When passive is true,
+  // preventDefault() may be ignored by some browsers for wheel/touch events.
+  const handlerOpts = { capture: true, passive: false };
+  document.addEventListener('keydown', globalDailyKeyHandler, handlerOpts);
+  window.addEventListener('keydown', globalDailyKeyHandler, handlerOpts);
+  window._todayKeyHandler = globalDailyKeyHandler;
 }
 function renderProjects(){
   const selectorHTML = db.projects && db.projects.length ? `
@@ -1710,6 +1750,34 @@ function renderMap() {
   });
 }
 
+// --- Assistant view ---
+//
+// The Assistant view provides a simple chat interface that leverages your
+// existing UltraNote content to answer questions. Instead of training a
+// full LLM, this feature performs a lightweight keyword search across
+// your notes and tasks. When you ask a question, it looks for
+// overlapping words in note titles, note content, task titles and
+// descriptions. It then returns a summary of matches and offers
+// convenient links back into the relevant note or task. This view
+// demonstrates how your personal knowledge base can power an AI‑like
+// assistant without external dependencies. In future iterations you
+// could replace the `assistantAnswer` function with calls to an LLM via
+// services like Parallel's Task API or Hugging Face MCP servers.
+
+// Given a natural language query, search the DB for matching notes and
+// tasks based on simple keyword overlap. Returns a summary string and
+// an array of source references. The summary mentions the number of
+// matches and lists up to five of each type. Source objects have
+// `type` ("note" or "task"), `id` and `title` fields.
+/*
+ * The assistant feature has been removed. If you plan to integrate
+ * a personal assistant in the future, consider implementing it as
+ * a separate module or application that consumes your UltraNote
+ * database via an API rather than embedding assistant logic in this
+ * client. Keeping the client focused on note and task management
+ * makes the core application simpler and easier to maintain.
+ */
+
 // --- Link note modal ---
 let _linkTargetNoteId = null;
 function openLinkModal(noteId) {
@@ -1888,6 +1956,7 @@ function renderMonthly(){
         <div class="row" style="gap:8px;margin-bottom:16px;">
           <button id="monthlyAdd" class="btn acc">➕ Add Task</button>
           <button id="monthlyClear" class="btn">Clear</button>
+          <button id="monthlyCopyPrev" class="btn" title="Copy tasks from previous month">Roll Over Tasks</button>
         </div>
         
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;">
@@ -2258,6 +2327,7 @@ function renderMonthly(){
   // Event handlers with improved UX
   const addBtn = document.getElementById('monthlyAdd');
   const clearBtn = document.getElementById('monthlyClear');
+  const copyPrevBtn = document.getElementById('monthlyCopyPrev');
   const titleInput = document.getElementById('monthlyTaskTitle');
   
   // Helper to track typing activity and prevent background sync interference
@@ -2284,6 +2354,45 @@ function renderMonthly(){
       const checkboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
       checkboxes.forEach(cb => cb.checked = false);
       titleInput?.focus();
+    };
+  }
+
+  // Copy tasks from previous month handler
+  if(copyPrevBtn) {
+    copyPrevBtn.onclick = async () => {
+      // Determine the previous month key by subtracting one month from monthKey.
+      // monthKey is in YYYY-MM format. Create a date representing the first day
+      // of the current month then subtract one month.
+      const parts = monthKey.split('-');
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1; // zero‑indexed month
+      const curDate = new Date(y, m, 1);
+      curDate.setMonth(curDate.getMonth() - 1);
+      const prevKey = curDate.toISOString().slice(0, 7);
+      // Find tasks from previous month
+      const prevTasks = (db.monthly || []).filter(t => t.month && t.month === prevKey);
+      if (!prevTasks.length) {
+        alert('No tasks from previous month to copy.');
+        return;
+      }
+      const ok = await showConfirm(`Copy ${prevTasks.length} recurring task${prevTasks.length !== 1 ? 's' : ''} from ${prevKey}?`, 'Copy', 'Cancel');
+      if (!ok) return;
+      let added = 0;
+      prevTasks.forEach(t => {
+        // Avoid duplicating tasks that already exist this month with identical
+        // titles and day sets. Use JSON.stringify on arrays for deep comparison.
+        const exists = (db.monthly || []).some(x => (x.month || monthKey) === monthKey && x.title === t.title && JSON.stringify(x.days || []) === JSON.stringify(t.days || []));
+        if (!exists) {
+          const id = uid();
+          const newTask = { id, title: t.title, days: Array.isArray(t.days) ? [...t.days] : [], month: monthKey, createdAt: nowISO() };
+          db.monthly.push(newTask);
+          added++;
+        }
+      });
+      if (added) {
+        save();
+        drawMonthlyList();
+      }
     };
   }
   
@@ -3121,6 +3230,16 @@ function render(){
     document.removeEventListener('keydown', window._noteKeyHandler, true); // Remove capture phase listener
     document.removeEventListener('keydown', window._noteKeyHandler); // Remove bubble phase listener
     window._noteKeyHandler = null;
+  }
+
+  // Clean up Today page shortcut handler when leaving Today view.  Without this, the
+  // Ctrl+S binding on the Today page would persist across other sections and
+  // override default browser behaviour.  We store the handler reference on
+  // window._todayKeyHandler when binding it in renderToday().  Removing it
+  // here ensures a clean slate whenever render() is called for a new route.
+  if(window._todayKeyHandler) {
+    document.removeEventListener('keydown', window._todayKeyHandler, true);
+    window._todayKeyHandler = null;
   }
   
   // Apply current theme before rendering UI elements
