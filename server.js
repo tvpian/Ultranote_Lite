@@ -34,6 +34,7 @@ app.use(session({
 }));
 
 
+let QUOTES = [];
 try {
   const quotesPath = path.join(__dirname, 'quotes.json');
   const raw = fs.readFileSync(quotesPath, 'utf8');

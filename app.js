@@ -27,8 +27,12 @@ const formatDateString = (dateStr) => {
 };
 // NEW: selected daily date (default today)
 let selectedDailyDate = todayKey();
+// Independent month selection for the Monthly planning view.
+// Kept separate from selectedDailyDate so navigating daily notes never
+// causes the monthly view to show the wrong month.
+let selectedMonthKey = todayKey().slice(0,7);
 function createDailyNoteFor(dateKey, contentOverride){
-  const exists = db.notes.find(n=>n.type==='daily' && n.dateIndex===dateKey);
+  const exists = db.notes.find(n=>n.type==='daily' && n.dateIndex===dateKey && !n.deletedAt);
   if(exists) return exists;
   const isToday = dateKey === todayKey();
   const templateContent = contentOverride !== undefined ? contentOverride : (db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n");
@@ -62,24 +66,9 @@ function createDailyNoteFor(dateKey, contentOverride){
       if(projectPool.length) save();
     }
   }
-  // Insert recurring monthly tasks for the given date (runs for any date)
-  if(db.monthly && Array.isArray(db.monthly)){
-    try {
-      const dObj = new Date(dateKey + 'T00:00:00');
-      const weekday = dObj.getDay();
-      const monthKey = dateKey.slice(0,7);
-      db.monthly.forEach(mt => {
-        if(mt.month && mt.month !== monthKey) return;
-        if(!Array.isArray(mt.days) || !mt.days.includes(weekday)) return;
-        const exists = db.tasks.some(t => t.noteId === daily.id && !t.deletedAt && t.title === mt.title);
-        if(!exists){
-          createTask({ title: mt.title, noteId: daily.id, priority: 'medium' });
-        }
-      });
-    } catch(err) {
-      console.warn('Monthly task injection error', err);
-    }
-  }
+  // Insert recurring monthly tasks for the given date. Delegated to
+  // syncMonthlyTasksToDaily which is also called on existing notes in renderToday.
+  syncMonthlyTasksToDaily(daily, dateKey);
   return daily;
 }
 // NEW: unified handler to open or create the selected daily note (deferred creation)
@@ -237,9 +226,7 @@ window._editorDirty = false;
 window._isTypingInForm = false;
 let _typingTimer = null;
 function uid(){ return Math.random().toString(36).slice(2,10); }
-// Backwards compatibility: some calls still pass db => ignore param
-function save(){ persistDB(); }
-// Debounced override to reduce write frequency
+// Debounced save – reduces write frequency
 let _saveTimer; function save(){ clearTimeout(_saveTimer); _saveTimer = setTimeout(()=>persistDB(), 400); }
 
 // ------------------------------------------------------------------
@@ -433,6 +420,45 @@ function moveToBacklog(id) {
     updateProjectTasksButton();
   }
 }
+// --- Task similarity helpers ---
+// Returns a 0–1 score for how similar two task title strings are.
+// Uses substring containment + Jaccard word-overlap so both
+// "Prayer" / "Prayer" (exact) and "PHD prep" / "PHD Prep – apply" (partial) are caught.
+function taskSimilarity(a, b){
+  a = a.toLowerCase().trim();
+  b = b.toLowerCase().trim();
+  if(!a || !b) return 0;
+  if(a === b) return 1;
+  if(a.includes(b) || b.includes(a)) return 0.9;
+  const wa = new Set(a.split(/\W+/).filter(Boolean));
+  const wb = new Set(b.split(/\W+/).filter(Boolean));
+  const inter = [...wa].filter(w => wb.has(w)).length;
+  const union = new Set([...wa, ...wb]).size;
+  return union ? inter / union : 0;
+}
+// Groups all non-deleted tasks into clusters where any two tasks have similarity >= threshold.
+// Returns array of arrays, only groups with 2+ tasks.
+function findDuplicateTaskGroups(threshold = 0.75){
+  const tasks = db.tasks.filter(t => !t.deletedAt && t.status !== 'DONE');
+  const visited = new Set();
+  const groups = [];
+  for(let i = 0; i < tasks.length; i++){
+    if(visited.has(tasks[i].id)) continue;
+    const group = [tasks[i]];
+    for(let j = i + 1; j < tasks.length; j++){
+      if(visited.has(tasks[j].id)) continue;
+      if(taskSimilarity(tasks[i].title, tasks[j].title) >= threshold){
+        group.push(tasks[j]);
+        visited.add(tasks[j].id);
+      }
+    }
+    if(group.length > 1){
+      group.forEach(t => visited.add(t.id));
+      groups.push(group);
+    }
+  }
+  return groups;
+}
 // Soft-delete a task by marking it archived. Tasks are not removed from DB to allow history viewing.
 function deleteTask(id){
   const t = db.tasks.find(x => x.id === id);
@@ -497,6 +523,16 @@ function restoreTask(id){
   const t = db.tasks.find(x => x.id === id);
   if(!t) return;
   delete t.deletedAt;
+  // If the note this task belonged to no longer exists, detach noteId so the
+  // task surfaces in Review → Pending Tasks instead of being silently orphaned.
+  if(t.noteId && !db.notes.find(n => n.id === t.noteId)){
+    t.noteId = null;
+  }
+  // Ensure restored tasks are actionable (not stuck in BACKLOG or DONE)
+  if(t.status === 'BACKLOG' || t.status === 'DONE'){
+    t.status = 'TODO';
+    t.completedAt = null;
+  }
   save();
 }
 
@@ -508,12 +544,51 @@ function hardDeleteTask(id){
   save();
 }
 
+// --- Note soft-delete helpers ---
+function softDeleteNote(id){
+  const n = db.notes.find(x => x.id === id);
+  if(!n) return;
+  n.deletedAt = nowISO();
+  // Soft-delete non-backlog tasks linked to this note so they land in Trash.
+  // BACKLOG tasks are intentionally preserved — detach them from the note so
+  // they survive as floating backlog items visible on the Review page.
+  db.tasks.filter(t => t.noteId === id && !t.deletedAt).forEach(t => {
+    if(t.status === 'BACKLOG'){
+      t.noteId = null; // detach, keep alive
+    } else {
+      t.deletedAt = nowISO();
+    }
+  });
+  save();
+}
+function restoreNote(id){
+  const n = db.notes.find(x => x.id === id);
+  if(!n) return;
+  delete n.deletedAt;
+  // Also restore tasks that were trashed when this note was deleted
+  db.tasks.filter(t => t.noteId === id && t.deletedAt).forEach(t => { delete t.deletedAt; });
+  save();
+}
+function hardDeleteNote(id){
+  const n = db.notes.find(x => x.id === id);
+  if(!n) return;
+  // Permanently remove linked tasks too
+  db.tasks = db.tasks.filter(t => t.noteId !== id);
+  db.notes = db.notes.filter(x => x.id !== id);
+  save();
+}
+function getTrashedNotes(){
+  return db.notes.filter(n => n.deletedAt);
+}
+
 function emptyTrash() {
-  showConfirm("Permanently delete ALL trashed tasks? This cannot be undone.", 'Empty Trash', 'Cancel').then(ok=>{
+  showConfirm("Permanently delete ALL trashed tasks and notes? This cannot be undone.", 'Empty Trash', 'Cancel').then(ok=>{
     if(!ok) return;
-    const before = db.tasks.length;
+    const tasksBefore = db.tasks.length;
+    const notesBefore = db.notes.length;
     db.tasks = db.tasks.filter(x => !x.deletedAt);
-    if(db.tasks.length !== before) save();
+    db.notes = db.notes.filter(x => !x.deletedAt);
+    if(db.tasks.length !== tasksBefore || db.notes.length !== notesBefore) save();
     if(route==='review') renderReview();
   });
 }
@@ -522,10 +597,10 @@ function createTemplate(name, content){ const t={id:uid(), name, content, create
 function addTag(text){ const tags = extractTags(text); if(tags.length) { const uniqueTags = [...new Set([...getAllTags(), ...tags])]; } return tags; }
 // Collect unique tags from notes and links (ideas/notes use tags on note; links have their own tags)
 function getAllTags(){
-  // Tags explicitly stored on notes
-  const noteTags = db.notes.flatMap(n => n.tags || []);
+  // Tags explicitly stored on notes (exclude soft-deleted)
+  const noteTags = db.notes.filter(n => !n.deletedAt).flatMap(n => n.tags || []);
   // Inline hashtags inside note content (e.g. "#research")
-  const inlineContentTags = db.notes.flatMap(n => extractTags(n.content || ''));
+  const inlineContentTags = db.notes.filter(n => !n.deletedAt).flatMap(n => extractTags(n.content || ''));
   // Tags stored on links
   const linkTags = db.links ? db.links.flatMap(l => l.tags || []) : [];
   // Merge + dedupe
@@ -726,8 +801,8 @@ function drawProjectsSidebar(){
         const pid = del.dataset.del;
         const proj = db.projects.find(p => p.id === pid);
         if (!proj) return;
-        const noteCount = db.notes.filter(n => n.projectId === pid).length;
-        const taskCount = db.tasks.filter(t => t.projectId === pid).length;
+        const noteCount = db.notes.filter(n => n.projectId === pid && !n.deletedAt).length;
+        const taskCount = db.tasks.filter(t => t.projectId === pid && !t.deletedAt).length;
         const msg = `Delete project "${proj.name}"${noteCount || taskCount ? ` (and its ${noteCount} notes / ${taskCount} tasks)` : ''}? This cannot be undone.`;
         const ok = await showConfirm(msg, 'Delete', 'Cancel');
         if (!ok) return;
@@ -754,8 +829,6 @@ function drawProjectsSidebar(){
     projectList.dataset.bound='1';
   }
 }
-
-function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
 
 // --- Draft note helper ---
 function openDraftNote({title='', projectId=null, type='note', templateId=''}){
@@ -845,10 +918,49 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
   }
 }
 
+// Inject any missing monthly-recurring tasks into an existing daily note.
+// Called both when creating a new note (inside createDailyNoteFor) and when
+// opening an already-existing note so that tasks added to the Monthly page
+// after the note was first created still appear.
+function syncMonthlyTasksToDaily(daily, dateKey){
+  if(!daily || !db.monthly || !Array.isArray(db.monthly)) return;
+  try {
+    const dObj = new Date(dateKey + 'T00:00:00');
+    const weekday = dObj.getDay();
+    const monthKey = dateKey.slice(0, 7);
+    let changed = false;
+    // Only inject tasks that belong to the same month as dateKey.
+    // Tasks from past months must be explicitly rolled over via the
+    // "Roll Over Tasks" button on the Monthly page before they appear here.
+    const seen = new Set();
+    db.monthly.forEach(mt => {
+      // Skip tasks that belong to a different month
+      if(!mt.month || mt.month !== monthKey) return;
+      const tDays = Array.isArray(mt.days) ? mt.days : [];
+      // Empty days array means "every day"; otherwise check weekday
+      if(tDays.length && !tDays.includes(weekday)) return;
+      // Deduplicate by title in case of duplicate entries
+      if(seen.has(mt.title)) return;
+      seen.add(mt.title);
+      const exists = db.tasks.some(t => t.noteId === daily.id && !t.deletedAt && t.title === mt.title);
+      if(!exists){
+        createTask({ title: mt.title, noteId: daily.id, priority: 'medium' });
+        changed = true;
+      }
+    });
+    if(changed) save();
+  } catch(err) {
+    console.warn('syncMonthlyTasksToDaily error', err);
+  }
+}
+
 // --- Views ---
 function renderToday(){
   const key = selectedDailyDate || todayKey();
-  const daily = db.notes.find(n=>n.type==='daily' && n.dateIndex===key) || null;
+  const daily = db.notes.find(n=>n.type==='daily' && n.dateIndex===key && !n.deletedAt) || null;
+  // For an existing daily note, inject any monthly tasks that were added after
+  // the note was originally created (or that weren't present on last open).
+  if(daily) syncMonthlyTasksToDaily(daily, key);
   // Exclude archived tasks (deletedAt) when gathering project tasks pool
   // Gather project tasks for today. Exclude backlog tasks and completed tasks so
   // that only outstanding items appear in the Today view. Deleted tasks are
@@ -911,7 +1023,6 @@ function renderToday(){
           <option value="">Apply Template...</option>
           ${db.templates.map(t=>`<option value="${t.id}">${htmlesc(t.name)}</option>`).join("")}
         </select>
-        <button id="toggleBacklog" class="btn" style="font-size:12px;">Backlog ▾</button>
       </div>
       <div class="muted" style="margin-top:6px;font-size:11px;">${key===todayKey()? 'Current day' : 'Viewing: '+ new Date(key+"T00:00:00").toDateString()}</div>
     </div>
@@ -921,6 +1032,7 @@ function renderToday(){
           <strong>${key===todayKey()?"Today's Tasks":"Tasks"}</strong>
           <div class="row" style="gap:6px;">
             <button id="showProjectTasks" class="btn" style="font-size:12px;">${projectTasks.length} project tasks</button>
+            <button id="toggleBacklog" class="btn" style="font-size:12px;">Backlog ▾</button>
           </div>
         </div>
         <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap;">
@@ -935,6 +1047,7 @@ function renderToday(){
           <!-- Add button for mobile or accessibility -->
           <button id="taskAddBtn" class="btn">Add</button>
         </div>
+        <div id="taskDupHint" style="display:none;margin-top:4px;padding:6px 10px;background:#2a1f10;border:1px solid #f0c040;border-radius:6px;font-size:12px;color:#f0c040;"></div>
         <div id="taskList" class="list" style="margin-top:8px;"></div>
         <div id="backlogList" class="list" style="margin-top:8px;display:none;border-top:1px solid #1e2938;padding-top:8px;"></div>
         <div id="projectTaskList" class="list" style="margin-top:8px;display:none;"></div>
@@ -978,6 +1091,24 @@ function renderToday(){
     e.target.value = '';
   };
   const taskInput = $("#taskTitle"); const quickCapture = $("#quickCapture");
+  // Inline duplicate hint: fire on every keystroke in the task title input
+  if(taskInput){
+    taskInput.addEventListener('input', ()=>{
+      const val = taskInput.value.trim();
+      const hint = document.getElementById('taskDupHint');
+      if(!hint) return;
+      if(!val || val.length < 3){ hint.style.display='none'; return; }
+      const existing = db.tasks.filter(t => !t.deletedAt && t.status!=='DONE' && t.id);
+      const matches = existing.filter(t => taskSimilarity(val, t.title) >= 0.75);
+      if(matches.length){
+        hint.style.display='block';
+        hint.innerHTML = '⚠️ Similar task' + (matches.length>1?'s':'') + ' already exist: ' +
+          matches.map(t=>`<strong>${htmlesc(t.title)}</strong>`).join(', ');
+      } else {
+        hint.style.display='none';
+      }
+    });
+  }
   if(taskInput){
     const handleAddTask = ()=>{
       const titleVal = taskInput.value.trim();
@@ -1267,6 +1398,7 @@ function renderProjects(){
           <input id="projTaskDueDate" type="date" style="padding:8px;background:var(--input-bg);border:1px solid var(--input-border);color:var(--fg);border-radius:6px;"/>
           <button id="projAddTask" class="btn">Add Task</button>
         </div>
+        <div id="projTaskDupHint" style="display:none;margin-top:4px;padding:6px 10px;background:#2a1f10;border:1px solid #f0c040;border-radius:6px;font-size:12px;color:#f0c040;"></div>
         <div id="taskList" class="list" style="margin-top:8px;"></div>
         <div id="projBacklogList" class="list" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"></div>
       </div>
@@ -1298,21 +1430,21 @@ function renderProjects(){
       t => t.projectId === currentProjectId && t.status === 'BACKLOG' && !t.deletedAt
     );
   }
-  function getProjectNotes(){ return db.notes.filter(n=> n.projectId===currentProjectId && (!n.type || n.type==='note')); }
+  function getProjectNotes(){ return db.notes.filter(n=> n.projectId===currentProjectId && (!n.type || n.type==='note') && !n.deletedAt); }
   function drawNotes(){
     const notes = getProjectNotes().sort((a,b)=> sortBy==="title"? a.title.localeCompare(b.title) : b.updatedAt.localeCompare(a.updatedAt));
     const listEl = document.getElementById("notes");
     if(!notes.length){ listEl.innerHTML = `<div class='card muted'>No notes yet. Add one above.</div>`; return; }
     listEl.innerHTML = notes.map(n=> `<div class="card">
-      <div class="row" style="justify-content:space-between;">
-        <strong>${htmlesc(n.title)}</strong>
-        <div class="row" style="gap:8px;">
+      <div class="row" style="justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+        <strong style="flex:1;min-width:0;word-break:break-word;">${htmlesc(n.title)}</strong>
+        <div class="row" style="gap:8px;flex-shrink:0;">
           ${n.pinned?'<span title="Pinned">📌</span>':''}
           <div class="muted">${new Date(n.updatedAt).toLocaleDateString()}</div>
         </div>
       </div>
       ${(n.tags&&n.tags.length)?`<div style='margin-top:4px;'>${n.tags.map(tag=>`<span class='pill'>#${htmlesc(tag)}</span>`).join("")}</div>`:''}
-      <div class="row" style="margin-top:8px; gap:8px;">
+      <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;">
         <button class="btn" data-open="${n.id}">Open</button>
         <button class="btn" data-pin="${n.id}">${n.pinned?'Unpin':'Pin'}</button>
         <button class="btn" data-del="${n.id}">Delete</button>
@@ -1323,8 +1455,7 @@ function renderProjects(){
     listEl.querySelectorAll('[data-del]').forEach(b=> b.onclick = async ()=> {
       const ok = await showConfirm('Delete this note?', 'Delete', 'Cancel');
       if(!ok) return;
-      db.notes = db.notes.filter(x=> x.id !== b.dataset.del);
-      save();
+      softDeleteNote(b.dataset.del);
       drawNotes();
       refreshStats();
     });
@@ -1354,6 +1485,9 @@ function renderProjects(){
     const titleEl = document.getElementById("projTaskTitle");
     const title = titleEl ? titleEl.value.trim() : '';
     if(!title) return;
+    // Hide hint on successful add
+    const hint = document.getElementById('projTaskDupHint');
+    if(hint) hint.style.display='none';
     const dueEl = document.getElementById("projTaskDueDate");
     const dueVal = dueEl && dueEl.value ? dueEl.value : null;
     createTask({title, projectId:currentProjectId, priority:document.getElementById("projTaskPriority").value, due: dueVal});
@@ -1363,6 +1497,27 @@ function renderProjects(){
     refreshStats();
   };
   document.getElementById("projTaskTitle").onkeydown = e=>{ if(e.key==="Enter") document.getElementById("projAddTask").click(); };
+  // Inline dup hint for project task input
+  {
+    const pti = document.getElementById('projTaskTitle');
+    if(pti){
+      pti.addEventListener('input', ()=>{
+        const val = pti.value.trim();
+        const hint = document.getElementById('projTaskDupHint');
+        if(!hint) return;
+        if(!val || val.length < 3){ hint.style.display='none'; return; }
+        const existing = db.tasks.filter(t => !t.deletedAt && t.status!=='DONE' && t.projectId===currentProjectId);
+        const matches = existing.filter(t => taskSimilarity(val, t.title) >= 0.75);
+        if(matches.length){
+          hint.style.display='block';
+          hint.innerHTML = '⚠️ Similar task' + (matches.length>1?'s':'') + ' already in this project: ' +
+            matches.map(t=>`<strong>${htmlesc(t.title)}</strong>`).join(', ');
+        } else {
+          hint.style.display='none';
+        }
+      });
+    }
+  }
   document.getElementById("sortTitle").onclick = ()=>{ sortBy="title"; drawNotes(); };
   document.getElementById("sortDate").onclick = ()=>{ sortBy="date"; drawNotes(); };
   function drawTasks(){
@@ -1370,12 +1525,12 @@ function renderProjects(){
     const list = document.getElementById("taskList");
     list.innerHTML = tasks.map(t=>{
       const colors={high:"#ff6b6b",medium:"#4ea1ff",low:"#64748b"};
-      return `<div class="row" style="justify-content:space-between;">
-        <label class="row" style="gap:8px;">
-          <input type="checkbox" ${t.status==="DONE"?"checked":''} data-id="${t.id}"/>
-          <span class="${t.status==='DONE'?'muted':''}" style="border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;">${htmlesc(t.title)}${t.due ? ` <span class='pill'>${formatDateString(t.due)}</span>` : ''}</span>
+      return `<div class="row" style="justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+        <label class="row" style="gap:8px;flex:1;min-width:0;">
+          <input type="checkbox" ${t.status==="DONE"?"checked":''} data-id="${t.id}" style="flex-shrink:0;"/>
+          <span class="${t.status==='DONE'?'muted':''}" style="border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;word-break:break-word;flex:1;min-width:0;">${htmlesc(t.title)}${t.due ? ` <span class='pill'>${formatDateString(t.due)}</span>` : ''}</span>
         </label>
-        <div class='row' style='gap:6px;'>
+        <div class='row' style='gap:6px;flex-shrink:0;flex-wrap:wrap;'>
           <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
           ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
           <button class='btn' data-del='${t.id}'>✕</button>
@@ -1387,9 +1542,9 @@ function renderProjects(){
     list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); refreshStats(); });
     list.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{ openTaskModal(b.dataset.edit); });
   }
-  function drawBacklog(){ const list = document.getElementById('projBacklogList'); const tasks = getProjectBacklog(); list.innerHTML = `<div class='muted' style='font-size:12px;margin-bottom:4px;'>Backlog (${tasks.length})</div>` + (tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;'>
-      <span class='muted' style='font-size:12px;'>${htmlesc(t.title)}</span>
-      <div class='row' style='gap:6px;'>
+  function drawBacklog(){ const list = document.getElementById('projBacklogList'); const tasks = getProjectBacklog(); list.innerHTML = `<div class='muted' style='font-size:12px;margin-bottom:4px;'>Backlog (${tasks.length})</div>` + (tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>
+      <span class='muted' style='font-size:12px;flex:1;min-width:0;word-break:break-word;'>${htmlesc(t.title)}</span>
+      <div class='row' style='gap:6px;flex-shrink:0;'>
         <button class='btn' data-r='${t.id}' style='font-size:11px;'>Restore</button>
         <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
       </div>
@@ -1422,7 +1577,7 @@ function renderIdeas(){
   const idea = $("#idea");
   idea.onkeydown = (e)=> { if(e.key==="Enter" && idea.value.trim()){ const n=createNote({title:idea.value.trim(), content:"", type:"idea"}); idea.value=""; draw(); openNote(n.id); } };
   function draw(){
-    const notes = db.notes.filter(n=> n.type==="idea").sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
+    const notes = db.notes.filter(n=> n.type==="idea" && !n.deletedAt).sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
     $("#ideaList").innerHTML = notes.map(n=> `
       <div class="card">
         <div class="row" style="justify-content:space-between;align-items:center;">
@@ -1437,8 +1592,7 @@ function renderIdeas(){
     document.querySelectorAll('[data-del]').forEach(b=> b.onclick=async ()=>{
       const ok = await showConfirm('Delete idea?', 'Delete', 'Cancel');
       if(!ok) return;
-      db.notes = db.notes.filter(x=> x.id !== b.dataset.del);
-      save();
+      softDeleteNote(b.dataset.del);
       draw();
     });
   }
@@ -1452,8 +1606,16 @@ function openTaskContext(taskId){
   const t = db.tasks.find(x=>x.id===taskId);
   if(!t) return;
   if(t.noteId){
-    openNote(t.noteId);
-    return;
+    // Only open if the note still exists; otherwise clear the stale reference
+    // so the task surfaces in Review → Pending Tasks instead of going nowhere.
+    const noteExists = db.notes.find(n => n.id === t.noteId);
+    if(noteExists){
+      openNote(t.noteId);
+      return;
+    } else {
+      t.noteId = null;
+      save();
+    }
   }
   if(t.projectId){
     route='projects';
@@ -1479,11 +1641,49 @@ function renderReview(){
   // Exclude deleted tasks from analytics
   const done = db.tasks.filter(t=> t.status==='DONE' && !t.deletedAt);
   const activeTasks = db.tasks.filter(t=> t.status!=='BACKLOG' && !t.deletedAt);
-  const total = activeTasks.length; // fix 0/1 bug
+  const total = activeTasks.length;
   const pct = total? Math.round(done.length/total*100) : 0;
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
   const weekTasks = db.tasks.filter(t=> t.completedAt && new Date(t.completedAt) > weekAgo && !t.deletedAt);
   const weekNotes = db.notes.filter(n=> new Date(n.createdAt) > weekAgo);
+
+  // --- Enhanced analytics computations ---
+  // Tasks completed today
+  const todayStr = todayKey();
+  const completedToday = done.filter(t=> t.completedAt && t.completedAt.slice(0,10) === todayStr).length;
+  // Priority breakdown of pending tasks
+  const pendingTasks = db.tasks.filter(t=> t.status==='TODO' && !t.deletedAt);
+  const priHigh = pendingTasks.filter(t=> t.priority==='high').length;
+  const priMed  = pendingTasks.filter(t=> t.priority==='medium').length;
+  const priLow  = pendingTasks.filter(t=> t.priority==='low').length;
+  // Overdue tasks (due date in the past, still TODO)
+  const nowDate = new Date(); nowDate.setHours(0,0,0,0);
+  const overdue = pendingTasks.filter(t=> t.due && new Date(t.due) < nowDate).length;
+  // Most productive day of the week (based on all-time completions)
+  const dayCounts = [0,0,0,0,0,0,0];
+  done.forEach(t=>{ if(t.completedAt){ dayCounts[new Date(t.completedAt).getDay()]++; } });
+  const maxDayCount = Math.max(...dayCounts);
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const bestDay = maxDayCount > 0 ? dayNames[dayCounts.indexOf(maxDayCount)] : null;
+  // Active streak: consecutive days with at least 1 task completed (going back from today)
+  let streak = 0;
+  for(let i=0; i<365; i++){
+    const d = new Date(); d.setDate(d.getDate()-i);
+    const dk = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    if(done.some(t=> t.completedAt && t.completedAt.slice(0,10)===dk)) streak++;
+    else if(i > 0) break; // today with 0 completions is ok, break on any other miss
+  }
+  // Week-over-week: compare this week vs last week completions
+  const twoWeeksAgo = new Date(); twoWeeksAgo.setDate(twoWeeksAgo.getDate()-14);
+  const lastWeekTasks = done.filter(t=> t.completedAt && new Date(t.completedAt) > twoWeeksAgo && new Date(t.completedAt) <= weekAgo).length;
+  const weekDelta = weekTasks.length - lastWeekTasks;
+  const weekDeltaStr = weekDelta > 0 ? `+${weekDelta} vs last week` : weekDelta < 0 ? `${weekDelta} vs last week` : `same as last week`;
+  const weekDeltaColor = weekDelta > 0 ? '#4caf9e' : weekDelta < 0 ? '#ff6b6b' : 'var(--muted)';
+  // Most productive project (most tasks completed)
+  const projCompletions = db.projects.map(p=>({ name: p.name, count: done.filter(t=>t.projectId===p.id).length })).filter(p=>p.count>0).sort((a,b)=>b.count-a.count);
+  const topProject = projCompletions[0] || null;
+  // Progress bar helper
+  const pbar = (val, max, color='#4ea1ff') => `<div style="background:var(--btn-bg);border-radius:4px;height:6px;flex:1;min-width:60px;"><div style="background:${color};width:${max?Math.round(val/max*100):0}%;height:100%;border-radius:4px;"></div></div>`;
   const projectStats = db.projects.map(p=>{
     const tasks = db.tasks.filter(t=> t.projectId === p.id && !t.deletedAt);
     const completed = tasks.filter(t=> t.status === 'DONE').length;
@@ -1512,22 +1712,197 @@ function renderReview(){
     const note = t.noteId ? db.notes.find(n=> n.id === t.noteId) : null;
     const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type === 'daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
     const dateStr = t.completedAt ? new Date(t.completedAt).toLocaleDateString() : '';
-    return `<div class='row' style='justify-content:space-between;align-items:center;'>
-      <span style='flex:1;'>${htmlesc(t.title)} ${ctx} <span class='pill'>${dateStr}</span></span>
-      <div class='row' style='gap:4px;'>
-        <button class='btn' data-open-task='${t.id}' style='font-size:11px;'>Open</button>
+    const goTarget = proj ? `data-open-project='${proj.id}'` : (note ? `data-open='${note.id}'` : '');
+    const goBtn = goTarget ? `<button class='btn' ${goTarget} style='font-size:11px;' title='Go to context'>Go →</button>` : '';
+    return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>
+      <span style='flex:1;min-width:0;word-break:break-word;'>${htmlesc(t.title)} ${ctx} <span class='pill'>${dateStr}</span></span>
+      <div class='row' style='gap:4px;flex-shrink:0;'>
+        <button class='btn' data-view-task='${t.id}' style='font-size:11px;'>View</button>
+        ${goBtn}
         <button class='btn' data-restore='${t.id}' style='font-size:11px;'>Restore</button>
       </div>
     </div>`;
   }).join('') : '<div class="muted">No completed tasks</div>';
+
+  // Helper to build a task row for Pending/Backlog/Upcoming sections
+  function taskRow(t, extraBtns='', style=''){
+    const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null;
+    const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null;
+    const label = htmlesc(t.title);
+    const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
+    const goTarget = proj ? `data-open-project='${proj.id}'` : (note ? `data-open='${note.id}'` : '');
+    const goBtn = goTarget ? `<button class='btn' ${goTarget} style='font-size:11px;' title='Go to context'>Go →</button>` : '';
+    return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>
+      <span style='flex:1;min-width:0;word-break:break-word;${style}padding-left:6px;'>${label} ${ctx}</span>
+      <div class='row' style='gap:4px;flex-shrink:0;'>
+        <button class='btn' data-view-task='${t.id}' style='font-size:11px;'>View</button>
+        ${goBtn}
+        ${extraBtns}
+      </div>
+    </div>`;
+  }
+
+  // Helper to build a trash item row with wrapping text
+  function trashTaskRow(t){
+    const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null;
+    const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null;
+    const label = htmlesc(t.title);
+    const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
+    const deletedDate = t.deletedAt ? new Date(t.deletedAt).toLocaleDateString() : '';
+    return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>
+      <span class='muted' style='flex:1;min-width:0;word-break:break-word;padding-left:6px;'>📋 ${label} ${ctx} <span class='pill'>Deleted: ${deletedDate}</span></span>
+      <div class='row' style='gap:4px;flex-shrink:0;'>
+        <button class='btn' data-open-task-modal='${t.id}' style='font-size:11px;'>View</button>
+        <button class='btn' data-restore-task='${t.id}' style='font-size:11px;'>Restore</button>
+        <button class='btn' data-hard-delete='${t.id}' style='font-size:11px;color:#ff6b6b;'>Delete</button>
+      </div>
+    </div>`;
+  }
+  function trashNoteRow(n){
+    const typeLabel = n.type === 'daily' ? '📅' : n.type === 'idea' ? '💡' : '📝';
+    const label = htmlesc(n.title);
+    const deletedDate = n.deletedAt ? new Date(n.deletedAt).toLocaleDateString() : '';
+    return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>
+      <span class='muted' style='flex:1;min-width:0;word-break:break-word;padding-left:6px;'>${typeLabel} ${label} <span class='pill muted-pill'>Note</span> <span class='pill'>Deleted: ${deletedDate}</span></span>
+      <div class='row' style='gap:4px;flex-shrink:0;'>
+        <button class='btn' data-restore-note='${n.id}' style='font-size:11px;'>Restore</button>
+        <button class='btn' data-hard-delete-note='${n.id}' style='font-size:11px;color:#ff6b6b;'>Delete</button>
+      </div>
+    </div>`;
+  }
+
+  // --- Habit streak grid ---
+  const habitMonthKey = todayKey().slice(0, 7);
+  const habitEntries = (db.monthly || []).filter(m => m.month === habitMonthKey);
+  const habitTitles = [...new Set(habitEntries.map(m => m.title))];
+  const _hToday = new Date();
+  const _hYear = parseInt(habitMonthKey.split('-')[0]);
+  const _hMonth = parseInt(habitMonthKey.split('-')[1]) - 1;
+  const _hCurrentDay = _hToday.getFullYear() === _hYear && _hToday.getMonth() === _hMonth
+    ? _hToday.getDate() : new Date(_hYear, _hMonth + 1, 0).getDate();
+  function buildHabitGrid(){
+    if(!habitTitles.length) return '<div class="muted" style="font-size:12px;">No habits tracked this month. Add tasks on the Monthly page first.</div>';
+    const dayNames = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+    const days = Array.from({length: _hCurrentDay}, (_, i) => i + 1);
+    let html = '<div style="overflow-x:auto;margin-top:8px;">';
+    html += '<table style="border-collapse:collapse;font-size:12px;width:100%;">';
+    html += '<thead><tr><th style="text-align:left;padding:4px 8px;font-weight:600;color:var(--muted);min-width:140px;">Habit</th>';
+    for(const d of days){
+      const dd = new Date(_hYear, _hMonth, d);
+      html += `<th style="padding:2px 3px;color:var(--muted);font-weight:normal;min-width:26px;text-align:center;">${d}<br><span style="font-size:10px;">${dayNames[dd.getDay()]}</span></th>`;
+    }
+    html += '</tr></thead><tbody>';
+    for(const title of habitTitles){
+      const mt = habitEntries.find(m => m.title === title);
+      const scheduledDays = mt && Array.isArray(mt.days) && mt.days.length ? mt.days : null;
+      html += `<tr><td style="padding:4px 8px;font-size:12px;white-space:nowrap;">${htmlesc(title)}</td>`;
+      for(const d of days){
+        const dateKey = `${_hYear}-${String(_hMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const weekday = new Date(_hYear, _hMonth, d).getDay();
+        if(scheduledDays && !scheduledDays.includes(weekday)){
+          html += `<td style="text-align:center;padding:2px 3px;color:var(--muted);font-size:11px;">–</td>`;
+          continue;
+        }
+        const dailyNote = db.notes.find(n => n.type==='daily' && n.dateIndex===dateKey && !n.deletedAt);
+        if(!dailyNote){
+          html += `<td style="text-align:center;padding:2px 3px;color:var(--muted);font-size:11px;">·</td>`;
+          continue;
+        }
+        const task = db.tasks.find(t => t.noteId===dailyNote.id && t.title===title && !t.deletedAt);
+        if(!task){
+          html += `<td style="text-align:center;padding:2px 3px;color:var(--muted);font-size:11px;">·</td>`;
+        } else if(task.status === 'DONE'){
+          html += `<td style="text-align:center;padding:2px 3px;" title="${htmlesc(title)} ✓ ${dateKey}">✅</td>`;
+        } else {
+          html += `<td style="text-align:center;padding:2px 3px;" title="${htmlesc(title)} ✗ ${dateKey}">❌</td>`;
+        }
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    // Legend
+    html += '<div style="margin-top:6px;font-size:11px;color:var(--muted);">✅ Done &nbsp; ❌ Missed &nbsp; – Not scheduled &nbsp; · No daily note</div>';
+    return html;
+  }
+  const habitGridHtml = buildHabitGrid();
+
+  // --- Duplicate tasks computation ---
+  const dupGroups = findDuplicateTaskGroups(0.75);
+  function buildDupGroupHtml(groups){
+    if(!groups.length) return '<div class="muted" style="font-size:12px;">No potential duplicates found ✔</div>';
+    return groups.map((group, gi) => {
+      const rows = group.map(t => {
+        const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null;
+        const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null;
+        const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
+        return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;padding:4px 0;border-bottom:1px solid var(--btn-border);'>
+          <span style='flex:1;min-width:0;word-break:break-word;font-size:13px;'>${htmlesc(t.title)} ${ctx} <span class='pill' style='font-size:10px;'>${t.status}</span></span>
+          <button class='btn' data-dup-del='${t.id}' style='font-size:11px;color:#ff6b6b;flex-shrink:0;'>Remove</button>
+        </div>`;
+      }).join('');
+      const keepId = group[0].id;
+      const removeIds = group.slice(1).map(t=>t.id).join(',');
+      return `<div style='margin-bottom:12px;padding:8px;background:var(--btn-bg);border-radius:8px;border:1px solid #f0c040;'>
+        <div class='row' style='justify-content:space-between;align-items:center;margin-bottom:6px;'>
+          <span style='font-size:12px;color:#f0c040;font-weight:600;'>⚠️ ${group.length} similar tasks</span>
+          <button class='btn' data-dup-keep='${keepId}' data-dup-remove='${removeIds}' style='font-size:11px;'>Keep first, remove rest</button>
+        </div>
+        ${rows}
+      </div>`;
+    }).join('');
+  }
+  const dupHtml = buildDupGroupHtml(dupGroups);
 
   content.innerHTML = `
     <div class="review">
     <div class="grid-2">
       <div class="card">
         <strong>📊 Analytics</strong>
-        <div class="muted" style="margin-top:6px;">Tasks completed: ${done.length}/${total||0} (${pct}%)</div>
-        <div class="muted">This week: ${weekTasks.length} tasks, ${weekNotes.length} notes</div>
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:10px;">
+
+          <div style="display:flex;align-items:center;gap:10px;">
+            ${pbar(done.length, total||1, '#4caf9e')}
+            <span style="font-size:12px;white-space:nowrap;">${done.length}/${total||0} done (${pct}%)</span>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
+              <div style="font-size:20px;font-weight:700;color:#4ea1ff;">${completedToday}</div>
+              <div style="font-size:11px;color:var(--muted);">done today</div>
+            </div>
+            <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
+              <div style="font-size:20px;font-weight:700;color:${weekDeltaColor};">${weekTasks.length}</div>
+              <div style="font-size:11px;color:var(--muted);">this week <span style="color:${weekDeltaColor};font-size:10px;">(${weekDeltaStr})</span></div>
+            </div>
+            <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
+              <div style="font-size:20px;font-weight:700;color:${overdue>0?'#ff6b6b':'#4caf9e'};">${overdue}</div>
+              <div style="font-size:11px;color:var(--muted);">overdue</div>
+            </div>
+            <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
+              <div style="font-size:20px;font-weight:700;color:#f0c040;">${streak}</div>
+              <div style="font-size:11px;color:var(--muted);">day streak 🔥</div>
+            </div>
+          </div>
+
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Pending by priority</div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;color:#ff6b6b;width:32px;">High</span>${pbar(priHigh, priHigh+priMed+priLow||1,'#ff6b6b')}<span style="font-size:11px;">${priHigh}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;color:#4ea1ff;width:32px;">Med</span>${pbar(priMed, priHigh+priMed+priLow||1,'#4ea1ff')}<span style="font-size:11px;">${priMed}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;color:#64748b;width:32px;">Low</span>${pbar(priLow, priHigh+priMed+priLow||1,'#64748b')}<span style="font-size:11px;">${priLow}</span>
+              </div>
+            </div>
+          </div>
+
+          ${topProject ? `<div style="font-size:12px;color:var(--muted);">🏆 Top project: <strong>${htmlesc(topProject.name)}</strong> (${topProject.count} done)</div>` : ''}
+          ${bestDay ? `<div style="font-size:12px;color:var(--muted);">📅 Most productive: <strong>${bestDay}</strong></div>` : ''}
+          <div style="font-size:12px;color:var(--muted);">📝 Notes this week: ${weekNotes.length}</div>
+        </div>
       </div>
       <div class="card">
         <strong>🎯 Project Progress</strong>
@@ -1536,11 +1911,19 @@ function renderReview(){
             <span>${htmlesc(s.project.name)}</span>
             <div class='row' style='gap:6px;align-items:center;'>
               <span class='muted'>${s.completed}/${s.total} (${s.progress}%)</span>
-              <button class='btn' data-open-project='${s.project.id}' style='font-size:11px;'>Open</button>
+              <button class='btn' data-open-project='${s.project.id}' style='font-size:11px;'>View →</button>
             </div>
           </div>`).join('') || '<div class="muted">No project tasks yet</div>'}
         </div>
       </div>
+    </div>
+    <div class="card">
+      <strong>🔥 Habit Streaks — ${new Date(_hYear, _hMonth).toLocaleString('default',{month:'long'})} ${_hYear}</strong>
+      ${habitGridHtml}
+    </div>
+    <div class="card">
+      <strong>🔍 Duplicate Tasks (${dupGroups.length} group${dupGroups.length!==1?'s':''})</strong>
+      <div style="margin-top:8px;">${dupHtml}</div>
     </div>
     <div class="card">
       <strong>📅 Upcoming Tasks (${upcoming.length})</strong>
@@ -1548,15 +1931,18 @@ function renderReview(){
   ${upcoming.map(t=>{
           const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null;
           const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null;
-          const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
-          const dueStr = t.due ? formatDateString(t.due) : '';
           const colors = { high: '#ff6b6b', medium: '#4ea1ff', low: '#64748b' };
           const col = colors[t.priority || 'medium'];
+          const dueStr = t.due ? formatDateString(t.due) : '';
+          const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
+          const goTarget = proj ? `data-open-project='${proj.id}'` : (note ? `data-open='${note.id}'` : '');
+          const goBtn = goTarget ? `<button class='btn' ${goTarget} style='font-size:11px;' title='Go to context'>Go →</button>` : '';
           return `<div class='row' style='justify-content:space-between;align-items:center;'>
             <span style='border-left:3px solid ${col};padding-left:6px;'>${htmlesc(t.title)} ${ctx} <span class='pill'>${dueStr}</span></span>
             <div class='row' style='gap:4px;'>
-              <button class='btn' data-open-task='${t.id}' style='font-size:11px;'>Open</button>
-              <button class='btn' data-done='${t.id}' style='font-size:11px;'>✓</button>
+              <button class='btn' data-view-task='${t.id}' style='font-size:11px;'>View</button>
+              ${goBtn}
+              <button class='btn' data-done='${t.id}' style='font-size:11px;'>✓ Done</button>
             </div>
           </div>`;
         }).join('') || '<div class="muted">No upcoming tasks</div>'}
@@ -1565,25 +1951,20 @@ function renderReview(){
     <div class="card">
       <strong>🕒 Pending Tasks (${pendingAll.length})</strong>
       <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
-        ${pendingAll.map(t=>{ const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null; const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null; const label = htmlesc(t.title); const ctx = proj? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily'? `<span class='pill'>${note.dateIndex}</span>` : ''); const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;align-items:center;'>
-          <span style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:6px;'>${label} ${ctx}</span>
-          <div class='row' style='gap:4px;'>
-            <button class='btn' data-open-task='${t.id}' style='font-size:11px;'>Open</button>
-            <button class='btn' data-done='${t.id}' style='font-size:11px;'>✓</button>
-          </div>
-        </div>`; }).join('') || '<div class="muted">No pending tasks</div>'}
+        ${pendingAll.map(t=>{
+          const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'};
+          const extraBtns = `<button class='btn' data-done='${t.id}' style='font-size:11px;'>✓ Done</button>`;
+          return taskRow(t, extraBtns, `border-left:3px solid ${colors[t.priority||'medium']};`);
+        }).join('') || '<div class="muted">No pending tasks</div>'}
       </div>
     </div>
     <div class="card">
       <strong>📦 Backlog Tasks (${backlogAll.length})</strong>
       <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
-        ${backlogAll.map(t=>{ const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null; const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null; const label = htmlesc(t.title); const ctx = proj? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily'? `<span class='pill'>${note.dateIndex}</span>` : ''); return `<div class='row' style='justify-content:space-between;align-items:center;'>
-          <span class='muted' style='padding-left:6px;'>${label} ${ctx}</span>
-          <div class='row' style='gap:4px;'>
-            <button class='btn' data-open-task='${t.id}' style='font-size:11px;'>Open</button>
-            <button class='btn' data-restore='${t.id}' style='font-size:11px;'>Restore</button>
-          </div>
-        </div>`; }).join('') || '<div class="muted">No backlog tasks</div>'}
+        ${backlogAll.map(t=>{
+          const extraBtns = `<button class='btn' data-restore='${t.id}' style='font-size:11px;'>Restore</button>`;
+          return taskRow(t, extraBtns, 'color:var(--muted);');
+        }).join('') || '<div class="muted">No backlog tasks</div>'}
       </div>
     </div>
     <!-- Completed tasks history -->
@@ -1596,33 +1977,21 @@ function renderReview(){
         ${completedHtml}
       </div>
     </div>
-    <!-- Trash section for soft-deleted tasks -->
+    <!-- Trash section — at the bottom for visibility without cluttering the top -->
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center;">
-        <strong>🗑️ Trash (${getTrashedTasks().length})</strong>
+        <strong>🗑️ Trash (${getTrashedTasks().length + getTrashedNotes().length})</strong>
         <button id="emptyTrashBtn" class="btn" style="font-size:12px;">Empty Trash</button>
       </div>
-      <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
-  ${getTrashedTasks().map(t=>{
-          const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null;
-          const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null;
-          const label = htmlesc(t.title);
-          const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
-          const deletedDate = t.deletedAt ? new Date(t.deletedAt).toLocaleDateString() : '';
-          return `<div class='row' style='justify-content:space-between;align-items:center;'>
-            <span class='muted' style='padding-left:6px;'>${label} ${ctx} <span class='pill'>Deleted: ${deletedDate}</span></span>
-            <div class='row' style='gap:4px;'>
-              <button class='btn' data-open-task='${t.id}' style='font-size:11px;'>Open</button>
-              <button class='btn' data-restore-task='${t.id}' style='font-size:11px;'>Restore</button>
-              <button class='btn' data-hard-delete='${t.id}' style='font-size:11px;color:#ff6b6b;'>Delete</button>
-            </div>
-          </div>`;
-        }).join('') || '<div class="muted">Trash is empty</div>'}
+      <div class="list" style="margin-top:8px;max-height:320px;overflow:auto;">
+  ${getTrashedTasks().map(t=>trashTaskRow(t)).join('')}
+  ${getTrashedNotes().map(n=>trashNoteRow(n)).join('')}
+  ${(getTrashedTasks().length + getTrashedNotes().length) === 0 ? '<div class="muted" style="text-align:center;padding:12px;">Trash is empty</div>' : ''}
       </div>
     </div>
     <div class="card">
       <strong>📅 Recent Daily Logs</strong>
-      <div class="list" style="margin-top:8px;">${db.notes.filter(n=>n.type==='daily').slice(-7).reverse().map(n=> `<div class='row' style='justify-content:space-between;'><span>${htmlesc(n.title)}</span><button class='btn' data-open='${n.id}'>Open</button></div>`).join('')}</div>
+      <div class="list" style="margin-top:8px;">${db.notes.filter(n=>n.type==='daily' && !n.deletedAt).slice(-7).reverse().map(n=> `<div class='row' style='justify-content:space-between;'><span>${htmlesc(n.title)}</span><button class='btn' data-open='${n.id}' style='font-size:11px;'>View →</button></div>`).join('')}</div>
     </div>
     <div class="card">
       <strong>🏷️ Tag Cloud</strong>
@@ -1636,9 +2005,17 @@ function renderReview(){
     </div>`;
   content.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> openNote(b.dataset.open));
   content.querySelectorAll('[data-open-note]').forEach(b=> b.onclick=()=> openNote(b.dataset.openNote));
+  content.querySelectorAll('[data-view-task]').forEach(b=> b.onclick=()=> openTaskModal(b.dataset.viewTask));
   content.querySelectorAll('[data-open-task]').forEach(b=> b.onclick=()=> openTaskContext(b.dataset.openTask));
   content.querySelectorAll('[data-open-project]').forEach(b=> b.onclick=()=> openProjectContext(b.dataset.openProject));
   content.querySelectorAll('[data-done]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.done,'DONE'); renderReview(); });
+  // Duplicate task remove handlers
+  content.querySelectorAll('[data-dup-del]').forEach(b=> b.onclick=()=>{ deleteTask(b.dataset.dupDel); renderReview(); });
+  content.querySelectorAll('[data-dup-keep]').forEach(b=> b.onclick=()=>{
+    const removeIds = (b.dataset.dupRemove||'').split(',').filter(Boolean);
+    removeIds.forEach(id => deleteTask(id));
+    renderReview();
+  });
   content.querySelectorAll('[data-restore]').forEach(b=> b.onclick=()=>{
     const id = b.dataset.restore;
     const task = db.tasks.find(t => t.id === id);
@@ -1658,11 +2035,18 @@ function renderReview(){
   content.querySelectorAll('[data-tag]').forEach(b=> b.onclick=()=>{ route='vault'; document.getElementById('q').value='#'+b.dataset.tag; render(); });
 
   // Trash handlers
+  content.querySelectorAll('[data-open-task-modal]').forEach(b=> b.onclick=()=>{ openTaskModal(b.dataset.openTaskModal); });
   content.querySelectorAll('[data-restore-task]').forEach(b=> b.onclick=()=>{ restoreTask(b.dataset.restoreTask); renderReview(); });
   content.querySelectorAll('[data-hard-delete]').forEach(b=> b.onclick=async ()=>{ 
     const task = db.tasks.find(t => t.id === b.dataset.hardDelete);
     const ok = await showConfirm(`Permanently delete "${task?.title || 'this task'}"? This cannot be undone.`, 'Delete Forever', 'Cancel');
     if(ok) { hardDeleteTask(b.dataset.hardDelete); renderReview(); }
+  });
+  content.querySelectorAll('[data-restore-note]').forEach(b=> b.onclick=()=>{ restoreNote(b.dataset.restoreNote); renderReview(); });
+  content.querySelectorAll('[data-hard-delete-note]').forEach(b=> b.onclick=async ()=>{
+    const note = db.notes.find(n => n.id === b.dataset.hardDeleteNote);
+    const ok = await showConfirm(`Permanently delete note "${note?.title || 'this note'}"? This cannot be undone.`, 'Delete Forever', 'Cancel');
+    if(ok) { hardDeleteNote(b.dataset.hardDeleteNote); renderReview(); }
   });
 
   // Empty trash handler
@@ -1670,8 +2054,10 @@ function renderReview(){
   if(emptyTrashBtn){
     emptyTrashBtn.onclick = async () => {
       const deletedTasks = getTrashedTasks();
-      if(deletedTasks.length === 0) return;
-      const ok = await showConfirm(`Permanently delete all ${deletedTasks.length} tasks from trash? This cannot be undone.`, 'Empty Trash', 'Cancel');
+      const deletedNotes = getTrashedNotes();
+      const total = deletedTasks.length + deletedNotes.length;
+      if(total === 0) return;
+      const ok = await showConfirm(`Permanently delete all ${total} item${total!==1?'s':''} from trash? This cannot be undone.`, 'Empty Trash', 'Cancel');
       if(ok) { emptyTrash(); renderReview(); }
     };
   }
@@ -1698,7 +2084,7 @@ function renderMap() {
   // unvisited note becomes the root of its own tree. Each note appears only once to
   // prevent infinite loops. This results in a clean, hierarchical overview of your
   // linked notes network.
-  const notes = db.notes || [];
+  const notes = (db.notes || []).filter(n => !n.deletedAt);
   // Identify notes involved in at least one link (as source or target)
   const connected = notes.filter(n => {
     const hasOut = Array.isArray(n.links) && n.links.length > 0;
@@ -1789,7 +2175,7 @@ function openLinkModal(noteId) {
   _linkTargetNoteId = noteId;
   // Populate select with all other notes
   const populate = (filter='') => {
-    const opts = db.notes.filter(n => n.id !== noteId && n.title.toLowerCase().includes(filter.toLowerCase())).map(n => `<option value="${n.id}">${htmlesc(n.title)}</option>`).join('');
+    const opts = db.notes.filter(n => n.id !== noteId && !n.deletedAt && n.title.toLowerCase().includes(filter.toLowerCase())).map(n => `<option value="${n.id}">${htmlesc(n.title)}</option>`).join('');
     select.innerHTML = opts;
   };
   // Reset search field and populate options
@@ -1926,11 +2312,14 @@ function openTaskModal(taskId) {
 function renderMonthly(){
   // Ensure the monthly collection exists
   if(!db.monthly) db.monthly = [];
-  // Determine current month key (YYYY-MM) for grouping
-  const monthKey = (selectedDailyDate || todayKey()).slice(0,7);
+  // Use the dedicated month selector, not selectedDailyDate, so that navigating
+  // the daily calendar never changes which month the planning view shows.
+  const monthKey = selectedMonthKey;
   // Build UI for monthly planning - fix timezone issue by parsing year and month separately
   const [year, month] = monthKey.split('-');
   const monthLabel = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleDateString(undefined, { month:'long', year:'numeric' });
+  const currentMonthKey = todayKey().slice(0,7);
+  const isCurrentMonth = monthKey === currentMonthKey;
   
   // Preserve input state if re-rendering
   const preservedTitle = document.getElementById('monthlyTaskTitle')?.value || '';
@@ -1941,9 +2330,14 @@ function renderMonthly(){
   
   content.innerHTML = `
     <div class="card">
-      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <strong>🗓️ Monthly Planning — ${htmlesc(monthLabel)}</strong>
-        <div class="muted" style="font-size:12px;">Recurring tasks for daily pages</div>
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+        <strong>🗓️ Monthly Planning</strong>
+        <div class="row" style="gap:6px;align-items:center;">
+          <button id="monthPrev" class="btn" style="padding:4px 10px;font-size:14px;">◀</button>
+          <span style="font-size:14px;font-weight:600;min-width:140px;text-align:center;">${htmlesc(monthLabel)}</span>
+          <button id="monthNext" class="btn" style="padding:4px 10px;font-size:14px;${isCurrentMonth ? 'opacity:.4;cursor:default;' : ''}" ${isCurrentMonth ? 'disabled' : ''}>▶</button>
+        </div>
+        <div class="muted" style="font-size:12px;">Tasks for daily pages</div>
       </div>
       
       <div style="margin-bottom:16px;">
@@ -2032,14 +2426,15 @@ function renderMonthly(){
     }
     
     listEl.innerHTML = tasks.map(t => {
-      const dayNames = t.days.map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ');
-      const dayCount = t.days.length;
+      const tDays = Array.isArray(t.days) ? t.days : [];
+      const dayNames = tDays.map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') || 'No days';
+      const dayCount = tDays.length;
       const daysSummary = dayCount === 7 ? 'Daily' : 
-                         dayCount === 5 && t.days.every(d => d >= 1 && d <= 5) ? 'Weekdays' :
-                         dayCount === 2 && t.days.includes(0) && t.days.includes(6) ? 'Weekends' :
-                         dayCount === 2 && t.days.includes(2) && t.days.includes(4) ? 'T/TH' :
-                         dayCount === 3 && t.days.includes(1) && t.days.includes(3) && t.days.includes(5) ? 'MWF' :
-                         dayNames;
+                         dayCount === 5 && tDays.every(d => d >= 1 && d <= 5) ? 'Weekdays' :
+                         dayCount === 2 && tDays.includes(0) && tDays.includes(6) ? 'Weekends' :
+                         dayCount === 2 && tDays.includes(2) && tDays.includes(4) ? 'T/TH' :
+                         dayCount === 3 && tDays.includes(1) && tDays.includes(3) && tDays.includes(5) ? 'MWF' :
+                         (dayNames || 'No days set');
       
       return `
         <div class='monthly-task-item'>
@@ -2290,8 +2685,8 @@ function renderMonthly(){
       return;
     }
 
-    // Check for duplicate task names
-    const exists = db.monthly.find(t => t.title.toLowerCase() === title.toLowerCase() && (!t.month || t.month === monthKey));
+    // Check for duplicate task names within the current month
+    const exists = db.monthly.find(t => t.title.toLowerCase() === title.toLowerCase() && t.month === monthKey);
     if(exists) {
       showValidationModal('Duplicate Task', 'A task with this name already exists for this month. Please choose a different name.');
       titleEl?.focus();
@@ -2299,6 +2694,8 @@ function renderMonthly(){
     }
 
     const id = uid();
+    // Store with the current month so tasks are month-scoped.
+    // They only roll over to the next month when the user clicks "Roll Over Tasks".
     db.monthly.push({ id, title, days, month: monthKey, createdAt: nowISO() });
     
     // Clear form
@@ -2360,32 +2757,26 @@ function renderMonthly(){
   // Copy tasks from previous month handler
   if(copyPrevBtn) {
     copyPrevBtn.onclick = async () => {
-      // Determine the previous month key by subtracting one month from monthKey.
-      // monthKey is in YYYY-MM format. Create a date representing the first day
-      // of the current month then subtract one month.
+      // Determine the previous month key from the currently viewed month.
       const parts = monthKey.split('-');
       const y = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10) - 1; // zero‑indexed month
-      const curDate = new Date(y, m, 1);
-      curDate.setMonth(curDate.getMonth() - 1);
-      const prevKey = curDate.toISOString().slice(0, 7);
-      // Find tasks from previous month
-      const prevTasks = (db.monthly || []).filter(t => t.month && t.month === prevKey);
+      const m = parseInt(parts[1], 10) - 1; // zero-indexed month
+      const prevDate = new Date(y, m - 1, 1);
+      const prevKey = prevDate.getFullYear() + '-' + String(prevDate.getMonth() + 1).padStart(2, '0');
+      // Find tasks from the previous month
+      const prevTasks = (db.monthly || []).filter(t => t.month === prevKey);
       if (!prevTasks.length) {
-        alert('No tasks from previous month to copy.');
+        showValidationModal('No Tasks to Roll Over', `No tasks found for ${prevKey}. Add tasks to that month first, or navigate back to it.`);
         return;
       }
-      const ok = await showConfirm(`Copy ${prevTasks.length} recurring task${prevTasks.length !== 1 ? 's' : ''} from ${prevKey}?`, 'Copy', 'Cancel');
+      const ok = await showConfirm(`Copy ${prevTasks.length} task${prevTasks.length !== 1 ? 's' : ''} from ${prevKey} into ${monthKey}?`, 'Roll Over', 'Cancel');
       if (!ok) return;
       let added = 0;
       prevTasks.forEach(t => {
-        // Avoid duplicating tasks that already exist this month with identical
-        // titles and day sets. Use JSON.stringify on arrays for deep comparison.
-        const exists = (db.monthly || []).some(x => (x.month || monthKey) === monthKey && x.title === t.title && JSON.stringify(x.days || []) === JSON.stringify(t.days || []));
+        // Skip tasks that already exist in the current month (same title + days).
+        const exists = (db.monthly || []).some(x => x.month === monthKey && x.title === t.title && JSON.stringify(x.days || []) === JSON.stringify(t.days || []));
         if (!exists) {
-          const id = uid();
-          const newTask = { id, title: t.title, days: Array.isArray(t.days) ? [...t.days] : [], month: monthKey, createdAt: nowISO() };
-          db.monthly.push(newTask);
+          db.monthly.push({ id: uid(), title: t.title, days: Array.isArray(t.days) ? [...t.days] : [], month: monthKey, createdAt: nowISO() });
           added++;
         }
       });
@@ -2425,6 +2816,28 @@ function renderMonthly(){
   setupQuickSelect();
   setupViewToggle();
   
+  // Month navigation handlers
+  const monthPrevBtn = document.getElementById('monthPrev');
+  const monthNextBtn = document.getElementById('monthNext');
+  if(monthPrevBtn) {
+    monthPrevBtn.onclick = () => {
+      const [y, m] = selectedMonthKey.split('-').map(Number);
+      const d = new Date(y, m - 1 - 1, 1); // one month back
+      selectedMonthKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      renderMonthly();
+    };
+  }
+  if(monthNextBtn) {
+    monthNextBtn.onclick = () => {
+      const currentMonthKey = todayKey().slice(0, 7);
+      if(selectedMonthKey >= currentMonthKey) return; // can't go past current month
+      const [y, m] = selectedMonthKey.split('-').map(Number);
+      const d = new Date(y, m - 1 + 1, 1); // one month forward
+      selectedMonthKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      renderMonthly();
+    };
+  }
+  
   // Initial render
   drawMonthlyList();
 }
@@ -2434,7 +2847,7 @@ function renderVault(){
   const query = (document.getElementById('q')?.value || '').trim();
   const tagFilters = (query.match(/#[\w-]+/g)||[]).map(t=>t.slice(1).toLowerCase());
   const text = query.replace(/#[\w-]+/g,'').trim().toLowerCase();
-  let notes = db.notes.slice();
+  let notes = db.notes.filter(n => !n.deletedAt);
   if(tagFilters.length){ notes = notes.filter(n=> tagFilters.every(t=> (n.tags||[]).map(x=>x.toLowerCase()).includes(t))); }
   if(text){ notes = notes.filter(n=> n.title.toLowerCase().includes(text) || (n.content||'').toLowerCase().includes(text)); }
   notes.sort((a,b)=> (b.pinned?1:0)-(a.pinned?1:0) || b.updatedAt.localeCompare(a.updatedAt));
@@ -2503,7 +2916,7 @@ function renderVault(){
       <strong style='font-size:14px;'>✅ Tasks (${taskMatches.length})</strong>
       <div class='list' style='margin-top:8px;'>${taskMatches.map(t=>{ const note=t.noteId? db.notes.find(n=>n.id===t.noteId):null; const proj=t.projectId? db.projects.find(p=>p.id===t.projectId):null; return `<div class='card' style='padding:8px;'>
         <div class='row' style='justify-content:space-between;'>
-          <span>${highlight(htmlesc(t.title))} ${(note&&note.type==='daily')?`<span class='pill'>${note.dateIndex}</span>`:''} ${proj?`<span class='pill'>${htmlesc(proj.name)}</span>`:''}</span>
+          <span>${highlight(t.title)} ${(note&&note.type==='daily')?`<span class='pill'>${note.dateIndex}</span>`:''} ${proj?`<span class='pill'>${htmlesc(proj.name)}</span>`:''}</span>
           <div class='row' style='gap:4px;'>
             ${note?`<button class='btn' data-open='${note.id}' style='font-size:11px;'>Note</button>`:''}
             ${proj?`<button class='btn' data-open-project='${proj.id}' style='font-size:11px;'>Project</button>`:''}
@@ -2532,12 +2945,12 @@ function renderVault(){
   content.querySelectorAll('[data-del]').forEach(b=> b.onclick=async ()=>{
     const note = db.notes.find(x=> x.id === b.dataset.del);
     if(!note) return;
-    const msg = `Delete note \"${note.title}\"${note.type==='daily'?' (daily)':''}? This will also remove its tasks.`;
+    const taskCount = db.tasks.filter(t=> t.noteId === note.id && !t.deletedAt).length;
+    const taskNote = taskCount ? ` Its ${taskCount} task${taskCount!==1?'s':''} will be moved to Trash and can be restored.` : '';
+    const msg = `Delete note "${note.title}"${note.type==='daily'?' (daily)':''}?${taskNote}`;
     const ok = await showConfirm(msg, 'Delete', 'Cancel');
     if(!ok) return;
-    db.tasks = db.tasks.filter(t=> t.noteId !== note.id);
-    db.notes = db.notes.filter(n=> n.id !== note.id);
-    save();
+    softDeleteNote(note.id);
     renderVault();
   });
   // NEW event bindings for links / projects
@@ -2651,7 +3064,18 @@ function renderLinks(){
 // --- Note editor ---
 function openNote(id){
   const n = db.notes.find(x=>x.id===id);
-  if(!n){ alert('Note not found'); return; }
+  if(!n){
+    // Note was deleted. Find any task referencing this id and clear the orphaned link.
+    db.tasks.forEach(t => { if(t.noteId === id) t.noteId = null; });
+    save();
+    route='today'; render();
+    return;
+  }
+  if(n.deletedAt){
+    // Note is in trash – redirect to Review so user can restore it
+    route='review'; render();
+    return;
+  }
   // Record which note is open and reset dirty flag when opening.
   window._openNoteId = n.id;
   window._editorDirty = false;
@@ -2661,6 +3085,10 @@ function openNote(id){
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
         <input id="tags" type="text" placeholder="Tags (space separated)" value="${(n.tags||[]).map(t=>'#'+t).join(' ')}" />
         <label style="margin-left:8px;"><input id="pinned" type="checkbox" ${n.pinned?'checked':''}> Pin</label>
+        <select id="noteProject" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;" title="Assign to project">
+          <option value="">— No Project —</option>
+          ${db.projects.map(p=>`<option value="${p.id}" ${n.projectId===p.id?'selected':''}>${htmlesc(p.name)}</option>`).join('')}
+        </select>
         <button id="addSketch" class="btn" style="font-size:12px;">Add Sketch</button>
         <button id="addVoice" class="btn" style="font-size:12px;">Add Voice</button>
         <!-- Attachment uploader -->
@@ -2706,11 +3134,13 @@ function openNote(id){
   saveBtn.onclick = () => {
     const tagText = document.getElementById('tags').value;
     const tags = tagText ? tagText.split(/\s+/).map(t => t.startsWith('#') ? t.slice(1) : t).filter(Boolean) : [];
+    const selectedProjectId = document.getElementById('noteProject')?.value || null;
     updateNote(n.id, {
       title: document.getElementById('title').value,
       content: document.getElementById('contentBox').value,
       tags,
-      pinned: document.getElementById('pinned').checked
+      pinned: document.getElementById('pinned').checked,
+      projectId: selectedProjectId || null
     });
     // Mark the note as no longer dirty once it has been saved.
     window._editorDirty = false;
@@ -2736,13 +3166,11 @@ function openNote(id){
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${n.title.replace(/[^a-z0-9]/gi,'_')}.txt`; a.click(); URL.revokeObjectURL(a.href);
   };
   document.getElementById('delete').onclick = async ()=>{
-    const ok = await showConfirm('Delete this note and its tasks? This cannot be undone.', 'Delete', 'Cancel');
+    const linkedTaskCount = db.tasks.filter(t=> t.noteId === n.id && !t.deletedAt).length;
+    const taskNote = linkedTaskCount ? ` ${linkedTaskCount} task${linkedTaskCount!==1?'s':''} will be moved to Trash and can be restored from Review.` : '';
+    const ok = await showConfirm(`Delete this note?${taskNote}`, 'Delete', 'Cancel');
     if(!ok) return;
-    // Remove tasks linked to this note
-    db.tasks = db.tasks.filter(t=> t.noteId !== n.id);
-    // Remove the note
-    db.notes = db.notes.filter(x=> x.id !== n.id);
-    save();
+    softDeleteNote(n.id);
     if(n.type==='daily'){ route='today'; render(); }
     else if(n.projectId){ route='projects'; render(); }
     else if(n.type==='idea'){ route='ideas'; render(); }
@@ -2914,6 +3342,13 @@ function openNote(id){
   };
   
   // Add keyboard shortcuts with capture phase to ensure they work
+  // Remove any previously registered note key handler to prevent listener accumulation
+  // when the user opens one note from within another (e.g. via linked notes).
+  if (window._noteKeyHandler) {
+    document.removeEventListener('keydown', window._noteKeyHandler, true);
+    document.removeEventListener('keydown', window._noteKeyHandler);
+    window._noteKeyHandler = null;
+  }
   // Document level listener first (highest priority)
   document.addEventListener('keydown', keyHandler, true); // true = capture phase
   
@@ -3268,11 +3703,11 @@ function render(){
     else todayDisplayEl.textContent = new Date(sel+'T00:00:00').toDateString();
   }
   document.getElementById("dailyRollover").checked = !!db.settings.rollover;
-  document.getElementById("dailyRollover").onchange = ()=>{ db.settings.rollover = document.getElementById("dailyRollover").checked; save(db); };
+  document.getElementById("dailyRollover").onchange = ()=>{ db.settings.rollover = document.getElementById("dailyRollover").checked; save(); };
   const autoCarryEl = document.getElementById("autoCarryTasks");
   if(autoCarryEl){
     autoCarryEl.checked = !!db.settings.autoCarryTasks;
-    autoCarryEl.onchange = ()=>{ db.settings.autoCarryTasks = autoCarryEl.checked; save(db); };
+    autoCarryEl.onchange = ()=>{ db.settings.autoCarryTasks = autoCarryEl.checked; save(); };
   }
 
   // Bind auto-reload toggle. If undefined, default to true for legacy DBs.
@@ -3288,8 +3723,12 @@ function render(){
     const prevBtn = document.getElementById('prevDay');
     const nextBtn = document.getElementById('nextDay');
     const today = todayKey();
-    prevBtn.onclick = ()=>{ const d=new Date(selectedDailyDate); d.setDate(d.getDate()-1); selectedDailyDate = d.toISOString().slice(0,10); route='today'; render(); };
-    nextBtn.onclick = ()=>{ if(selectedDailyDate===today) return; const d=new Date(selectedDailyDate); d.setDate(d.getDate()+1); const newKey=d.toISOString().slice(0,10); if(newKey>today) return; selectedDailyDate=newKey; route='today'; render(); };
+    // Use local-date arithmetic (split string → Date(y,m,d)) to avoid the UTC-midnight
+    // offset bug where new Date("YYYY-MM-DD") parses as UTC and getDate() returns the
+    // wrong local day for users in negative-offset timezones.
+    const localDateStr = (d) => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    prevBtn.onclick = ()=>{ const [y,mo,d]=selectedDailyDate.split('-').map(Number); selectedDailyDate=localDateStr(new Date(y,mo-1,d-1)); route='today'; render(); };
+    nextBtn.onclick = ()=>{ if(selectedDailyDate===today) return; const [y,mo,d]=selectedDailyDate.split('-').map(Number); const newKey=localDateStr(new Date(y,mo-1,d+1)); if(newKey>today) return; selectedDailyDate=newKey; route='today'; render(); };
     dateInput.onchange = ()=>{ const v=dateInput.value; if(v){ const today=todayKey(); selectedDailyDate = v>today? today : v; route='today'; render(); } };
     nextBtn.disabled = (selectedDailyDate===today);
     nextBtn.style.opacity = nextBtn.disabled? .4 : 1;
@@ -3309,7 +3748,18 @@ function render(){
       persistDB();
     };
   }
-  if(!db.settings.seenTip){ const t = document.getElementById("tip"); t.style.display="block"; document.getElementById("closeTip").onclick = ()=>{ db.settings.seenTip=true; save(db); t.style.display="none"; }; }
+  if(!db.settings.seenTip){ const t = document.getElementById("tip"); t.style.display="block"; document.getElementById("closeTip").onclick = ()=>{ db.settings.seenTip=true; save(); t.style.display="none"; }; }
+
+  // Auto-focus the search box after every navigation render so the user can
+  // start searching immediately without clicking. Only focus if nothing else
+  // (e.g. an editor field) has already claimed focus.
+  requestAnimationFrame(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) {
+      const q = document.getElementById('q');
+      if (q) q.focus();
+    }
+  });
 }
 document.getElementById("addProject").onclick = ()=> { const name = document.getElementById("newProjectName").value.trim(); if(!name) return; const p = createProject(name); document.getElementById("newProjectName").value=""; currentProjectId = p.id; route='projects'; render(); drawProjectsSidebar(); };
 // Allow pressing Enter in the New Project input to trigger Add
@@ -3640,12 +4090,14 @@ document.getElementById("manageTemplates").onclick = ()=> {
     document.getElementById("manageTemplates").click(); // Refresh
   };
   
-  document.querySelectorAll("[data-del]").forEach(b=> b.onclick = ()=>{
+  // Scope to #templateList to avoid accidentally rebinding delete handlers
+  // on other elements (notes, tasks, links) that also use data-del attributes.
+  document.getElementById('templateList').querySelectorAll("[data-del]").forEach(b=> b.onclick = ()=>{
     (async ()=>{
       const ok = await showConfirm('Delete this template?', 'Delete', 'Cancel');
       if(!ok) return;
       db.templates = db.templates.filter(t => t.id !== b.dataset.del);
-      save(db);
+      save();
       document.getElementById('manageTemplates').click(); // Refresh
     })();
   });

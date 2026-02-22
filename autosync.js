@@ -15,7 +15,10 @@
       const l = out.get(r.id);
       if(!l){ out.set(r.id,{...r}); return; }
       if(l.deletedAt || r.deletedAt){
-        const newer = _isNewer(l,r) ? l : r;
+        // Pick the item that was modified more recently as the base, then force deletedAt so
+        // a deletion from either side always wins. _isNewer(l,r) returns true when remote (r)
+        // is newer, so we take r in that case.
+        const newer = _isNewer(l,r) ? r : l;
         out.set(r.id,{...newer, deletedAt: l.deletedAt || r.deletedAt || new Date().toISOString()});
         return;
       }
