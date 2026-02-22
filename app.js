@@ -158,7 +158,9 @@ const seed = {
   ]
   ,
   // NEW: recurring monthly tasks for planning (empty by default)
-  monthly: []
+  monthly: [],
+  // Structured study/reference notebooks
+  notebooks: []
 };
 const defaults = seed;
 
@@ -282,6 +284,7 @@ async function initApp(){
   ['notes','tasks','projects','templates','settings','links','monthly'].forEach(k=>{
     if(!db[k]) db[k] = Array.isArray(seed[k]) ? [] : {};
   });
+  if(!db.notebooks) db.notebooks = [];
   // Ensure theme setting exists (default to dark)
   if(!db.settings.theme){ db.settings.theme = 'dark'; }
   // Draw initial UI
@@ -340,7 +343,7 @@ async function initApp(){
             const remote = await fetchDB();
             if(remote && typeof remote==='object'){
               const keepAuto = db.settings && db.settings.autoReload;
-              const list = ['notes','tasks','projects','templates','links','monthly'];
+              const list = ['notes','tasks','projects','templates','links','monthly','notebooks'];
               const mapify = a=>{const m=new Map(); a.forEach(o=>m.set(o.id,o)); return m;};
               list.forEach(k=>{
                 const localArr = Array.isArray(db[k])? db[k]:[];
@@ -612,6 +615,42 @@ function createLink({title,url,tags=[],pinned=false,status="NEW"}){ const l={id:
 function updateLink(id, patch){ const l=db.links.find(x=>x.id===id); if(!l) return; Object.assign(l, patch, {updatedAt:nowISO()}); save(); return l; }
 function deleteLink(id){ db.links = db.links.filter(l=> l.id!==id); save(); }
 
+// --- Notebook helpers ---
+function createNotebook({title, description=''}){
+  if(!db.notebooks) db.notebooks=[];
+  const nb={id:uid(), title, description, createdAt:nowISO(), updatedAt:nowISO()};
+  db.notebooks.push(nb); save(); return nb;
+}
+function updateNotebook(id, patch){
+  if(!db.notebooks) db.notebooks=[];
+  const nb=db.notebooks.find(x=>x.id===id);
+  if(!nb) return; Object.assign(nb, patch, {updatedAt:nowISO()}); save(); return nb;
+}
+function deleteNotebook(id){
+  if(!db.notebooks) db.notebooks=[];
+  db.notes.filter(n=>n.notebookId===id && !n.deletedAt).forEach(n=>{ n.deletedAt=nowISO(); });
+  db.notebooks=db.notebooks.filter(x=>x.id!==id); save();
+}
+function getNotebookPages(notebookId){
+  return db.notes.filter(n=>n.notebookId===notebookId && !n.deletedAt && n.type==='page')
+    .sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0));
+}
+function createPage({title, notebookId, content='', tags=[]}){
+  const pages=getNotebookPages(notebookId);
+  const maxOrder=pages.length ? Math.max(...pages.map(p=>p.sortOrder||0)) : -1;
+  const n={id:uid(), title, content, tags, projectId:null, dateIndex:null, type:'page',
+    pinned:false, notebookId, sortOrder:maxOrder+1,
+    createdAt:nowISO(), updatedAt:nowISO(), attachments:[], links:[]};
+  db.notes.push(n); save(); return n;
+}
+function savePageReorder(notebookId, orderedIds){
+  orderedIds.forEach((id,i)=>{
+    const p=db.notes.find(x=>x.id===id);
+    if(p) p.sortOrder=i;
+  });
+  save();
+}
+
 // --- UI helpers ---
 const $ = sel => document.querySelector(sel);
 const content = $("#content");
@@ -623,15 +662,16 @@ const sections = [
   {id:"projects", label:"📁 Projects"},
   {id:"ideas", label:"💡 Ideas"},
   {id:"links", label:"🔗 Links"}, // NEW
-  {id:"map", label:"🗺️ Map"}, // NEW: map view to visualize note links
+  {id:"map", label:"🗺️ Map"},
+  {id:"notebooks", label:"📓 Notebooks"},
   {id:"vault", label:"🔍 Vault"},
-  // NEW: monthly planning view
   {id:"monthly", label:"🗓️ Monthly"},
   {id:"review", label:"📊 Review"},
-  // NEW: assistant view for AI‑powered queries
 ];
 let route = "today";
 let currentProjectId = null; // NEW: selected project
+let currentNotebookId = null; // which notebook is open
+let currentPageId = null;     // which page is open within a notebook
 
 function renderNav(){
   nav.innerHTML = sections.map(s => `<button data-route="${s.id}" class="${route===s.id?'active':''}">${s.label}</button>`).join("");
@@ -2961,6 +3001,236 @@ function renderVault(){
   document.getElementById('sortAZ').onclick = ()=>{ document.getElementById('q').value=''; notes.sort((a,b)=> a.title.localeCompare(b.title)); renderVault(); };
   document.getElementById('sortRecent').onclick = ()=>{ document.getElementById('q').value=''; notes.sort((a,b)=> b.updatedAt.localeCompare(a.updatedAt)); renderVault(); };
 }
+
+// --- Notebooks view ---
+function renderNotebooks(){
+  if(!db.notebooks) db.notebooks=[];
+  const nbs=[...db.notebooks].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
+  content.innerHTML=`
+    <div class='card'>
+      <div class='row' style='justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;'>
+        <strong style='font-size:16px;'>\ud83d\udcd3 Notebooks</strong>
+        <button id='newNotebook' class='btn acc'>+ New Notebook</button>
+      </div>
+      ${nbs.length===0?`<div class='muted' style='margin-top:20px;text-align:center;font-size:14px;'>No notebooks yet — create one to start building your knowledge base.</div>`:''}
+      <div style='margin-top:14px;display:flex;flex-direction:column;gap:10px;'>
+        ${nbs.map(nb=>{
+          const pages=getNotebookPages(nb.id);
+          return `<div class='nb-card' data-open-nb='${nb.id}'
+            style='border:1px solid var(--btn-border);border-left:3px solid var(--acc);border-radius:8px;
+                   padding:14px;cursor:pointer;background:var(--card-bg);transition:opacity 0.15s;'>
+            <div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;'>
+              <div style='flex:1;min-width:0;'>
+                <strong style='font-size:15px;word-break:break-word;'>${htmlesc(nb.title)}</strong>
+                ${nb.description?`<div class='muted' style='font-size:12px;margin-top:3px;'>${htmlesc(nb.description)}</div>`:''}
+                <div class='muted' style='font-size:11px;margin-top:5px;'>
+                  ${pages.length} page${pages.length!==1?'s':''} &nbsp;&middot;&nbsp; Updated ${nb.updatedAt.slice(0,10)}
+                </div>
+              </div>
+              <div class='row' style='gap:6px;flex-shrink:0;' onclick='event.stopPropagation()'>
+                <button class='btn' data-rename-nb='${nb.id}' style='font-size:12px;'>Rename</button>
+                <button class='btn' style='border-color:#ff6b6b;color:#ff6b6b;font-size:12px;' data-delete-nb='${nb.id}'>Delete</button>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  document.getElementById('newNotebook').onclick=async()=>{
+    const title=await showPrompt('Notebook title:','New Notebook');
+    if(!title||!title.trim()) return;
+    const desc=await showPrompt('Description (optional):','');
+    const nb=createNotebook({title:title.trim(), description:(desc||'').trim()});
+    currentNotebookId=nb.id; currentPageId=null;
+    renderNotebookDetail(nb.id);
+  };
+  content.querySelectorAll('[data-open-nb]').forEach(el=>{
+    el.onclick=()=>{ currentNotebookId=el.dataset.openNb; renderNotebookDetail(el.dataset.openNb); };
+  });
+  content.querySelectorAll('[data-rename-nb]').forEach(b=>b.onclick=async()=>{
+    const nb=db.notebooks.find(x=>x.id===b.dataset.renameNb); if(!nb) return;
+    const t=await showPrompt('New title:',nb.title); if(!t||!t.trim()) return;
+    const d=await showPrompt('Description:',nb.description||'');
+    updateNotebook(nb.id,{title:t.trim(), description:(d||'').trim()}); renderNotebooks();
+  });
+  content.querySelectorAll('[data-delete-nb]').forEach(b=>b.onclick=async()=>{
+    const nb=db.notebooks.find(x=>x.id===b.dataset.deleteNb); if(!nb) return;
+    const pages=getNotebookPages(nb.id);
+    const ok=await showConfirm(
+      `Delete notebook "${nb.title}"? ${pages.length} page${pages.length!==1?'s':''} will be moved to Trash.`,
+      'Delete','Cancel');
+    if(!ok) return;
+    deleteNotebook(nb.id);
+    if(currentNotebookId===nb.id){ currentNotebookId=null; currentPageId=null; }
+    renderNotebooks();
+  });
+}
+
+function renderNotebookDetail(nbId){
+  if(!db.notebooks) db.notebooks=[];
+  const nb=db.notebooks.find(x=>x.id===nbId);
+  if(!nb){ currentNotebookId=null; renderNotebooks(); return; }
+  const pages=getNotebookPages(nbId);
+  // Validate currentPageId still belongs to this notebook
+  if(currentPageId && !pages.find(p=>p.id===currentPageId)) currentPageId=null;
+
+  content.innerHTML=`
+    <div style='display:flex;height:calc(100vh - 70px);min-height:400px;overflow:hidden;'>
+      <!-- TOC sidebar -->
+      <div id='nbToc' style='width:230px;min-width:160px;flex-shrink:0;overflow-y:auto;
+           border-right:1px solid var(--btn-border);padding:10px;box-sizing:border-box;
+           display:flex;flex-direction:column;gap:6px;'>
+        <div class='row' style='align-items:center;gap:6px;flex-wrap:wrap;'>
+          <button id='backToNbs' class='btn' style='font-size:11px;flex-shrink:0;padding:4px 8px;'>\u2190 All</button>
+          <span style='font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;'
+                title='${htmlesc(nb.title)}'>${htmlesc(nb.title)}</span>
+        </div>
+        <button id='newPage' class='btn acc' style='font-size:12px;width:100%;'>+ New Page</button>
+        <div id='tocList' style='display:flex;flex-direction:column;gap:3px;margin-top:4px;'>
+          ${pages.map(p=>`
+            <div class='nb-toc-item' draggable='true' data-page-id='${p.id}'
+                 style='padding:7px 9px;border-radius:5px;cursor:pointer;font-size:13px;word-break:break-word;
+                        border:1px solid ${currentPageId===p.id?'var(--acc)':'var(--btn-border)'};
+                        background:${currentPageId===p.id?'var(--acc)':'var(--card-bg)'};
+                        color:${currentPageId===p.id?'#fff':'var(--fg)'};'>
+              ${htmlesc(p.title)}
+            </div>`).join('')}
+          ${pages.length===0?`<div class='muted' style='font-size:12px;text-align:center;margin-top:16px;'>No pages yet</div>`:''}
+        </div>
+      </div>
+      <!-- Page editor panel -->
+      <div id='nbPageEditor' style='flex:1;overflow-y:auto;padding:16px;box-sizing:border-box;'>
+        <div class='muted' style='text-align:center;margin-top:60px;font-size:14px;'>
+          Select a page from the left, or create a new one.
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('backToNbs').onclick=()=>{ currentPageId=null; renderNotebooks(); };
+  document.getElementById('newPage').onclick=async()=>{
+    const title=await showPrompt('Page title:','New Page');
+    if(!title||!title.trim()) return;
+    const p=createPage({title:title.trim(), notebookId:nbId});
+    currentPageId=p.id;
+    renderNotebookDetail(nbId);
+  };
+
+  // TOC item clicks
+  content.querySelectorAll('.nb-toc-item').forEach(el=>{
+    el.onclick=()=>{ currentPageId=el.dataset.pageId; openPageInNotebook(el.dataset.pageId, nbId); };
+  });
+
+  // Drag-to-reorder
+  let _dragSrc=null;
+  const tocList=document.getElementById('tocList');
+  content.querySelectorAll('.nb-toc-item').forEach(el=>{
+    el.addEventListener('dragstart', e=>{
+      _dragSrc=el; el.style.opacity='0.45';
+      e.dataTransfer.effectAllowed='move';
+      e.dataTransfer.setData('text/plain', el.dataset.pageId);
+    });
+    el.addEventListener('dragend', ()=>{
+      el.style.opacity='';
+      content.querySelectorAll('.nb-toc-item').forEach(x=>x.classList.remove('nb-drag-over'));
+    });
+    el.addEventListener('dragover', e=>{
+      e.preventDefault(); e.dataTransfer.dropEffect='move';
+      content.querySelectorAll('.nb-toc-item').forEach(x=>x.classList.remove('nb-drag-over'));
+      el.classList.add('nb-drag-over');
+    });
+    el.addEventListener('drop', e=>{
+      e.preventDefault();
+      if(!_dragSrc || _dragSrc===el) return;
+      content.querySelectorAll('.nb-toc-item').forEach(x=>x.classList.remove('nb-drag-over'));
+      const allItems=[...tocList.querySelectorAll('.nb-toc-item')];
+      const srcIdx=allItems.indexOf(_dragSrc);
+      const dstIdx=allItems.indexOf(el);
+      if(srcIdx<dstIdx) tocList.insertBefore(_dragSrc, el.nextSibling);
+      else tocList.insertBefore(_dragSrc, el);
+      // Persist new order
+      const newOrder=[...tocList.querySelectorAll('.nb-toc-item')].map(x=>x.dataset.pageId);
+      savePageReorder(nbId, newOrder);
+    });
+  });
+
+  // Open current page if one is selected
+  if(currentPageId) openPageInNotebook(currentPageId, nbId);
+}
+
+function openPageInNotebook(pageId, nbId){
+  const p=db.notes.find(x=>x.id===pageId && !x.deletedAt);
+  if(!p){ currentPageId=null; renderNotebookDetail(nbId); return; }
+  const editor=document.getElementById('nbPageEditor');
+  if(!editor) return;
+  currentPageId=pageId;
+  // Highlight active TOC item
+  content.querySelectorAll('.nb-toc-item').forEach(el=>{
+    const isActive=el.dataset.pageId===pageId;
+    el.style.background=isActive?'var(--acc)':'var(--card-bg)';
+    el.style.color=isActive?'#fff':'var(--fg)';
+    el.style.borderColor=isActive?'var(--acc)':'var(--btn-border)';
+  });
+  editor.innerHTML=`
+    <div style='max-width:800px;'>
+      <input id='pgTitle' type='text' value='${htmlesc(p.title)}'
+             style='width:100%;font-size:17px;font-weight:600;margin-bottom:8px;box-sizing:border-box;' />
+      <input id='pgTags' type='text' placeholder='Tags (e.g. #ml #ros2)'
+             value='${(p.tags||[]).map(t=>'#'+t).join(' ')}'
+             style='width:100%;margin-bottom:8px;font-size:13px;box-sizing:border-box;' />
+      <textarea id='pgContent' style='width:100%;min-height:320px;height:calc(100vh - 310px);
+                resize:vertical;box-sizing:border-box;'>${htmlesc(p.content||'')}</textarea>
+      <div class='row' style='margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center;'>
+        <button id='pgSave' class='btn acc'>Save</button>
+        <button id='pgDelete' class='btn' style='border-color:#ff6b6b;color:#ff6b6b;'>Delete Page</button>
+        <span class='muted' id='pgSaveStatus' style='font-size:12px;'></span>
+      </div>
+      <div class='muted' style='font-size:11px;margin-top:8px;'>
+        Ctrl+S to save &nbsp; Created ${p.createdAt.slice(0,10)} &nbsp; Updated ${p.updatedAt.slice(0,10)}
+      </div>
+    </div>`;
+
+  const titleEl=document.getElementById('pgTitle');
+  const contentEl=document.getElementById('pgContent');
+  const statusEl=()=>document.getElementById('pgSaveStatus');
+
+  [titleEl,contentEl].forEach(el=>{
+    el.addEventListener('input',()=>{ const s=statusEl(); if(s) s.textContent='Unsaved changes'; });
+  });
+
+  const pgKeyHandler=e=>{
+    if((e.ctrlKey||e.metaKey) && e.key==='s'){
+      e.preventDefault();
+      document.getElementById('pgSave')?.click();
+    }
+  };
+  document.addEventListener('keydown', pgKeyHandler);
+
+  document.getElementById('pgSave').onclick=()=>{
+    const tags=(document.getElementById('pgTags').value||'')
+      .split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean);
+    updateNote(p.id,{
+      title: titleEl.value.trim()||'Untitled',
+      content: contentEl.value,
+      tags
+    });
+    // Update TOC label without full re-render
+    content.querySelectorAll('.nb-toc-item').forEach(el=>{
+      if(el.dataset.pageId===p.id) el.textContent=titleEl.value.trim()||'Untitled';
+    });
+    const s=statusEl(); if(s){ s.textContent='Saved \u2713'; setTimeout(()=>{ const ss=statusEl(); if(ss) ss.textContent=''; },2000); }
+  };
+
+  document.getElementById('pgDelete').onclick=async()=>{
+    const ok=await showConfirm(`Delete page "${p.title}"? It can be restored from Review.`,'Delete','Cancel');
+    if(!ok) return;
+    document.removeEventListener('keydown', pgKeyHandler);
+    softDeleteNote(p.id);
+    currentPageId=null;
+    renderNotebookDetail(nbId);
+  };
+
+  contentEl.focus();
+}
 // --- End added views ---
 
 // --- Links view (restored) ---
@@ -3684,8 +3954,9 @@ function render(){
   else if(route==='projects') renderProjects();
   else if(route==='ideas') renderIdeas();
   else if(route==='links') renderLinks(); // NEW
+  else if(route==='notebooks') renderNotebooks();
   else if(route==='vault') renderVault();
-  else if(route==='monthly') renderMonthly(); // NEW
+  else if(route==='monthly') renderMonthly();
   else if(route==='review') renderReview();
   else if(route==='map') renderMap(); // handle map view
   // Update mobile bar active states
@@ -4232,6 +4503,7 @@ setInterval(async () => {
     ['notes','tasks','projects','templates','settings','links','monthly'].forEach(k => {
       if (!db[k]) db[k] = Array.isArray(seed[k]) ? [] : {};
     });
+    if(!db.notebooks) db.notebooks = [];
     // If a note is currently open, preserve its state on sync
     if (window._openNoteId) {
       // When the user has unsaved edits, merge them into the fresh DB snapshot before re‑rendering

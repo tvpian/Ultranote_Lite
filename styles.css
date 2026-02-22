@@ -2211,3 +2211,16 @@ input[type="date"]::-webkit-clear-button {
 input[type="date"] {
   accent-color: #4ea1ff;
 }
+
+/* --- Notebook styles --- */
+.nb-card:hover {
+  opacity: 0.85;
+}
+.nb-toc-item.nb-drag-over {
+  border-color: var(--acc) !important;
+  box-shadow: 0 0 0 2px var(--acc);
+}
+.nb-toc-item:hover {
+  opacity: 0.85;
+}
+}
