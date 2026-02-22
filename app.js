@@ -224,6 +224,10 @@ let scratchDraft = '';
 // When the user types in the note's title or content, `_editorDirty` becomes true. When the note is saved, it is reset to false.
 window._openNoteId = null;
 window._editorDirty = false;
+// Session-level Set of IDs that have been permanently (hard) deleted.
+// The autosync merge loop checks this to prevent deleted items from being
+// resurrected by a stale server snapshot before persistDB() completes.
+window._hardDeletedIds = new Set();
 // Track when user is actively typing in forms to prevent background sync interference
 window._isTypingInForm = false;
 let _typingTimer = null;
@@ -344,12 +348,14 @@ async function initApp(){
             if(remote && typeof remote==='object'){
               const keepAuto = db.settings && db.settings.autoReload;
               const list = ['notes','tasks','projects','templates','links','monthly','notebooks'];
-              const mapify = a=>{const m=new Map(); a.forEach(o=>m.set(o.id,o)); return m;};
+              const hardDeleted = window._hardDeletedIds || new Set();
+              const mapify = a=>{const m=new Map(); a.forEach(o=>{ if(!hardDeleted.has(o.id)) m.set(o.id,o); }); return m;};
               list.forEach(k=>{
                 const localArr = Array.isArray(db[k])? db[k]:[];
                 const remoteArr = Array.isArray(remote[k])? remote[k]:[];
                 const m = mapify(localArr);
                 remoteArr.forEach(r=>{
+                  if(hardDeleted.has(r.id)) return;
                   const l=m.get(r.id); if(!l){m.set(r.id,r); return;}
                   const lt=Date.parse(l.updatedAt||l.createdAt||0); const rt=Date.parse(r.updatedAt||r.createdAt||0);
                   if(rt>lt) m.set(r.id,r);
@@ -541,10 +547,11 @@ function restoreTask(id){
 
 function hardDeleteTask(id){
   // Permanently delete the task from the database
+  window._hardDeletedIds.add(id);
   const taskIndex = db.tasks.findIndex(x => x.id === id);
   if (taskIndex === -1) return;
   db.tasks.splice(taskIndex, 1);
-  save();
+  persistDB(); // immediate — no debounce, prevents sync resurrection
 }
 
 // --- Note soft-delete helpers ---
@@ -573,12 +580,14 @@ function restoreNote(id){
   save();
 }
 function hardDeleteNote(id){
+  window._hardDeletedIds.add(id);
   const n = db.notes.find(x => x.id === id);
   if(!n) return;
-  // Permanently remove linked tasks too
+  // Permanently remove linked tasks too; track them so sync won't revive them
+  db.tasks.filter(t => t.noteId === id).forEach(t => window._hardDeletedIds.add(t.id));
   db.tasks = db.tasks.filter(t => t.noteId !== id);
   db.notes = db.notes.filter(x => x.id !== id);
-  save();
+  persistDB(); // immediate — no debounce, prevents sync resurrection
 }
 function getTrashedNotes(){
   return db.notes.filter(n => n.deletedAt);
@@ -589,9 +598,15 @@ function emptyTrash() {
     if(!ok) return;
     const tasksBefore = db.tasks.length;
     const notesBefore = db.notes.length;
+    // Track all IDs being wiped so sync cannot revive them from the server
+    db.tasks.filter(x => x.deletedAt).forEach(t => window._hardDeletedIds.add(t.id));
+    db.notes.filter(x => x.deletedAt).forEach(n => {
+      window._hardDeletedIds.add(n.id);
+      db.tasks.filter(t => t.noteId === n.id).forEach(t => window._hardDeletedIds.add(t.id));
+    });
     db.tasks = db.tasks.filter(x => !x.deletedAt);
     db.notes = db.notes.filter(x => !x.deletedAt);
-    if(db.tasks.length !== tasksBefore || db.notes.length !== notesBefore) save();
+    if(db.tasks.length !== tasksBefore || db.notes.length !== notesBefore) persistDB();
     if(route==='review') renderReview();
   });
 }
@@ -614,6 +629,53 @@ function extractTags(text){ return (text.match(/#[\w-]+/g) || []).map(tag => tag
 function createLink({title,url,tags=[],pinned=false,status="NEW"}){ const l={id:uid(), title, url, tags, pinned, status, createdAt:nowISO(), updatedAt:nowISO()}; db.links.push(l); save(); return l; }
 function updateLink(id, patch){ const l=db.links.find(x=>x.id===id); if(!l) return; Object.assign(l, patch, {updatedAt:nowISO()}); save(); return l; }
 function deleteLink(id){ db.links = db.links.filter(l=> l.id!==id); save(); }
+
+// --- Markdown toolbar helpers ---
+// Ordered list of actions for the compact formatting toolbar shown in note/page editors.
+const MD_TOOLBAR_ACTIONS = [
+  {label:'B',       before:'**',      after:'**',     ph:'bold text',    title:'Bold'},
+  {label:'I',       before:'_',       after:'_',      ph:'italic text',  title:'Italic'},
+  {label:'~~',      before:'~~',      after:'~~',     ph:'strikethrough',title:'Strikethrough'},
+  {label:'H1',      before:'\n# ',    after:'',       ph:'Heading',      title:'Heading 1'},
+  {label:'H2',      before:'\n## ',   after:'',       ph:'Heading',      title:'Heading 2'},
+  {label:'H3',      before:'\n### ',  after:'',       ph:'Heading',      title:'Heading 3'},
+  {label:'`code`',  before:'`',       after:'`',      ph:'code',         title:'Inline code'},
+  {label:'```',     before:'\n```\n', after:'\n```',  ph:'code here',    title:'Code block'},
+  {label:'>',       before:'\n> ',    after:'',       ph:'quoted text',  title:'Blockquote'},
+  {label:'\u2022 List',before:'\n- ', after:'',       ph:'item',         title:'Bullet list'},
+  {label:'1. List', before:'\n1. ',   after:'',       ph:'item',         title:'Numbered list'},
+  {label:'[link]',  before:'[',       after:'](url)', ph:'link text',    title:'Link'},
+  {label:'\u2014',  before:'\n---\n', after:'',       ph:'',             title:'Horizontal rule'},
+];
+function insertMd(ta, before, after, ph){
+  if(!ta) return;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  const sel = ta.value.substring(s, e) || ph || '';
+  ta.setRangeText(before + sel + after, s, e, 'end');
+  if(!ta.value.substring(s, e) && ph){
+    ta.setSelectionRange(s + before.length, s + before.length + ph.length);
+  }
+  ta.focus();
+  ta.dispatchEvent(new Event('input'));
+}
+function markdownToolbarHtml(){
+  return `<div class='md-toolbar' style='display:flex;flex-wrap:wrap;gap:2px;padding:4px 0;
+      margin-bottom:5px;border-bottom:1px solid var(--btn-border);'>
+    ${MD_TOOLBAR_ACTIONS.map((a,i)=>`<button type='button' class='btn md-tb-btn' data-idx='${i}'
+      title='${htmlesc(a.title)}' style='font-size:11px;padding:3px 7px;min-width:28px;'>${htmlesc(a.label)}</button>`).join('')}
+  </div>`;
+}
+function bindMarkdownToolbar(textareaId){
+  const ta = document.getElementById(textareaId);
+  if(!ta) return;
+  document.querySelectorAll('.md-tb-btn').forEach(btn=>{
+    btn.onclick = e=>{
+      e.preventDefault();
+      const a = MD_TOOLBAR_ACTIONS[+btn.dataset.idx];
+      if(a) insertMd(ta, a.before, a.after, a.ph);
+    };
+  });
+}
 
 // --- Notebook helpers ---
 function createNotebook({title, description=''}){
@@ -3177,7 +3239,8 @@ function openPageInNotebook(pageId, nbId){
       <input id='pgTags' type='text' placeholder='Tags (e.g. #ml #ros2)'
              value='${(p.tags||[]).map(t=>'#'+t).join(' ')}'
              style='width:100%;margin-bottom:8px;font-size:13px;box-sizing:border-box;' />
-      <textarea id='pgContent' style='width:100%;min-height:320px;height:calc(100vh - 310px);
+      ${markdownToolbarHtml()}
+      <textarea id='pgContent' style='width:100%;min-height:320px;height:calc(100vh - 360px);
                 resize:vertical;box-sizing:border-box;'>${htmlesc(p.content||'')}</textarea>
       <div class='row' style='margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center;'>
         <button id='pgSave' class='btn acc'>Save</button>
@@ -3197,13 +3260,24 @@ function openPageInNotebook(pageId, nbId){
     el.addEventListener('input',()=>{ const s=statusEl(); if(s) s.textContent='Unsaved changes'; });
   });
 
+  // Bind markdown toolbar AFTER HTML is stamped into the DOM
+  bindMarkdownToolbar('pgContent');
+
+  // Ctrl+S — use window._pgKeyHandler so it is properly cleaned up when
+  // switching pages or navigating away (prevents stale handler accumulation)
+  if(window._pgKeyHandler){
+    document.removeEventListener('keydown', window._pgKeyHandler, true);
+    document.removeEventListener('keydown', window._pgKeyHandler);
+  }
   const pgKeyHandler=e=>{
     if((e.ctrlKey||e.metaKey) && e.key==='s'){
       e.preventDefault();
+      e.stopPropagation();
       document.getElementById('pgSave')?.click();
     }
   };
-  document.addEventListener('keydown', pgKeyHandler);
+  document.addEventListener('keydown', pgKeyHandler, true);
+  window._pgKeyHandler = pgKeyHandler;
 
   document.getElementById('pgSave').onclick=()=>{
     const tags=(document.getElementById('pgTags').value||'')
@@ -3223,7 +3297,9 @@ function openPageInNotebook(pageId, nbId){
   document.getElementById('pgDelete').onclick=async()=>{
     const ok=await showConfirm(`Delete page "${p.title}"? It can be restored from Review.`,'Delete','Cancel');
     if(!ok) return;
-    document.removeEventListener('keydown', pgKeyHandler);
+    document.removeEventListener('keydown', window._pgKeyHandler, true);
+    document.removeEventListener('keydown', window._pgKeyHandler);
+    window._pgKeyHandler = null;
     softDeleteNote(p.id);
     currentPageId=null;
     renderNotebookDetail(nbId);
@@ -3370,6 +3446,7 @@ function openNote(id){
         <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+V to toggle | Ctrl+S to save</span>
       </div>
       <div style="margin-top:8px;">
+        ${markdownToolbarHtml()}
         <textarea id="contentBox" style="min-height:300px;">${htmlesc(n.content||'')}</textarea>
         <div id="markdownPreview" class="markdown-preview" style="min-height:300px; display:none;"></div>
       </div>
@@ -3389,6 +3466,8 @@ function openNote(id){
         <button id="export" class="btn">Export</button>
         <button id="delete" class="btn" style="border-color:#ff6b6b;color:#ff6b6b;">Delete</button>
       </div>`;
+  // Bind the markdown toolbar to the content box
+  bindMarkdownToolbar('contentBox');
   // Attach listeners to detect editing and mark the note as dirty. We attach after
   // injecting the HTML so the elements exist. Editing any field will set
   // `_editorDirty` to true until the note is saved.
@@ -3937,14 +4016,16 @@ function render(){
     window._noteKeyHandler = null;
   }
 
-  // Clean up Today page shortcut handler when leaving Today view.  Without this, the
-  // Ctrl+S binding on the Today page would persist across other sections and
-  // override default browser behaviour.  We store the handler reference on
-  // window._todayKeyHandler when binding it in renderToday().  Removing it
-  // here ensures a clean slate whenever render() is called for a new route.
+  // Clean up Today page shortcut handler when leaving Today view.
   if(window._todayKeyHandler) {
     document.removeEventListener('keydown', window._todayKeyHandler, true);
     window._todayKeyHandler = null;
+  }
+  // Clean up notebook page Ctrl+S handler when navigating away from Notebooks
+  if(window._pgKeyHandler) {
+    document.removeEventListener('keydown', window._pgKeyHandler, true);
+    document.removeEventListener('keydown', window._pgKeyHandler);
+    window._pgKeyHandler = null;
   }
   
   // Apply current theme before rendering UI elements
@@ -4499,6 +4580,13 @@ setInterval(async () => {
     if (localStr === remoteStr) return;
     // Always load the remote snapshot
     db = remote;
+    // Re-filter hard-deleted items that the remote snapshot may still carry
+    const _hd = window._hardDeletedIds || new Set();
+    if(_hd.size > 0){
+      db.tasks  = (db.tasks  || []).filter(t => !_hd.has(t.id));
+      db.notes  = (db.notes  || []).filter(n => !_hd.has(n.id));
+      db.notebooks = (db.notebooks || []).filter(nb => !_hd.has(nb.id));
+    }
     // Ensure any missing collections are initialized
     ['notes','tasks','projects','templates','settings','links','monthly'].forEach(k => {
       if (!db[k]) db[k] = Array.isArray(seed[k]) ? [] : {};

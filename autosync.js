@@ -9,9 +9,12 @@
     return tb > ta;
   }
   function _mergeArrayById(localArr=[], remoteArr=[]){
+    // Never re-add items that were hard-deleted this session
+    const hardDeleted = (typeof window !== 'undefined' && window._hardDeletedIds) ? window._hardDeletedIds : new Set();
     const out = new Map();
-    localArr.forEach(i=> out.set(i.id, {...i}));
+    localArr.forEach(i=>{ if(!hardDeleted.has(i.id)) out.set(i.id, {...i}); });
     remoteArr.forEach(r=>{
+      if(hardDeleted.has(r.id)) return; // block resurrection
       const l = out.get(r.id);
       if(!l){ out.set(r.id,{...r}); return; }
       if(l.deletedAt || r.deletedAt){
