@@ -270,11 +270,47 @@ app.get('/api/db', (req, res) => {
 });
 
 app.post('/api/db', (req, res) => {
-  const body = req.body;
-  if (!body || typeof body !== 'object') {
+  const incoming = req.body;
+  if (!incoming || typeof incoming !== 'object') {
     return res.status(400).json({ error: 'Invalid body' });
   }
-  if (!writeData(body)) return res.status(500).json({ error: 'Persist failed' });
+
+  // Server-side merge: never let a stale client silently overwrite newer server data.
+  // For each array collection, merge by id keeping the record with the latest updatedAt/createdAt.
+  // This means a client with an old in-memory db cannot wipe records that were saved by another
+  // client (or directly on disk) after the stale client's last fetch.
+  const current = readData() || {};
+  const COLLECTIONS = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
+
+  function mergeById(serverArr = [], clientArr = []) {
+    const ts = r => Date.parse(r.updatedAt || r.createdAt || 0);
+    const map = new Map();
+    // seed with server records
+    serverArr.forEach(r => map.set(r.id, r));
+    // apply client records — client wins only if its record is strictly newer
+    clientArr.forEach(r => {
+      const s = map.get(r.id);
+      if (!s) {
+        map.set(r.id, r); // new record from client — always add
+      } else if (ts(r) > ts(s)) {
+        map.set(r.id, r); // client has a newer version — use it
+      }
+      // else server version is same-age or newer — keep server copy, ignore client
+    });
+    return Array.from(map.values());
+  }
+
+  const merged = { ...current };
+  COLLECTIONS.forEach(k => {
+    const serverArr  = Array.isArray(current[k])  ? current[k]  : [];
+    const clientArr  = Array.isArray(incoming[k]) ? incoming[k] : [];
+    merged[k] = mergeById(serverArr, clientArr);
+  });
+  // Settings: client wins for all keys (settings changes are intentional)
+  merged.settings = { ...(current.settings || {}), ...(incoming.settings || {}) };
+  merged.version = Math.max(current.version || 1, incoming.version || 1);
+
+  if (!writeData(merged)) return res.status(500).json({ error: 'Persist failed' });
   res.json({ ok: true });
 });
 
