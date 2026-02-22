@@ -920,6 +920,7 @@ const sections = [
   {id:"vault", label:"🔍 Vault"},
   {id:"monthly", label:"🗓️ Monthly"},
   {id:"review", label:"📊 Review"},
+  {id:"journal", label:"📖 Journal"},
 ];
 let route = "today";
 let currentProjectId = null; // NEW: selected project
@@ -2515,6 +2516,132 @@ function renderReview(){
     };
   }
 }
+
+// --- Journal History view ---
+function renderJournalHistory() {
+  // Gather all daily notes that have journal content, newest first
+  const entries = (db.notes || [])
+    .filter(n => n.type === 'daily' && !n.deletedAt && n.journal && n.journal.trim())
+    .sort((a, b) => b.dateIndex.localeCompare(a.dateIndex));
+
+  const MOOD_LABELS = {'😊':'Great','🙂':'Good','😐':'Okay','😔':'Tired','😤':'Stressed'};
+  const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+  function wordCount(text) {
+    return text ? text.trim().split(/\s+/).filter(Boolean).length : 0;
+  }
+
+  function dayOfWeek(dateIndex) {
+    const d = new Date(dateIndex + 'T00:00:00');
+    return DAY_NAMES[d.getDay()];
+  }
+
+  // Render the list (filtered)
+  function buildList(searchQ, dateFrom, dateTo) {
+    let filtered = entries;
+    const q = (searchQ || '').trim().toLowerCase();
+    if (q) filtered = filtered.filter(e => e.journal.toLowerCase().includes(q) || e.dateIndex.includes(q));
+    if (dateFrom) filtered = filtered.filter(e => e.dateIndex >= dateFrom);
+    if (dateTo) filtered = filtered.filter(e => e.dateIndex <= dateTo);
+    if (!filtered.length) {
+      return `<div class='muted' style='text-align:center;padding:32px;'>
+        ${entries.length ? 'No entries match your filter.' : 'No journal entries yet — start writing in the Daily Journal section on the <strong>Today</strong> page.'}
+      </div>`;
+    }
+    return filtered.map(e => {
+      const wc = wordCount(e.journal);
+      const mood = e.mood || '';
+      const moodLabel = mood ? ` ${MOOD_LABELS[mood] || ''}` : '';
+      const dow = dayOfWeek(e.dateIndex);
+      const dateObj = new Date(e.dateIndex + 'T00:00:00');
+      const dateStr = dateObj.toLocaleDateString(undefined, {year:'numeric', month:'long', day:'numeric'});
+      // Render journal markdown preview
+      const previewHtml = markdownToHtml(e.journal);
+      const entryId = 'jh-' + e.id;
+      return `<div class='card' id='${entryId}' style='margin-bottom:10px;'>
+        <div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;'>
+          <div>
+            <div style='font-size:15px;font-weight:600;'>${htmlesc(dow)}, ${htmlesc(dateStr)}</div>
+            <div style='font-size:12px;color:var(--muted);margin-top:2px;'>
+              ${mood ? `<span style='font-size:16px;'>${mood}</span><span style='margin-left:4px;'>${htmlesc(moodLabel.trim())}</span> &nbsp;·&nbsp; ` : ''}
+              ${wc} word${wc !== 1 ? 's' : ''}
+            </div>
+          </div>
+          <div style='display:flex;gap:6px;flex-shrink:0;'>
+            <button class='btn jh-open' data-date='${htmlesc(e.dateIndex)}' style='font-size:12px;'>Open Day →</button>
+            <button class='btn jh-toggle' data-target='${entryId}-body' style='font-size:12px;'>▾ Expand</button>
+          </div>
+        </div>
+        <div id='${entryId}-body' class='markdown-preview' style='margin-top:10px;display:none;border-top:1px solid var(--btn-border);padding-top:10px;'>
+          ${previewHtml}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  content.innerHTML = `
+    <div class='card'>
+      <div class='row' style='justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;'>
+        <strong style='font-size:16px;'>📖 Journal History</strong>
+        <div class='muted' style='font-size:12px;'>${entries.length} entr${entries.length !== 1 ? 'ies' : 'y'}</div>
+      </div>
+      <div class='row' style='margin-top:10px;gap:8px;flex-wrap:wrap;'>
+        <input id='jhSearch' type='text' placeholder='Search journal text…' style='flex:1;min-width:160px;' />
+        <input id='jhFrom' type='date' title='From date' style='padding:8px;background:var(--input-bg);border:1px solid var(--input-border);color:var(--fg);border-radius:6px;' />
+        <input id='jhTo' type='date' title='To date' style='padding:8px;background:var(--input-bg);border:1px solid var(--input-border);color:var(--fg);border-radius:6px;' />
+        <button id='jhClear' class='btn' style='font-size:12px;'>Clear</button>
+      </div>
+      <div style='margin-top:6px;font-size:11px;color:var(--muted);'>Click <em>▾ Expand</em> to read an entry inline, or <em>Open Day →</em> to navigate to that day.</div>
+    </div>
+    <div id='jhList'>${buildList('', '', '')}</div>`;
+
+  // Wire controls
+  const searchEl = document.getElementById('jhSearch');
+  const fromEl = document.getElementById('jhFrom');
+  const toEl = document.getElementById('jhTo');
+  const clearEl = document.getElementById('jhClear');
+
+  function refreshList() {
+    const listEl = document.getElementById('jhList');
+    if (listEl) listEl.innerHTML = buildList(searchEl.value, fromEl.value, toEl.value);
+    bindEntryHandlers();
+  }
+
+  function bindEntryHandlers() {
+    // Open Day buttons
+    content.querySelectorAll('.jh-open').forEach(btn => {
+      btn.onclick = () => {
+        _navPush();
+        selectedDailyDate = btn.dataset.date;
+        route = 'today';
+        render();
+      };
+    });
+    // Expand/collapse toggles
+    content.querySelectorAll('.jh-toggle').forEach(btn => {
+      btn.onclick = () => {
+        const body = document.getElementById(btn.dataset.target);
+        if (!body) return;
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : 'block';
+        btn.textContent = open ? '▾ Expand' : '▴ Collapse';
+      };
+    });
+  }
+
+  if (searchEl) searchEl.oninput = refreshList;
+  if (fromEl) fromEl.onchange = refreshList;
+  if (toEl) toEl.onchange = refreshList;
+  if (clearEl) clearEl.onclick = () => {
+    if (searchEl) searchEl.value = '';
+    if (fromEl) fromEl.value = '';
+    if (toEl) toEl.value = '';
+    refreshList();
+  };
+
+  bindEntryHandlers();
+}
+// --- End Journal History view ---
 
 // --- Map view ---
 function renderMap() {
@@ -4506,6 +4633,7 @@ function render(){
   else if(route==='monthly') renderMonthly();
   else if(route==='review') renderReview();
   else if(route==='map') renderMap(); // handle map view
+  else if(route==='journal') renderJournalHistory();
   // Update mobile bar active states
   const mb = document.getElementById('mobileBar');
   if(mb){
