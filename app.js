@@ -138,7 +138,7 @@ async function persistDB(){
 }
 
 const seed = {
-  version:1,
+  version:2,
   settings:{rollover:true, seenTip:false, autoCarryTasks:true, autoReload:false, dailyTemplate:"# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"},
   projects:[{id:"p1", name:"Sample Project", createdAt:nowISO()}],
   notes:[
@@ -270,6 +270,94 @@ function startDueTaskNotifications() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// migrateDB — canonicalise every existing record so the full schema is present
+// on all entities. Safe to run on every boot: only writes back if something
+// actually changed. This ensures any agent that reads db.* can rely on every
+// field being present with a deterministic type (no missing-key surprises).
+// ---------------------------------------------------------------------------
+function migrateDB() {
+  let dirty = false;
+  // Ensure a field exists; never overwrites an existing value.
+  function ensure(obj, key, val) {
+    if (obj[key] === undefined) { obj[key] = val; dirty = true; }
+  }
+
+  // ── notes / pages / daily / ideas ─────────────────────────────────────────
+  (db.notes || []).forEach(n => {
+    ensure(n, 'type',        'note');
+    ensure(n, 'tags',        []);
+    ensure(n, 'attachments', []);
+    ensure(n, 'links',       []);
+    ensure(n, 'pinned',      false);
+    ensure(n, 'projectId',   null);
+    ensure(n, 'dateIndex',   null);
+    ensure(n, 'deletedAt',   null);
+    ensure(n, 'updatedAt',   n.createdAt || nowISO());
+    if (n.type === 'page') {
+      ensure(n, 'notebookId', null);
+      ensure(n, 'sortOrder',  0);
+    }
+  });
+
+  // ── tasks ─────────────────────────────────────────────────────────────────
+  (db.tasks || []).forEach(t => {
+    ensure(t, 'updatedAt',   t.createdAt || nowISO());
+    ensure(t, 'tags',        []);
+    ensure(t, 'description', '');
+    ensure(t, 'subtasks',    []);
+    ensure(t, 'priority',    'medium');
+    ensure(t, 'deletedAt',   null);
+    ensure(t, 'projectId',   null);
+    ensure(t, 'noteId',      null);
+    ensure(t, 'due',         null);
+    ensure(t, 'completedAt', null);
+  });
+
+  // ── projects ──────────────────────────────────────────────────────────────
+  (db.projects || []).forEach(p => {
+    ensure(p, 'updatedAt',   p.createdAt || nowISO());
+    ensure(p, 'description', '');
+    ensure(p, 'tags',        []);
+    ensure(p, 'color',       null);
+    ensure(p, 'archivedAt',  null);
+  });
+
+  // ── templates ─────────────────────────────────────────────────────────────
+  (db.templates || []).forEach(t => {
+    ensure(t, 'updatedAt',   t.createdAt || nowISO());
+    ensure(t, 'tags',        []);
+    ensure(t, 'description', '');
+  });
+
+  // ── monthly recurring tasks ───────────────────────────────────────────────
+  (db.monthly || []).forEach(m => {
+    ensure(m, 'type',        'monthly_task');
+    ensure(m, 'updatedAt',   m.createdAt || nowISO());
+    ensure(m, 'tags',        []);
+    ensure(m, 'description', '');
+  });
+
+  // ── notebooks ─────────────────────────────────────────────────────────────
+  (db.notebooks || []).forEach(nb => {
+    ensure(nb, 'tags',       []);
+    ensure(nb, 'archivedAt', null);
+    ensure(nb, 'updatedAt',  nb.createdAt || nowISO());
+  });
+
+  // ── links ─────────────────────────────────────────────────────────────────
+  (db.links || []).forEach(l => {
+    ensure(l, 'description', '');
+    ensure(l, 'tags',        l.tags || []);
+    ensure(l, 'updatedAt',   l.createdAt || nowISO());
+  });
+
+  // Bump schema version
+  if ((db.version || 1) < 2) { db.version = 2; dirty = true; }
+  if (dirty) { persistDB(); console.log('⚙️  migrateDB: schema patched and saved'); }
+}
+// ---------------------------------------------------------------------------
+
 async function initApp(){
   // 1. Try server
   let serverData = await fetchDB();
@@ -289,6 +377,8 @@ async function initApp(){
     if(!db[k]) db[k] = Array.isArray(seed[k]) ? [] : {};
   });
   if(!db.notebooks) db.notebooks = [];
+  // Migrate all entities to the canonical schema (adds any missing fields).
+  migrateDB();
   // Ensure theme setting exists (default to dark)
   if(!db.settings.theme){ db.settings.theme = 'dark'; }
   // Draw initial UI
@@ -388,10 +478,11 @@ function createNote({title, content="", tags=[], projectId=null, dateIndex=null,
   db.notes.push(n); save(); return n;
 }
 function updateNote(id, patch){ const n=db.notes.find(x=>x.id===id); if(!n) return; Object.assign(n, patch, {updatedAt:nowISO()}); save(); return n; }
-function createTask({title, due=null, noteId=null, projectId=null, priority="medium", description="", subtasks=[]}){
-  // Tasks now support an optional description and a list of subtasks. Subtasks should be an array of
-  // objects with id, title and status. If none provided, default to empty array.
-  const t = { id: uid(), title, status: "TODO", due, noteId, projectId, priority, description, subtasks, createdAt: nowISO(), completedAt: null };
+function createTask({title, due=null, noteId=null, projectId=null, priority="medium", description="", subtasks=[], tags=[]}){
+  // Canonical task schema — all fields present so agent queries are unambiguous.
+  const t = { id: uid(), title, status: "TODO", due, noteId, projectId, priority,
+               description, subtasks, tags, createdAt: nowISO(), updatedAt: nowISO(),
+               completedAt: null, deletedAt: null };
   db.tasks.push(t);
   // When creating a project task, update the Today page counter if present. This must occur
   // before returning so the counter updates immediately on task creation. Note: checking
@@ -407,6 +498,7 @@ function setTaskStatus(id, status){
   if (!t) return;
   t.status = status;
   t.completedAt = status === 'DONE' ? nowISO() : null;
+  t.updatedAt = nowISO();
   save();
   // If a project task status changes, update the Today page project tasks button count
   const ptBtn = document.getElementById('showProjectTasks');
@@ -421,6 +513,7 @@ function moveToBacklog(id) {
   if (!t) return;
   // Mark task as backlog
   t.status = 'BACKLOG';
+  t.updatedAt = nowISO();
   save();
   // If it's a project task (belongs to a project but not attached to a note) then update the
   // project task button counter on the Today page. This ensures the badge reflects the new
@@ -610,8 +703,23 @@ function emptyTrash() {
     if(route==='review') renderReview();
   });
 }
-function createProject(name){ const p={id:uid(), name, createdAt:nowISO()}; db.projects.push(p); save(); return p; }
-function createTemplate(name, content){ const t={id:uid(), name, content, createdAt:nowISO()}; db.templates.push(t); save(); return t; }
+function createProject(name){
+  // Canonical project schema — all fields explicit so agents can rely on them.
+  const p = { id:uid(), name, description:'', tags:[], color:null, archivedAt:null,
+               createdAt:nowISO(), updatedAt:nowISO() };
+  db.projects.push(p); save(); return p;
+}
+function updateProject(id, patch){
+  const p = db.projects.find(x => x.id === id);
+  if(!p) return;
+  Object.assign(p, patch, { updatedAt: nowISO() });
+  save(); return p;
+}
+function createTemplate(name, content){
+  // Canonical template schema.
+  const t = { id:uid(), name, content, description:'', tags:[], createdAt:nowISO(), updatedAt:nowISO() };
+  db.templates.push(t); save(); return t;
+}
 function addTag(text){ const tags = extractTags(text); if(tags.length) { const uniqueTags = [...new Set([...getAllTags(), ...tags])]; } return tags; }
 // Collect unique tags from notes and links (ideas/notes use tags on note; links have their own tags)
 function getAllTags(){
@@ -621,12 +729,19 @@ function getAllTags(){
   const inlineContentTags = db.notes.filter(n => !n.deletedAt).flatMap(n => extractTags(n.content || ''));
   // Tags stored on links
   const linkTags = db.links ? db.links.flatMap(l => l.tags || []) : [];
-  // Merge + dedupe
-  return [...new Set([...noteTags, ...inlineContentTags, ...linkTags].filter(Boolean))].sort((a,b)=> a.localeCompare(b));
+  // Tags on tasks, templates, monthly tasks and notebooks (forward-compatible, agent-queryable)
+  const taskTags     = (db.tasks     || []).filter(t => !t.deletedAt).flatMap(t => t.tags || []);
+  const templateTags = (db.templates || []).flatMap(t => t.tags || []);
+  const monthlyTags  = (db.monthly   || []).flatMap(m => m.tags || []);
+  const nbTags       = (db.notebooks || []).flatMap(nb => nb.tags || []);
+  // Merge + dedupe across all collections
+  return [...new Set([...noteTags, ...inlineContentTags, ...linkTags,
+                      ...taskTags, ...templateTags, ...monthlyTags, ...nbTags
+                     ].filter(Boolean))].sort((a,b)=> a.localeCompare(b));
 }
 function extractTags(text){ return (text.match(/#[\w-]+/g) || []).map(tag => tag.slice(1)); }
 // --- Links helpers ---
-function createLink({title,url,tags=[],pinned=false,status="NEW"}){ const l={id:uid(), title, url, tags, pinned, status, createdAt:nowISO(), updatedAt:nowISO()}; db.links.push(l); save(); return l; }
+function createLink({title,url,tags=[],pinned=false,status="NEW",description=''}){ const l={id:uid(), title, url, description, tags, pinned, status, createdAt:nowISO(), updatedAt:nowISO()}; db.links.push(l); save(); return l; }
 function updateLink(id, patch){ const l=db.links.find(x=>x.id===id); if(!l) return; Object.assign(l, patch, {updatedAt:nowISO()}); save(); return l; }
 function deleteLink(id){ db.links = db.links.filter(l=> l.id!==id); save(); }
 
@@ -3038,7 +3153,9 @@ function renderMonthly(){
     const id = uid();
     // Store with the current month so tasks are month-scoped.
     // They only roll over to the next month when the user clicks "Roll Over Tasks".
-    db.monthly.push({ id, title, days, month: monthKey, createdAt: nowISO() });
+    db.monthly.push({ id, title, days, month: monthKey,
+      type: 'monthly_task', description: '', tags: [],
+      createdAt: nowISO(), updatedAt: nowISO() });
     
     // Clear form
     if(titleEl) titleEl.value = '';
@@ -3118,7 +3235,9 @@ function renderMonthly(){
         // Skip tasks that already exist in the current month (same title + days).
         const exists = (db.monthly || []).some(x => x.month === monthKey && x.title === t.title && JSON.stringify(x.days || []) === JSON.stringify(t.days || []));
         if (!exists) {
-          db.monthly.push({ id: uid(), title: t.title, days: Array.isArray(t.days) ? [...t.days] : [], month: monthKey, createdAt: nowISO() });
+          db.monthly.push({ id: uid(), title: t.title, days: Array.isArray(t.days) ? [...t.days] : [],
+            month: monthKey, type: 'monthly_task', description: '', tags: [],
+            createdAt: nowISO(), updatedAt: nowISO() });
           added++;
         }
       });
