@@ -117,16 +117,27 @@ async function persistDB(){
     // concurrent updates from other devices. Do not merge remote changes into the
     // outgoing snapshot here, as that would reintroduce items that the user
     // intentionally deleted on this device.
-  await fetch('/api/db', {
+    const resp = await fetch('/api/db', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(db)
     });
-    // Optionally refresh local data from the server after saving to incorporate
-    // remote merges. If fetch fails we silently ignore; the periodic sync will
-    // update the state.
-  // Removed immediate post-save fetch to avoid overwriting in-progress edits; inbound merges handled by autosync/manual sync.
-  window.db = db;
+    // Server now returns the merged result so this device immediately picks up any
+    // records added by other clients since our last fetch — without waiting for the
+    // next autosync tick. Guard: never interrupt an active editing session.
+    if (resp && resp.ok) {
+      const result = await resp.json().catch(() => null);
+      if (result && result.db && typeof result.db === 'object') {
+        const notEditing = !window._editorDirty && !window._isTypingInForm &&
+                           !(window.__typingUntil && Date.now() < window.__typingUntil);
+        if (notEditing) {
+          const COLS = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
+          COLS.forEach(k => { if (Array.isArray(result.db[k])) db[k] = result.db[k]; });
+          if (result.db.settings) db.settings = { ...result.db.settings, ...db.settings };
+        }
+      }
+    }
+    window.db = db;
   } catch (e) {
     console.error('Persist failed', e);
   }
@@ -362,15 +373,43 @@ function migrateDB() {
 async function initApp(){
   // 1. Try server
   let serverData = await fetchDB();
+
+  // Always read localStorage — it may have offline edits that haven't reached
+  // the server yet (e.g., the network save failed in a previous session).
+  let localData = null;
+  try { localData = JSON.parse(localStorage.getItem(storeKey) || 'null'); } catch(_) { localData = null; }
+
   if(serverData && Object.keys(serverData).length){
+    // Merge: server is the master copy, but if localStorage holds any individual
+    // records with a strictly newer timestamp they belong to this device and were
+    // not yet uploaded — add them to the initial state before the first save.
+    if (localData) {
+      const COLS = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
+      const tsOf = r => Date.parse(r.updatedAt || r.createdAt || 0);
+      COLS.forEach(k => {
+        const sArr = Array.isArray(serverData[k]) ? serverData[k] : [];
+        const lArr = Array.isArray(localData[k])  ? localData[k]  : [];
+        const map = new Map();
+        sArr.forEach(r => map.set(r.id, r));
+        lArr.forEach(r => {
+          const s = map.get(r.id);
+          if (!s) { map.set(r.id, r); return; }                 // new local record → add
+          if (r.deletedAt && !s.deletedAt) { map.set(r.id, r); return; } // local delete → honor
+          if (!s.deletedAt && tsOf(r) > tsOf(s)) map.set(r.id, r);     // local is genuinely newer
+        });
+        serverData[k] = Array.from(map.values());
+      });
+    }
     db = serverData;
-  window.db = db; // expose globally for autosync
+    window.db = db;
+    // Upload merged state back to server so offline edits are not lost
+    await persistDB();
   } else {
     // 2. Fallback to any localStorage copy
-    try { db = JSON.parse(localStorage.getItem(storeKey)||'null'); } catch(_) { db = null; }
-    if(!db) db = JSON.parse(JSON.stringify(defaults));
+    if (!localData) localData = JSON.parse(JSON.stringify(defaults));
+    db = localData;
     await persistDB();
-  window.db = db;
+    window.db = db;
   }
   // Defensive: ensure collections exist (added links)
   // Ensure all collections exist on db. Include new 'monthly' plan storage.

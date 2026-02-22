@@ -287,15 +287,27 @@ app.post('/api/db', (req, res) => {
     const map = new Map();
     // seed with server records
     serverArr.forEach(r => map.set(r.id, r));
-    // apply client records — client wins only if its record is strictly newer
+    // apply client records using these rules (in priority order):
+    //  1. New record (server doesn't have it) → always add
+    //  2. Client deleted it (deletedAt set, server has non-deleted) → honor delete
+    //  3. Server deleted it, client has old non-deleted copy of same age → keep delete
+    //  4. No conflicting delete → newer timestamp wins
+    //  5. Tie or server newer → keep server copy
     clientArr.forEach(r => {
       const s = map.get(r.id);
       if (!s) {
-        map.set(r.id, r); // new record from client — always add
-      } else if (ts(r) > ts(s)) {
-        map.set(r.id, r); // client has a newer version — use it
+        map.set(r.id, r); return; // new record from client
       }
-      // else server version is same-age or newer — keep server copy, ignore client
+      if (r.deletedAt && !s.deletedAt) {
+        map.set(r.id, r); return; // client explicitly deleted — honor it
+      }
+      if (s.deletedAt && !r.deletedAt && ts(r) <= ts(s)) {
+        return; // server deleted and client copy is same-age or older — keep deletion
+      }
+      if (ts(r) > ts(s)) {
+        map.set(r.id, r); // client's non-conflicting version is strictly newer
+      }
+      // else keep server copy
     });
     return Array.from(map.values());
   }
@@ -311,7 +323,9 @@ app.post('/api/db', (req, res) => {
   merged.version = Math.max(current.version || 1, incoming.version || 1);
 
   if (!writeData(merged)) return res.status(500).json({ error: 'Persist failed' });
-  res.json({ ok: true });
+  // Return the merged state so the posting client can immediately update its own
+  // in-memory db and pick up any records that other clients added since its last sync.
+  res.json({ ok: true, db: merged });
 });
 
 // ── Agent-friendly query endpoints ─────────────────────────────────────────

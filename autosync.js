@@ -32,7 +32,7 @@
   function _mergeInbound(remote){
     if(!remote || typeof remote!=='object' || !window.db){
       console.log('⚠️ Auto-sync: Invalid remote data or no local db');
-      return;
+      return false;
     }
     const ARR = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
     let changed=false;
@@ -50,6 +50,7 @@
     }
     Object.keys(remote).forEach(k=>{ if(!(k in db)) db[k]=remote[k]; });
     if(!changed) console.log('✅ Auto-sync: No changes to merge');
+    return changed;
   }
   async function _runOnce(opts={}){
     const { bypassTyping=false } = opts;
@@ -66,8 +67,18 @@
         }
       }
       console.log('📥 Auto-sync: Merging remote changes...');
-      _mergeInbound(remote);
-      if(typeof render==='function'){ render(); console.log('🔄 Auto-sync: UI refreshed'); }
+      const hadChanges = _mergeInbound(remote);
+      if(hadChanges){
+        // Upload the merged result back to the server. This ensures that records
+        // this device added while offline (stored only in localStorage) get
+        // persisted to the server now that connectivity is restored.
+        // Uses a small delay so the render isn't blocked.
+        if(typeof save==='function'){
+          setTimeout(()=>save(), 500);
+          console.log('⬆️ Auto-sync: Uploading merged local state to server');
+        }
+        if(typeof render==='function'){ render(); console.log('🔄 Auto-sync: UI refreshed'); }
+      }
     }catch(e){ console.warn('❌ Auto-sync fetch failed', e); }
   }
   function startAutoSync(){
