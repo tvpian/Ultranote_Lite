@@ -250,6 +250,11 @@ function readData() {
 
 function writeData(obj) {
   try {
+    // Keep a rolling backup (.bak) before overwriting so a single bad write
+    // never destroys the only copy.
+    if (fs.existsSync(DATA_FILE)) {
+      fs.copyFileSync(DATA_FILE, DATA_FILE + '.bak');
+    }
     fs.writeFileSync(DATA_FILE, JSON.stringify(obj, null, 2));
     return true;
   } catch (e) {
