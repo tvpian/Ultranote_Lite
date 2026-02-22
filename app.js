@@ -2917,7 +2917,27 @@ function renderMonthly(){
     }
     
     if(!tasks.length){
-      listEl.innerHTML = `<div class='muted' style='text-align:center;padding:32px 16px;grid-column:1/-1;'>No recurring tasks yet. Add one above to get started.</div>`;
+      // Check if any prior month has tasks — offer smart roll-over
+      const priorMonths = [...new Set((db.monthly || []).map(t => t.month).filter(Boolean))]
+        .filter(k => k < monthKey).sort();
+      const lastPopulated = priorMonths.length ? priorMonths[priorMonths.length - 1] : null;
+      if(lastPopulated) {
+        const lastCount = (db.monthly || []).filter(t => t.month === lastPopulated).length;
+        listEl.innerHTML = `
+          <div style='text-align:center;padding:32px 16px;grid-column:1/-1;'>
+            <div class='muted' style='margin-bottom:12px;'>No tasks for this month yet.</div>
+            <div style='margin-bottom:16px;font-size:13px;color:var(--fg);'>
+              Last active month: <strong>${lastPopulated}</strong> (${lastCount} task${lastCount!==1?'s':''})
+            </div>
+            <button id='smartRolloverBtn' class='btn acc' style='padding:8px 20px;'>
+              ↻ Roll Over ${lastCount} task${lastCount!==1?'s':''} from ${lastPopulated}
+            </button>
+          </div>`;
+        const srBtn = document.getElementById('smartRolloverBtn');
+        if(srBtn) srBtn.onclick = () => { document.getElementById('monthlyCopyPrev')?.click(); };
+      } else {
+        listEl.innerHTML = `<div class='muted' style='text-align:center;padding:32px 16px;grid-column:1/-1;'>No recurring tasks yet. Add one above to get started.</div>`;
+      }
       return;
     }
     
@@ -3255,16 +3275,17 @@ function renderMonthly(){
   // Copy tasks from previous month handler
   if(copyPrevBtn) {
     copyPrevBtn.onclick = async () => {
-      // Determine the previous month key from the currently viewed month.
-      const parts = monthKey.split('-');
-      const y = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10) - 1; // zero-indexed month
-      const prevDate = new Date(y, m - 1, 1);
-      const prevKey = prevDate.getFullYear() + '-' + String(prevDate.getMonth() + 1).padStart(2, '0');
-      // Find tasks from the previous month
-      const prevTasks = (db.monthly || []).filter(t => t.month === prevKey);
+      // Find the most recently populated month that is strictly before the current monthKey.
+      // This handles gaps (e.g. last data was Oct 2025, current view is Feb 2026).
+      const allMonthsWithTasks = [...new Set((db.monthly || [])
+        .map(t => t.month).filter(Boolean))]
+        .filter(k => k < monthKey)
+        .sort();
+      const prevKey = allMonthsWithTasks.length ? allMonthsWithTasks[allMonthsWithTasks.length - 1] : null;
+      // Find tasks from the most recent prior month
+      const prevTasks = prevKey ? (db.monthly || []).filter(t => t.month === prevKey) : [];
       if (!prevTasks.length) {
-        showValidationModal('No Tasks to Roll Over', `No tasks found for ${prevKey}. Add tasks to that month first, or navigate back to it.`);
+        showValidationModal('No Tasks to Roll Over', `No tasks found in any previous month. Add tasks to a prior month first, or navigate back to it.`);
         return;
       }
       const ok = await showConfirm(`Copy ${prevTasks.length} task${prevTasks.length !== 1 ? 's' : ''} from ${prevKey} into ${monthKey}?`, 'Roll Over', 'Cancel');
