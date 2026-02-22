@@ -1047,30 +1047,120 @@ a {
   resize: vertical;
 }
 
-/* Simple mind map styling */
-.mind-map {
-  list-style: none;
-  padding-left: 0;
+/* ---- Enhanced Note Map ---- */
+.map-card { padding: 20px; }
+.map-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
 }
-.mind-map ul {
-  list-style: none;
-  margin-left: 20px;
-  padding-left: 0;
+.map-stat { font-size: 12px; color: var(--muted); }
+.map-filter-input {
+  flex: 0 0 220px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--fg);
+  font-size: 13px;
+  outline: none;
+}
+.map-filter-input:focus { border-color: var(--acc); }
+.mind-map { list-style: none; padding: 0; margin: 0; }
+.map-li { margin: 4px 0; }
+.map-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.map-toggle {
+  width: 20px; height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 4px;
+}
+.map-toggle:hover { color: var(--fg); background: var(--btn-bg); }
+.map-toggle-ph { width: 20px; flex-shrink: 0; display: inline-block; }
+.map-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 11px;
+  border-radius: 20px;
+  border: 1px solid var(--chip-color, var(--acc));
+  background: color-mix(in srgb, var(--chip-color, var(--acc)) 11%, transparent);
+  color: var(--fg);
+  text-decoration: none;
+  font-size: 13px;
+  transition: background 0.15s, transform 0.1s;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.map-chip:hover {
+  background: color-mix(in srgb, var(--chip-color, var(--acc)) 28%, transparent);
+  transform: translateY(-1px);
+}
+.map-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px; height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--chip-color, var(--acc));
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.map-badge--muted { background: var(--muted); margin-left: 6px; vertical-align: middle; }
+.map-proj-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.map-children-wrap {
+  padding-left: 26px;
   border-left: 1px solid var(--border);
+  margin-left: 9px;
+  margin-top: 2px;
 }
-.mind-map li {
-  margin: 4px 0;
-  padding-left: 8px;
-  position: relative;
+.map-orphans {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
 }
-.mind-map li::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0.8em;
-  width: 12px;
-  height: 1px;
-  background: var(--border);
+.map-orphans summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+  user-select: none;
+  outline: none;
+  list-style: none;
+}
+.map-orphans summary::-webkit-details-marker { display: none; }
+.map-orphans summary::before { content: '\25B8  '; font-size: 11px; }
+details.map-orphans[open] summary::before { content: '\25BE  '; }
+.map-orphans summary:hover { color: var(--fg); }
+.map-orphan-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }/* Extracted styles from index.html to make the project easier to maintain.
    This file contains all of the CSS previously inlined in the HTML.
    Color variables and responsive rules have been preserved. */
@@ -2094,31 +2184,7 @@ a {
   overflow-y: auto;
 }
 
-/* Simple mind map styling */
-.mind-map {
-  list-style: none;
-  padding-left: 0;
-}
-.mind-map ul {
-  list-style: none;
-  margin-left: 20px;
-  padding-left: 0;
-  border-left: 1px solid var(--border);
-}
-.mind-map li {
-  margin: 4px 0;
-  padding-left: 8px;
-  position: relative;
-}
-.mind-map li::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0.8em;
-  width: 12px;
-  height: 1px;
-  background: var(--border);
-}
+/* Note Map styles defined above near #taskModal textarea */
 
 /* Ensure date pickers work properly - specific styling to override inline styles */
 #taskDueDate,

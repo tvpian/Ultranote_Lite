@@ -2280,62 +2280,157 @@ function renderReview(){
 
 // --- Map view ---
 function renderMap() {
-  // Build a structured mind-map view. We consider only notes that either link to others
-  // or are linked to. To make the visualization more intuitive, we treat notes with no
-  // incoming links as roots and build trees from them. If cycles exist, the first
-  // unvisited note becomes the root of its own tree. Each note appears only once to
-  // prevent infinite loops. This results in a clean, hierarchical overview of your
-  // linked notes network.
-  const notes = (db.notes || []).filter(n => !n.deletedAt);
-  // Identify notes involved in at least one link (as source or target)
-  const connected = notes.filter(n => {
-    const hasOut = Array.isArray(n.links) && n.links.length > 0;
-    const hasIn = notes.some(other => Array.isArray(other.links) && other.links.includes(n.id));
-    return hasOut || hasIn;
-  });
-  // Build a map from note id to list of incoming link counts
-  const incomingCount = {};
-  connected.forEach(n => { incomingCount[n.id] = 0; });
-  connected.forEach(n => {
+  // Enhanced Note Map: collapsible tree, color-coded chips, connection badges,
+  // real-time filter, and an "unlinked notes" section.
+  const notes = (db.notes || []).filter(n => !n.deletedAt && n.type !== 'page');
+
+  // Project colour palette — cycled by project index
+  const PROJECT_COLORS = ['#4ea1ff','#6ecb6e','#f0a14e','#c97dd4','#f06e6e','#4ec9c0','#e8d96e'];
+  const projectColorMap = {};
+  (db.projects || []).forEach((p, i) => { projectColorMap[p.id] = PROJECT_COLORS[i % PROJECT_COLORS.length]; });
+
+  // Build inbound / outbound connection counts
+  const inboundCount  = {};
+  const outboundCount = {};
+  notes.forEach(n => { inboundCount[n.id] = 0; outboundCount[n.id] = 0; });
+  notes.forEach(n => {
     if (Array.isArray(n.links)) {
-      n.links.forEach(target => {
-        if (incomingCount[target] !== undefined) incomingCount[target]++;
+      n.links.forEach(tid => {
+        outboundCount[n.id] = (outboundCount[n.id] || 0) + 1;
+        if (inboundCount[tid] !== undefined) inboundCount[tid]++;
       });
     }
   });
-  // Determine root notes: those with no incoming links. If none found (cycle), treat
-  // all connected notes as potential roots and rely on visited set to avoid repeats.
-  const roots = connected.filter(n => incomingCount[n.id] === 0);
+
+  const connected = notes.filter(n =>
+    (Array.isArray(n.links) && n.links.length > 0) || inboundCount[n.id] > 0
+  );
+  const orphans = notes.filter(n =>
+    !(Array.isArray(n.links) && n.links.length > 0) && !inboundCount[n.id]
+  );
+  const totalLinks = notes.reduce((s, n) => s + (Array.isArray(n.links) ? n.links.length : 0), 0);
+
+  // Roots = connected notes with no incoming links
+  const roots = connected.filter(n => inboundCount[n.id] === 0);
   const visited = new Set();
-  function buildList(note, depth) {
-    // Avoid infinite recursion and deep nesting
+
+  function chipColor(note) {
+    return (note.projectId && projectColorMap[note.projectId]) ? projectColorMap[note.projectId] : 'var(--acc)';
+  }
+  function connCount(note) {
+    return (outboundCount[note.id] || 0) + (inboundCount[note.id] || 0);
+  }
+  function snippet(note) {
+    return (note.content || '').replace(/[#*`\[\]>]/g, '').trim().slice(0, 140) || '(no content)';
+  }
+
+  function buildNode(note, depth) {
     if (!note || visited.has(note.id) || depth > 20) return '';
     visited.add(note.id);
-    // Determine children from the note's links. Only include children that are in the
-    // connected set to avoid showing unrelated notes.
-    const children = Array.isArray(note.links) ? note.links.map(id => connected.find(m => m.id === id)).filter(Boolean) : [];
-    const childHtml = children.length
-      ? `<ul>${children.map(child => buildList(child, depth + 1)).join('')}</ul>`
+    const children = Array.isArray(note.links)
+      ? note.links.map(id => connected.find(m => m.id === id)).filter(Boolean)
+      : [];
+    const hasKids = children.length > 0;
+    const color    = chipColor(note);
+    const cnt      = connCount(note);
+    const badge    = cnt > 1 ? `<span class="map-badge">${cnt}</span>` : '';
+    const proj     = note.projectId ? (db.projects || []).find(p => p.id === note.projectId) : null;
+    const projTag  = proj ? `<span class="map-proj-tag" style="background:${color}22;color:${color};">${htmlesc(proj.name)}</span>` : '';
+    const toggle   = hasKids
+      ? `<button class="map-toggle map-toggle--open" data-target="mc-${note.id}" aria-label="collapse">▾</button>`
+      : `<span class="map-toggle-ph"></span>`;
+    const childHtml = hasKids
+      ? `<div id="mc-${note.id}" class="map-children-wrap"><ul class="mind-map">` +
+        children.map(c => buildNode(c, depth + 1)).join('') +
+        `</ul></div>`
       : '';
-    return `<li><a href="#" data-note="${note.id}">${htmlesc(note.title)}</a>${childHtml}</li>`;
+    return `<li class="map-li">
+      <div class="map-node">
+        ${toggle}
+        <a href="#" class="map-chip" data-note="${note.id}" style="--chip-color:${color}" title="${htmlesc(snippet(note))}">${htmlesc(note.title)}${badge}</a>
+        ${projTag}
+      </div>
+      ${childHtml}
+    </li>`;
   }
-  // Build HTML for the map. Use roots if available; otherwise fall back to all connected
-  // notes. Sorting by title improves predictability of ordering.
-  const sourceList = roots.length ? roots : connected;
-  sourceList.sort((a,b) => a.title.localeCompare(b.title));
-  const mapHtml = `<ul class="mind-map">${sourceList.map(n => {
-    if (visited.has(n.id)) return '';
-    return buildList(n, 0);
-  }).join('')}</ul>`;
-  content.innerHTML = `<div class="card"><h2>Note Map</h2>${mapHtml}</div>`;
-  // Bind click events on map links to open notes. Use event delegation for safety.
+
+  const sourceList = (roots.length ? roots : connected).slice().sort((a,b) => a.title.localeCompare(b.title));
+  const treeHtml = sourceList.map(n => visited.has(n.id) ? '' : buildNode(n, 0)).join('');
+
+  const orphanHtml = orphans.length ? `
+    <details class="map-orphans">
+      <summary>Unlinked notes <span class="map-badge map-badge--muted">${orphans.length}</span></summary>
+      <div class="map-orphan-grid">
+        ${orphans.slice().sort((a,b)=>a.title.localeCompare(b.title)).map(n => {
+          const color = chipColor(n);
+          return `<a href="#" class="map-chip" data-note="${n.id}" style="--chip-color:${color}" title="${htmlesc(snippet(n))}">${htmlesc(n.title)}</a>`;
+        }).join('')}
+      </div>
+    </details>` : '';
+
+  const emptyMsg = connected.length === 0 && orphans.length === 0
+    ? `<p class="muted" style="text-align:center;padding:40px 0">No notes yet. Open a note and use the 🔗 Link button to connect notes.</p>`
+    : '';
+
+  content.innerHTML = `
+    <div class="card map-card">
+      <div class="map-header">
+        <div>
+          <h2 style="margin:0 0 4px">Note Map</h2>
+          <span class="map-stat">${connected.length} connected · ${totalLinks} link${totalLinks !== 1 ? 's' : ''} · ${orphans.length} unlinked</span>
+        </div>
+        <input type="text" id="mapFilter" class="map-filter-input" placeholder="Filter notes…" autocomplete="off" />
+      </div>
+      ${emptyMsg}
+      ${treeHtml ? `<ul class="mind-map">${treeHtml}</ul>` : ''}
+      ${orphanHtml}
+    </div>`;
+
+  // Click to open note
   content.querySelectorAll('[data-note]').forEach(el => {
-    el.onclick = (e) => {
-      e.preventDefault();
-      const id = el.dataset.note;
-      openNote(id);
+    el.onclick = e => { e.preventDefault(); openNote(el.dataset.note); };
+  });
+
+  // Expand / collapse toggle
+  content.querySelectorAll('.map-toggle').forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      const wrap = document.getElementById(btn.dataset.target);
+      if (!wrap) return;
+      const open = btn.classList.contains('map-toggle--open');
+      wrap.style.display = open ? 'none' : '';
+      btn.textContent   = open ? '▸' : '▾';
+      btn.classList.toggle('map-toggle--open', !open);
     };
   });
+
+  // Real-time filter
+  const filterInput = document.getElementById('mapFilter');
+  if (filterInput) {
+    filterInput.oninput = () => {
+      const q = filterInput.value.trim().toLowerCase();
+      const allLi = content.querySelectorAll('.map-li');
+      if (!q) {
+        allLi.forEach(li => li.style.display = '');
+        content.querySelectorAll('.map-children-wrap').forEach(w => w.style.display = '');
+        return;
+      }
+      allLi.forEach(li => li.style.display = 'none');
+      content.querySelectorAll('[data-note]').forEach(el => {
+        const note = (db.notes || []).find(n => n.id === el.dataset.note);
+        if (!note) return;
+        if ((note.title + ' ' + (note.content || '')).toLowerCase().includes(q)) {
+          let li = el.closest('.map-li');
+          while (li) {
+            li.style.display = '';
+            const wrap = li.parentElement?.closest('.map-children-wrap');
+            if (wrap) wrap.style.display = '';
+            li = li.parentElement?.closest('.map-li');
+          }
+        }
+      });
+    };
+  }
 }
 
 // --- Assistant view ---
