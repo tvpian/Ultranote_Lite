@@ -734,9 +734,54 @@ let currentProjectId = null; // NEW: selected project
 let currentNotebookId = null; // which notebook is open
 let currentPageId = null;     // which page is open within a notebook
 
+// --- Navigation history stack ---
+// Each entry stores the full view state so Back restores exactly where you were.
+window._navHistory  = window._navHistory  || [];
+window._navPopping  = false;  // true while restoring – suppresses re-push
+
+function _navSnapshot() {
+  return {
+    route,
+    projectId:  currentProjectId,
+    notebookId: currentNotebookId,
+    pageId:     currentPageId,
+    dailyDate:  selectedDailyDate,
+    noteId:     window._openNoteId || null,
+  };
+}
+function _navPush() {
+  if (window._navPopping) return;
+  window._navHistory.push(_navSnapshot());
+  if (window._navHistory.length > 80) window._navHistory.shift(); // cap memory
+}
+function _navPop() {
+  if (!window._navHistory || !window._navHistory.length) {
+    // Nothing in history — fall back to today
+    route = 'today'; render(); return;
+  }
+  const st = window._navHistory.pop();
+  window._navPopping = true;
+  route              = st.route;
+  currentProjectId   = st.projectId;
+  currentNotebookId  = st.notebookId;
+  currentPageId      = st.pageId;
+  selectedDailyDate  = st.dailyDate || selectedDailyDate;
+  window._openNoteId = st.noteId;
+  if (st.noteId) {
+    // Was looking at a note editor — reopen it without pushing again
+    openNote(st.noteId);
+  } else if (st.route === 'notebooks' && st.notebookId) {
+    renderNotebookDetail(st.notebookId);
+  } else {
+    render();
+  }
+  window._navPopping = false;
+}
+// --- End navigation history ---
+
 function renderNav(){
   nav.innerHTML = sections.map(s => `<button data-route="${s.id}" class="${route===s.id?'active':''}">${s.label}</button>`).join("");
-  nav.querySelectorAll("button").forEach(b=> b.onclick = ()=>{ route=b.dataset.route; if(route==='today') selectedDailyDate = todayKey(); render(); });
+  nav.querySelectorAll("button").forEach(b=> b.onclick = ()=>{ _navPush(); route=b.dataset.route; if(route==='today') selectedDailyDate = todayKey(); render(); });
 }
 
 function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
@@ -1002,7 +1047,7 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
     const el = document.getElementById(id);
     if(el) el.addEventListener('keydown', draftKeyHandler);
   });
-  document.getElementById('draftCancel').onclick = ()=>{ if(projectId){ route='projects'; render(); } else { route='vault'; render(); } };
+  document.getElementById('draftCancel').onclick = ()=> _navPop();
   const addSketchBtn = document.getElementById('draftAddSketch');
   if(typeof openSketchModal==='function') addSketchBtn.onclick = ()=>{
     // Insert sketch at caret later; for draft we reuse existing sketch logic by temporarily creating an off-screen note? Simplest: open modal and after insert we append to textarea.
@@ -3253,7 +3298,7 @@ function renderVault(){
   // NEW event bindings for links / projects
   content.querySelectorAll('[data-open-link]').forEach(b=> b.onclick=()=> window.open(b.dataset.openLink,'_blank'));
   content.querySelectorAll('[data-pin-link]').forEach(b=> b.onclick=()=>{ const l=db.links.find(x=>x.id===b.dataset.pinLink); if(l){ l.pinned=!l.pinned; save(); renderVault(); }});
-  content.querySelectorAll('[data-open-project]').forEach(b=> b.onclick=()=>{ currentProjectId=b.dataset.openProject; route='projects'; render(); });
+  content.querySelectorAll('[data-open-project]').forEach(b=> b.onclick=()=>{ _navPush(); currentProjectId=b.dataset.openProject; route='projects'; render(); });
   document.getElementById('newNote').onclick = ()=> openDraftNote({});
   document.getElementById('sortAZ').onclick = ()=>{ document.getElementById('q').value=''; notes.sort((a,b)=> a.title.localeCompare(b.title)); renderVault(); };
   document.getElementById('sortRecent').onclick = ()=>{ document.getElementById('q').value=''; notes.sort((a,b)=> b.updatedAt.localeCompare(a.updatedAt)); renderVault(); };
@@ -3302,7 +3347,7 @@ function renderNotebooks(){
     renderNotebookDetail(nb.id);
   };
   content.querySelectorAll('[data-open-nb]').forEach(el=>{
-    el.onclick=()=>{ currentNotebookId=el.dataset.openNb; renderNotebookDetail(el.dataset.openNb); };
+    el.onclick=()=>{ _navPush(); currentNotebookId=el.dataset.openNb; renderNotebookDetail(el.dataset.openNb); };
   });
   content.querySelectorAll('[data-rename-nb]').forEach(b=>b.onclick=async()=>{
     const nb=db.notebooks.find(x=>x.id===b.dataset.renameNb); if(!nb) return;
@@ -3363,7 +3408,7 @@ function renderNotebookDetail(nbId){
       </div>
     </div>`;
 
-  document.getElementById('backToNbs').onclick=()=>{ currentPageId=null; renderNotebooks(); };
+  document.getElementById('backToNbs').onclick=()=>_navPop();
   document.getElementById('newPage').onclick=async()=>{
     const title=await showPrompt('Page title:','New Page');
     if(!title||!title.trim()) return;
@@ -3631,6 +3676,8 @@ function openNote(id){
     route='review'; render();
     return;
   }
+  // Push navigation state BEFORE switching to the note editor so Back returns here.
+  _navPush();
   // Record which note is open and reset dirty flag when opening.
   window._openNoteId = n.id;
   window._editorDirty = false;
@@ -3703,12 +3750,7 @@ function openNote(id){
     // Mark the note as no longer dirty once it has been saved.
     window._editorDirty = false;
   };
-  document.getElementById('back').onclick = ()=>{
-    if(n.type==='daily'){ route='today'; render(); }
-    else if(n.projectId){ route='projects'; render(); }
-    else if(n.type==='idea'){ route='ideas'; render(); }
-    else { route='vault'; render(); }
-  };
+  document.getElementById('back').onclick = ()=> _navPop();
   document.getElementById('duplicate').onclick = ()=>{
     const copy = createNote({
       title: document.getElementById('title').value + ' (Copy)',
