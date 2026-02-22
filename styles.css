@@ -2216,6 +2216,18 @@ input[type="date"] {
 .nb-card:hover {
   opacity: 0.85;
 }
+
+/* Mood button active state — higher specificity than .btn to guarantee override */
+button.btn.mood-btn--active {
+  background: var(--acc) !important;
+  border-color: var(--acc) !important;
+  color: #fff !important;
+  transform: scale(1.15);
+  box-shadow: 0 0 0 2px var(--acc);
+}
+.mood-btn {
+  transition: transform 0.12s, box-shadow 0.12s;
+}
 .nb-toc-item.nb-drag-over {
   border-color: var(--acc) !important;
   box-shadow: 0 0 0 2px var(--acc);

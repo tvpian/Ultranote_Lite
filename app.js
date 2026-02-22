@@ -1171,10 +1171,15 @@ function renderToday(){
             <div class='muted' style='font-size:11px;margin-top:2px;'>${key===todayKey()?'Today — '+new Date().toDateString():new Date(key+'T00:00:00').toDateString()}</div>
           </div>
           <div class='row' style='gap:4px;' id='moodRow'>
-            ${[['😊','Great'],['🙂','Good'],['😐','Okay'],['😔','Tired'],['😤','Stressed']].map(([m,lbl])=>`<button class='btn mood-btn' data-mood='${m}'
-              style='font-size:16px;padding:3px 6px;'
+            ${[['😊','Great'],['🙂','Good'],['😐','Okay'],['😔','Tired'],['😤','Stressed']].map(([m,lbl])=>`<button class='btn mood-btn' data-mood='${m}' data-label='${lbl}'
+              style='font-size:18px;padding:4px 8px;'
               title='${lbl}'>${m}</button>`).join('')}
           </div>
+        </div>
+        <div style='margin-top:4px;min-height:18px;'>
+          <span id='moodLabel' style='font-size:12px;color:var(--acc);font-weight:600;'>
+            ${daily.mood ? `Feeling: ${daily.mood} ${({'😊':'Great','🙂':'Good','😐':'Okay','😔':'Tired','😤':'Stressed'})[daily.mood]||''}` : ''}
+          </span>
         </div>
         <div style='display:flex;justify-content:space-between;align-items:center;margin-top:6px;flex-wrap:wrap;gap:4px;'>
           <span class='muted' style='font-size:11px;'><span id='journalWc'>0</span> words</span>
@@ -1246,15 +1251,16 @@ function renderToday(){
     const s=journalSaveStatusEl(); if(s){ s.textContent='Saved ✓'; setTimeout(()=>{ const ss=journalSaveStatusEl(); if(ss) ss.textContent=''; },2000); }
   };
   if(journalSaveBtn) journalSaveBtn.onclick = saveJournal;
-  // Mood buttons — use a helper so active state is applied consistently
-  // whether set from initial load (daily.mood) or from a button click
+  // Mood buttons — toggle CSS class so active state is guaranteed visible
+  // regardless of CSS variable specificity fights with .btn rules
+  const MOOD_LABELS = {'😊':'Great','🙂':'Good','😐':'Okay','😔':'Tired','😤':'Stressed'};
   const applyMoodView = (activeMood)=>{
     document.querySelectorAll('.mood-btn').forEach(x=>{
-      const isActive = x.dataset.mood === activeMood;
-      x.style.setProperty('border-color', isActive ? 'var(--acc)' : 'var(--btn-border)');
-      x.style.setProperty('background',   isActive ? 'var(--acc)' : 'var(--btn-bg)');
-      x.style.setProperty('color',        isActive ? '#fff'        : 'var(--fg)');
+      if(x.dataset.mood === activeMood) x.classList.add('mood-btn--active');
+      else x.classList.remove('mood-btn--active');
     });
+    const lbl = document.getElementById('moodLabel');
+    if(lbl) lbl.textContent = activeMood ? `Feeling: ${activeMood} ${MOOD_LABELS[activeMood]||''}` : '';
   };
   // Apply saved mood immediately on render
   applyMoodView(daily.mood || '');
@@ -1262,8 +1268,11 @@ function renderToday(){
   document.querySelectorAll('.mood-btn').forEach(b=>{
     b.onclick=()=>{
       const newMood = b.dataset.mood;
-      updateNote(daily.id, {mood: newMood});
-      applyMoodView(newMood);
+      // Allow un-selecting the same mood
+      const next = (daily.mood === newMood) ? '' : newMood;
+      daily.mood = next; // update closure reference immediately
+      updateNote(daily.id, {mood: next});
+      applyMoodView(next);
     };
   });
   // Timestamp stamp button
