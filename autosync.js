@@ -34,7 +34,7 @@
       console.log('⚠️ Auto-sync: Invalid remote data or no local db');
       return;
     }
-    const ARR = ['notes','tasks','projects','templates','links','monthly','notebooks'];
+    const ARR = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
     let changed=false;
     ARR.forEach(k=>{
       const localA = Array.isArray(db[k])? db[k]:[];

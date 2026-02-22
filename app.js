@@ -354,6 +354,7 @@ function migrateDB() {
 
   // Bump schema version
   if ((db.version || 1) < 2) { db.version = 2; dirty = true; }
+  if (!Array.isArray(db.activity)) { db.activity = []; dirty = true; }
   if (dirty) { persistDB(); console.log('⚙️  migrateDB: schema patched and saved'); }
 }
 // ---------------------------------------------------------------------------
@@ -377,6 +378,7 @@ async function initApp(){
     if(!db[k]) db[k] = Array.isArray(seed[k]) ? [] : {};
   });
   if(!db.notebooks) db.notebooks = [];
+  if(!db.activity)  db.activity  = [];
   // Migrate all entities to the canonical schema (adds any missing fields).
   migrateDB();
   // Ensure theme setting exists (default to dark)
@@ -475,14 +477,29 @@ async function initApp(){
 function createNote({title, content="", tags=[], projectId=null, dateIndex=null, type="note", pinned=false}){
   // Initialize each note with an empty links array so related notes can be stored
   const n = { id:uid(), title, content, tags, projectId, dateIndex, type, pinned, createdAt:nowISO(), updatedAt:nowISO(), attachments: [], links: [] };
-  db.notes.push(n); save(); return n;
+  db.notes.push(n);
+  logActivity('note:create', 'note', n.id, { title, type, projectId });
+  save(); return n;
 }
-function updateNote(id, patch){ const n=db.notes.find(x=>x.id===id); if(!n) return; Object.assign(n, patch, {updatedAt:nowISO()}); save(); return n; }
+function updateNote(id, patch){
+  const n=db.notes.find(x=>x.id===id); if(!n) return;
+  Object.assign(n, patch, {updatedAt:nowISO()});
+  // Only log explicit content/title saves, not internal field patches (e.g. mood)
+  if (patch.content !== undefined || patch.title !== undefined) {
+    logActivity('note:save', 'note', id, { title: n.title, type: n.type });
+  }
+  if (patch.mood !== undefined && patch.mood) {
+    logActivity('mood:set', 'note', id, { mood: patch.mood, date: n.dateIndex });
+  }
+  save(); return n;
+}
 function createTask({title, due=null, noteId=null, projectId=null, priority="medium", description="", subtasks=[], tags=[]}){
   // Canonical task schema — all fields present so agent queries are unambiguous.
   const t = { id: uid(), title, status: "TODO", due, noteId, projectId, priority,
                description, subtasks, tags, createdAt: nowISO(), updatedAt: nowISO(),
                completedAt: null, deletedAt: null };
+  db.tasks.push(t);
+  logActivity('task:create', 'task', t.id, { title, projectId, priority, due });
   db.tasks.push(t);
   // When creating a project task, update the Today page counter if present. This must occur
   // before returning so the counter updates immediately on task creation. Note: checking
@@ -499,6 +516,8 @@ function setTaskStatus(id, status){
   t.status = status;
   t.completedAt = status === 'DONE' ? nowISO() : null;
   t.updatedAt = nowISO();
+  if (status === 'DONE') logActivity('task:done', 'task', t.id, { title: t.title, projectId: t.projectId });
+  else if (status === 'TODO') logActivity('task:reopen', 'task', t.id, { title: t.title });
   save();
   // If a project task status changes, update the Today page project tasks button count
   const ptBtn = document.getElementById('showProjectTasks');
@@ -744,6 +763,25 @@ function extractTags(text){ return (text.match(/#[\w-]+/g) || []).map(tag => tag
 function createLink({title,url,tags=[],pinned=false,status="NEW",description=''}){ const l={id:uid(), title, url, description, tags, pinned, status, createdAt:nowISO(), updatedAt:nowISO()}; db.links.push(l); save(); return l; }
 function updateLink(id, patch){ const l=db.links.find(x=>x.id===id); if(!l) return; Object.assign(l, patch, {updatedAt:nowISO()}); save(); return l; }
 function deleteLink(id){ db.links = db.links.filter(l=> l.id!==id); save(); }
+
+// ---------------------------------------------------------------------------
+// logActivity — append a structured event to db.activity[]. Called by the
+// app on meaningful user actions so an LLM agent can reconstruct work history.
+// Each entry: { id, ts, type, entityType, entityId, detail }
+// ---------------------------------------------------------------------------
+function logActivity(type, entityType, entityId, detail) {
+  if (!Array.isArray(db.activity)) db.activity = [];
+  db.activity.push({
+    id: 'act_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    ts:         nowISO(),
+    type:       type,
+    entityType: entityType || null,
+    entityId:   entityId   || null,
+    detail:     detail     || null,
+  });
+  // Cap at 2000 entries — oldest are pruned automatically
+  if (db.activity.length > 2000) db.activity = db.activity.slice(-2000);
+}
 
 // --- Markdown toolbar helpers ---
 // Ordered list of actions for the compact formatting toolbar shown in note/page editors.
@@ -1430,7 +1468,8 @@ function renderToday(){
       const newMood = b.dataset.mood;
       // Allow un-selecting the same mood
       const next = (daily.mood === newMood) ? '' : newMood;
-      daily.mood = next; // update closure reference immediately
+      daily.mood = next;
+      if (next) logActivity('mood:set', 'note', daily.id, { mood: next, date: daily.dateIndex });
       updateNote(daily.id, {mood: next});
       applyMoodView(next);
     };

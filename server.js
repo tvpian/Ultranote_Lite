@@ -238,7 +238,10 @@ function readData() {
   try {
     if (!fs.existsSync(DATA_FILE)) return null;
     const txt = fs.readFileSync(DATA_FILE, 'utf8');
-    return JSON.parse(txt);
+    const data = JSON.parse(txt);
+    // Always guarantee the activity collection exists so agents can rely on it
+    if (!Array.isArray(data.activity)) data.activity = [];
+    return data;
   } catch (e) {
     console.error('Read error', e);
     return null;
@@ -269,6 +272,196 @@ app.post('/api/db', (req, res) => {
   if (!writeData(body)) return res.status(500).json({ error: 'Persist failed' });
   res.json({ ok: true });
 });
+
+// ── Agent-friendly query endpoints ─────────────────────────────────────────
+// These allow an LLM agent to fetch targeted slices of the database instead
+// of loading the entire blob into its context window.
+
+/**
+ * GET /api/search?q=<text>[&collection=notes|tasks|links|all][&limit=N]
+ * Full-text search across title, content, description fields.
+ * Returns { results: [ {collection, ...record} ] }
+ */
+app.get('/api/search', (req, res) => {
+  const data = readData();
+  if (!data) return res.status(500).json({ error: 'DB unavailable' });
+  const q     = (req.query.q || '').toLowerCase().trim();
+  const col   = (req.query.collection || 'all').toLowerCase();
+  const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
+  if (!q) return res.json({ results: [] });
+
+  const results = [];
+  const search = (collection, items, fields) => {
+    if (col !== 'all' && col !== collection) return;
+    (items || []).filter(item => !item.deletedAt).forEach(item => {
+      const haystack = fields.map(f => (item[f] || '')).join(' ').toLowerCase();
+      if (haystack.includes(q)) results.push({ collection, ...item });
+    });
+  };
+
+  search('notes',     data.notes,     ['title', 'content', 'tags']);
+  search('tasks',     data.tasks,     ['title', 'description']);
+  search('links',     data.links,     ['title', 'url', 'description', 'tags']);
+  search('projects',  data.projects,  ['name', 'description', 'tags']);
+  search('templates', data.templates, ['name', 'content', 'description']);
+  search('notebooks', data.notebooks, ['title', 'description']);
+
+  res.json({ q, total: results.length, results: results.slice(0, limit) });
+});
+
+/**
+ * GET /api/query?collection=<name>[&field=value...][&since=ISO][&limit=N][&sort=updatedAt|createdAt]
+ * Filtered fetch from a single collection. All query-string params except
+ * collection/limit/since/sort are treated as field=value filters.
+ * Example: /api/query?collection=tasks&status=TODO&projectId=p1&limit=20
+ */
+app.get('/api/query', (req, res) => {
+  const data = readData();
+  if (!data) return res.status(500).json({ error: 'DB unavailable' });
+  const { collection, limit: limitStr, since, sort, ...filters } = req.query;
+  const limit = Math.min(parseInt(limitStr || '100', 10), 500);
+  const sortKey = sort || 'updatedAt';
+
+  const COLLECTIONS = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
+  if (!collection || !COLLECTIONS.includes(collection)) {
+    return res.status(400).json({ error: `collection must be one of: ${COLLECTIONS.join(', ')}` });
+  }
+
+  let items = Array.isArray(data[collection]) ? data[collection] : [];
+
+  // Exclude soft-deleted items unless explicitly requested
+  if (!filters.includeDeleted) items = items.filter(i => !i.deletedAt);
+  delete filters.includeDeleted;
+
+  // Date range filter
+  if (since) {
+    const ts = Date.parse(since);
+    if (!isNaN(ts)) items = items.filter(i => Date.parse(i.updatedAt || i.createdAt || 0) >= ts);
+  }
+
+  // Arbitrary field filters (all must match)
+  Object.entries(filters).forEach(([key, val]) => {
+    items = items.filter(i => {
+      const v = i[key];
+      if (Array.isArray(v)) return v.map(String).includes(val);
+      return String(v) === String(val);
+    });
+  });
+
+  // Sort
+  items = items.slice().sort((a, b) =>
+    (b[sortKey] || b.createdAt || '').localeCompare(a[sortKey] || a.createdAt || '')
+  );
+
+  res.json({ collection, total: items.length, results: items.slice(0, limit) });
+});
+
+/**
+ * GET /api/context
+ * Returns a curated, compact summary of the entire workspace — designed to
+ * be pasted as system-context into an LLM prompt without blowing the context
+ * window.  Full note content is NOT included; only structural metadata.
+ */
+app.get('/api/context', (req, res) => {
+  const data = readData();
+  if (!data) return res.status(500).json({ error: 'DB unavailable' });
+
+  const liveNotes  = (data.notes    || []).filter(n => !n.deletedAt);
+  const liveTasks  = (data.tasks    || []).filter(t => !t.deletedAt);
+  const liveLinks  = (data.links    || []);
+  const projects   = (data.projects || []).filter(p => !p.archivedAt);
+  const notebooks  = (data.notebooks|| []).filter(nb => !nb.archivedAt);
+  const monthly    = (data.monthly  || []);
+
+  // Recent activity (last 20 events)
+  const recentActivity = (data.activity || [])
+    .slice().sort((a,b) => (b.ts||'').localeCompare(a.ts||''))
+    .slice(0, 20);
+
+  // Recent daily journal entries (last 7)
+  const recentDailies = liveNotes
+    .filter(n => n.type === 'daily' && n.dateIndex)
+    .sort((a, b) => b.dateIndex.localeCompare(a.dateIndex))
+    .slice(0, 7)
+    .map(n => ({ id: n.id, date: n.dateIndex, mood: n.mood || null,
+                 journal: (n.journal || '').slice(0, 300),
+                 tags: n.tags }));
+
+  const context = {
+    generatedAt: new Date().toISOString(),
+    version: data.version,
+    counts: {
+      notes:     liveNotes.filter(n => n.type === 'note').length,
+      ideas:     liveNotes.filter(n => n.type === 'idea').length,
+      dailies:   liveNotes.filter(n => n.type === 'daily').length,
+      pages:     liveNotes.filter(n => n.type === 'page').length,
+      tasks:     liveTasks.length,
+      openTasks: liveTasks.filter(t => t.status === 'TODO').length,
+      doneTasks: liveTasks.filter(t => t.status === 'DONE').length,
+      projects:  projects.length,
+      links:     liveLinks.length,
+      notebooks: notebooks.length,
+    },
+    projects: projects.map(p => ({
+      id: p.id, name: p.name, description: p.description || '',
+      tags: p.tags || [],
+      openTasks: liveTasks.filter(t => t.projectId === p.id && t.status === 'TODO').length,
+    })),
+    notebooks: notebooks.map(nb => ({
+      id: nb.id, title: nb.title,
+      pageCount: liveNotes.filter(n => n.notebookId === nb.id).length,
+      tags: nb.tags || [],
+    })),
+    noteTitles: liveNotes
+      .filter(n => n.type === 'note' || n.type === 'idea')
+      .sort((a,b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, 100)
+      .map(n => ({ id: n.id, title: n.title, type: n.type, tags: n.tags,
+                   projectId: n.projectId, updatedAt: n.updatedAt })),
+    openTasks: liveTasks
+      .filter(t => t.status === 'TODO')
+      .sort((a,b) => (a.due||'z').localeCompare(b.due||'z'))
+      .slice(0, 50)
+      .map(t => ({ id: t.id, title: t.title, due: t.due, priority: t.priority,
+                   projectId: t.projectId, tags: t.tags })),
+    recentDailies,
+    recentActivity,
+    allTags: [...new Set(
+      liveNotes.flatMap(n => n.tags || [])
+        .concat(liveTasks.flatMap(t => t.tags || []))
+        .concat(liveLinks.flatMap(l => l.tags || []))
+    )].sort(),
+  };
+
+  res.json(context);
+});
+
+/**
+ * POST /api/activity  { type, entityType, entityId, detail }
+ * Append an activity log entry. Can be called by an external agent to record
+ * insight-generation or query events alongside user actions.
+ */
+app.post('/api/activity', (req, res) => {
+  const data = readData();
+  if (!data) return res.status(500).json({ error: 'DB unavailable' });
+  const { type, entityType, entityId, detail } = req.body || {};
+  if (!type) return res.status(400).json({ error: 'type is required' });
+  if (!Array.isArray(data.activity)) data.activity = [];
+  const entry = {
+    id: `act_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
+    ts: new Date().toISOString(),
+    type: String(type),
+    entityType: entityType || null,
+    entityId:   entityId   || null,
+    detail:     detail     || null,
+  };
+  data.activity.push(entry);
+  // Cap at 2000 entries to avoid unbounded growth
+  if (data.activity.length > 2000) data.activity = data.activity.slice(-2000);
+  writeData(data);
+  res.json({ ok: true, entry });
+});
+// ── End agent endpoints ─────────────────────────────────────────────────────
 
 // Serve static files after the auth middleware so unauthorized users cannot fetch them
 app.use(express.static(__dirname));
