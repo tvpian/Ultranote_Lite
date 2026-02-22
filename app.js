@@ -658,21 +658,20 @@ function insertMd(ta, before, after, ph){
   ta.focus();
   ta.dispatchEvent(new Event('input'));
 }
-function markdownToolbarHtml(){
+function markdownToolbarHtml(taId){
   return `<div class='md-toolbar' style='display:flex;flex-wrap:wrap;gap:2px;padding:4px 0;
       margin-bottom:5px;border-bottom:1px solid var(--btn-border);'>
-    ${MD_TOOLBAR_ACTIONS.map((a,i)=>`<button type='button' class='btn md-tb-btn' data-idx='${i}'
+    ${MD_TOOLBAR_ACTIONS.map((a,i)=>`<button type='button' class='btn md-tb-btn' data-ta='${taId}' data-idx='${i}'
       title='${htmlesc(a.title)}' style='font-size:11px;padding:3px 7px;min-width:28px;'>${htmlesc(a.label)}</button>`).join('')}
   </div>`;
 }
 function bindMarkdownToolbar(textareaId){
-  const ta = document.getElementById(textareaId);
-  if(!ta) return;
-  document.querySelectorAll('.md-tb-btn').forEach(btn=>{
+  document.querySelectorAll(`.md-tb-btn[data-ta='${textareaId}']`).forEach(btn=>{
     btn.onclick = e=>{
       e.preventDefault();
+      const ta = document.getElementById(btn.dataset.ta);
       const a = MD_TOOLBAR_ACTIONS[+btn.dataset.idx];
-      if(a) insertMd(ta, a.before, a.after, a.ph);
+      if(a && ta) insertMd(ta, a.before, a.after, a.ph);
     };
   });
 }
@@ -1118,7 +1117,10 @@ function renderToday(){
       <div class="row" style="gap:8px;flex-wrap:wrap;">
         <input id="dailyTitle" type="text" value="${htmlesc(daily.title)}"/>
       </div>
-      <div style="margin-top:8px;"><textarea id="dailyContent">${htmlesc(daily.content)}</textarea></div>
+      <div style="margin-top:8px;">
+        ${markdownToolbarHtml('dailyContent')}
+        <textarea id="dailyContent">${htmlesc(daily.content)}</textarea>
+      </div>
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
         <button id="saveDaily" class="btn acc">Save</button>
         <select id="templateSelect" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
@@ -1160,8 +1162,31 @@ function renderToday(){
           <input id="quickCapture" type="text" placeholder="⌘/Ctrl+Shift+K for quick add" style="flex:1;min-width:0;" ${key!==todayKey()? 'disabled':''}/>
           <button id="captureBtn" class="btn" ${key!==todayKey()? 'disabled':''}>Add</button>
         </div>
-        <div class="muted" style="margin-top:12px;">Scratchpad</div>
-        <textarea id="scratch" placeholder="Temporary notes..."></textarea>
+        <hr style='margin:14px 0;border-color:var(--btn-border);'/>
+        <div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;'>
+          <strong style='font-size:13px;'>📓 Daily Journal</strong>
+          <div class='row' style='gap:4px;'>
+            ${[['😊','Great'],['🙂','Good'],['😐','Okay'],['😔','Tired'],['😤','Stressed']].map(([m,lbl])=>`<button class='btn mood-btn' data-mood='${m}'
+              style='font-size:16px;padding:3px 6px;border-color:${(daily.mood||'')===m?'var(--acc)':'var(--btn-border)'};background:${(daily.mood||'')===m?'var(--acc)':'var(--btn-bg)'};'
+              title='${lbl}'>${m}</button>`).join('')}
+          </div>
+        </div>
+        <div style='display:flex;justify-content:space-between;align-items:center;margin-top:6px;flex-wrap:wrap;gap:4px;'>
+          <span class='muted' style='font-size:11px;' id='journalMeta'>${key} &middot; <span id='journalWc'>0</span> words</span>
+          <div class='row' style='gap:4px;'>
+            <button class='btn' id='journalStamp' style='font-size:11px;padding:3px 8px;' ${key!==todayKey()?'disabled':''}>&#9200; Stamp time</button>
+            <button class='btn acc' id='journalSave' style='font-size:11px;padding:3px 8px;'>Save</button>
+          </div>
+        </div>
+        <div style='margin-top:6px;'>
+          ${markdownToolbarHtml('journalContent')}
+          <textarea id='journalContent' placeholder='Write here... use \'Stamp time\' to insert a timestamp for a new entry.'
+            style='min-height:180px;resize:vertical;width:100%;box-sizing:border-box;'>${htmlesc(daily.journal||'')}</textarea>
+        </div>
+        <div style='display:flex;justify-content:space-between;margin-top:4px;'>
+          <span class='muted' style='font-size:11px;' id='journalSaveStatus'></span>
+          <span class='muted' style='font-size:11px;'>Ctrl+S saves both note &amp; journal</span>
+        </div>
       </div>
     </div>`;
   $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); };
@@ -1192,6 +1217,52 @@ function renderToday(){
     }
     e.target.value = '';
   };
+  // --- Markdown toolbar for daily note content ---
+  bindMarkdownToolbar('dailyContent');
+
+  // --- Journal card wiring ---
+  const journalEl = document.getElementById('journalContent');
+  const journalSaveStatusEl = ()=>document.getElementById('journalSaveStatus');
+  const journalWcEl = ()=>document.getElementById('journalWc');
+  const updateJournalWc = ()=>{
+    const wc=(journalEl&&journalEl.value.trim())? journalEl.value.trim().split(/\s+/).filter(Boolean).length : 0;
+    const el=journalWcEl(); if(el) el.textContent=wc;
+  };
+  if(journalEl){
+    updateJournalWc();
+    journalEl.addEventListener('input', ()=>{ updateJournalWc(); const s=journalSaveStatusEl(); if(s) s.textContent='Unsaved…'; });
+    // Re-bind the toolbar to journalContent AFTER dailyContent was bound
+    bindMarkdownToolbar('journalContent');
+  }
+  const journalSaveBtn = document.getElementById('journalSave');
+  const saveJournal = ()=>{
+    if(!journalEl) return;
+    updateNote(daily.id, { journal: journalEl.value });
+    const s=journalSaveStatusEl(); if(s){ s.textContent='Saved ✓'; setTimeout(()=>{ const ss=journalSaveStatusEl(); if(ss) ss.textContent=''; },2000); }
+  };
+  if(journalSaveBtn) journalSaveBtn.onclick = saveJournal;
+  // Mood buttons
+  document.querySelectorAll('.mood-btn').forEach(b=>{
+    b.onclick=()=>{
+      updateNote(daily.id, {mood: b.dataset.mood});
+      document.querySelectorAll('.mood-btn').forEach(x=>{ x.style.borderColor='var(--btn-border)'; x.style.background='var(--btn-bg)'; });
+      b.style.borderColor='var(--acc)'; b.style.background='var(--acc)';
+    };
+  });
+  // Timestamp stamp button
+  const stampBtn = document.getElementById('journalStamp');
+  if(stampBtn && journalEl){
+    stampBtn.onclick=()=>{
+      const now=new Date();
+      const ts=`\n\n---\n**${now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}** — `;
+      const pos=journalEl.selectionEnd;
+      journalEl.setRangeText(ts, pos, pos, 'end');
+      journalEl.focus(); journalEl.dispatchEvent(new Event('input'));
+    };
+  }
+  // Auto-save journal on blur
+  if(journalEl) journalEl.addEventListener('blur', saveJournal);
+
   const taskInput = $("#taskTitle"); const quickCapture = $("#quickCapture");
   // Inline duplicate hint: fire on every keystroke in the task title input
   if(taskInput){
@@ -1421,9 +1492,12 @@ function renderToday(){
     const isCtrl = e.ctrlKey || e.metaKey;
     if (isCtrl && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       const btn = document.getElementById('saveDaily');
       if (btn) btn.click();
+      // Also trigger journal save if present
+      const jBtn = document.getElementById('journalSave');
+      if (jBtn) jBtn.click();
       return false;
     }
   };
@@ -3239,7 +3313,7 @@ function openPageInNotebook(pageId, nbId){
       <input id='pgTags' type='text' placeholder='Tags (e.g. #ml #ros2)'
              value='${(p.tags||[]).map(t=>'#'+t).join(' ')}'
              style='width:100%;margin-bottom:8px;font-size:13px;box-sizing:border-box;' />
-      ${markdownToolbarHtml()}
+      ${markdownToolbarHtml('pgContent')}
       <textarea id='pgContent' style='width:100%;min-height:320px;height:calc(100vh - 360px);
                 resize:vertical;box-sizing:border-box;'>${htmlesc(p.content||'')}</textarea>
       <div class='row' style='margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center;'>
@@ -3409,6 +3483,20 @@ function renderLinks(){
 
 // --- Note editor ---
 function openNote(id){
+  // Clear any competing keyboard handlers from other views before installing
+  // the note editor's own handler. Without this, navigating from Today or
+  // Notebooks to a note stacks multiple capture-phase Ctrl+S listeners and
+  // causes them to fight each other.
+  if(window._todayKeyHandler){
+    document.removeEventListener('keydown', window._todayKeyHandler, true);
+    window.removeEventListener('keydown', window._todayKeyHandler, true);
+    window._todayKeyHandler = null;
+  }
+  if(window._pgKeyHandler){
+    document.removeEventListener('keydown', window._pgKeyHandler, true);
+    document.removeEventListener('keydown', window._pgKeyHandler);
+    window._pgKeyHandler = null;
+  }
   const n = db.notes.find(x=>x.id===id);
   if(!n){
     // Note was deleted. Find any task referencing this id and clear the orphaned link.
@@ -3446,7 +3534,7 @@ function openNote(id){
         <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+V to toggle | Ctrl+S to save</span>
       </div>
       <div style="margin-top:8px;">
-        ${markdownToolbarHtml()}
+        ${markdownToolbarHtml('contentBox')}
         <textarea id="contentBox" style="min-height:300px;">${htmlesc(n.content||'')}</textarea>
         <div id="markdownPreview" class="markdown-preview" style="min-height:300px; display:none;"></div>
       </div>
@@ -3680,12 +3768,9 @@ function openNote(id){
     // Ctrl+S to save note
     if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
-      e.stopPropagation();
-      // Trigger the same save functionality as the save button
+      e.stopImmediatePropagation(); // prevent any other capture-phase listener from also firing
       const saveBtn = document.getElementById('save');
-      if(saveBtn) {
-        saveBtn.click();
-      }
+      if(saveBtn) saveBtn.click();
       return false;
     }
   };
