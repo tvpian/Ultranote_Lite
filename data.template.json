@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "settings": {
+    "rollover": true,
+    "seenTip": false,
+    "dailyTemplate": "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n",
+    "theme": "dark"
+  },
+  "notes": [],
+  "tasks": [],
+  "projects": [],
+  "templates": [],
+  "links": [],
+  "monthly": [],
+  "notebooks": [],
+  "activity": []
+}
