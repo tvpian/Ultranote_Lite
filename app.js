@@ -1274,7 +1274,8 @@ function syncMonthlyTasksToDaily(daily, dateKey){
     // "Roll Over Tasks" button on the Monthly page before they appear here.
     const seen = new Set();
     db.monthly.forEach(mt => {
-      // Skip tasks that belong to a different month
+      // Skip deleted or tasks that belong to a different month
+      if(mt.deletedAt) return;
       if(!mt.month || mt.month !== monthKey) return;
       const tDays = Array.isArray(mt.days) ? mt.days : [];
       // Empty days array means "every day"; otherwise check weekday
@@ -2223,7 +2224,7 @@ function renderReview(){
 
   // --- Habit streak grid ---
   const habitMonthKey = todayKey().slice(0, 7);
-  const habitEntries = (db.monthly || []).filter(m => m.month === habitMonthKey);
+  const habitEntries = (db.monthly || []).filter(m => !m.deletedAt && m.month === habitMonthKey);
   const habitTitles = [...new Set(habitEntries.map(m => m.title))];
   const _hToday = new Date();
   const _hYear = parseInt(habitMonthKey.split('-')[0]);
@@ -3080,8 +3081,8 @@ function renderMonthly(){
     const countEl = document.getElementById('monthlyTaskCount');
     if(!listEl) return;
     
-    // Filter tasks for current month (or tasks without explicit month)
-    const tasks = (db.monthly || []).filter(t => (!t.month || t.month === monthKey));
+    // Filter tasks for current month (or tasks without explicit month), excluding deleted
+    const tasks = (db.monthly || []).filter(t => !t.deletedAt && (!t.month || t.month === monthKey));
     
     // Update count
     if(countEl) {
@@ -3102,11 +3103,11 @@ function renderMonthly(){
     
     if(!tasks.length){
       // Check if any prior month has tasks — offer smart roll-over
-      const priorMonths = [...new Set((db.monthly || []).map(t => t.month).filter(Boolean))]
+      const priorMonths = [...new Set((db.monthly || []).filter(t => !t.deletedAt).map(t => t.month).filter(Boolean))]
         .filter(k => k < monthKey).sort();
       const lastPopulated = priorMonths.length ? priorMonths[priorMonths.length - 1] : null;
       if(lastPopulated) {
-        const lastCount = (db.monthly || []).filter(t => t.month === lastPopulated).length;
+        const lastCount = (db.monthly || []).filter(t => !t.deletedAt && t.month === lastPopulated).length;
         listEl.innerHTML = `
           <div style='text-align:center;padding:32px 16px;grid-column:1/-1;'>
             <div class='muted' style='margin-bottom:12px;'>No tasks for this month yet.</div>
@@ -3160,11 +3161,14 @@ function renderMonthly(){
         if(task) {
           // Use a more styled confirmation that matches app design
           showDeleteConfirmation(task.title, () => {
-            // Guard against autosync resurrection: mark id as hard-deleted so the
-            // merge loop won't re-add it from a stale server snapshot.
+            // Soft-delete: set deletedAt so the server-side merge honors the removal.
+            // Hard-deleting (filtering out) fails because the server re-adds the record
+            // when it merges with its own copy during POST /api/db.
+            task.deletedAt = nowISO();
+            task.updatedAt = nowISO();
+            // Also block same-session autosync resurrection
             window._hardDeletedIds.add(id);
-            db.monthly = db.monthly.filter(x => x.id !== id);
-            persistDB(); // immediate flush — no debounce, prevents sync resurrection
+            persistDB(); // immediate flush — no debounce
             drawMonthlyList();
           });
         }
@@ -3576,12 +3580,12 @@ function renderMonthly(){
       // Find the most recently populated month that is strictly before the current monthKey.
       // This handles gaps (e.g. last data was Oct 2025, current view is Feb 2026).
       const allMonthsWithTasks = [...new Set((db.monthly || [])
-        .map(t => t.month).filter(Boolean))]
+        .filter(t => !t.deletedAt).map(t => t.month).filter(Boolean))]
         .filter(k => k < monthKey)
         .sort();
       const prevKey = allMonthsWithTasks.length ? allMonthsWithTasks[allMonthsWithTasks.length - 1] : null;
-      // Find tasks from the most recent prior month
-      const prevTasks = prevKey ? (db.monthly || []).filter(t => t.month === prevKey) : [];
+      // Find tasks from the most recent prior month (exclude deleted)
+      const prevTasks = prevKey ? (db.monthly || []).filter(t => !t.deletedAt && t.month === prevKey) : [];
       if (!prevTasks.length) {
         showValidationModal('No Tasks to Roll Over', `No tasks found in any previous month. Add tasks to a prior month first, or navigate back to it.`);
         return;
