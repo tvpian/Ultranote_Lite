@@ -2997,10 +2997,6 @@ function renderMonthly(){
   const currentMonthKey = todayKey().slice(0,7);
   const isCurrentMonth = monthKey === currentMonthKey;
   
-  // Preserve input state if re-rendering
-  const preservedTitle = document.getElementById('monthlyTaskTitle')?.value || '';
-  const preservedDays = Array.from(document.querySelectorAll('.monthly-day-option input:checked') || []).map(cb => cb.value);
-  
   // Preserve view mode
   const preservedViewMode = localStorage.getItem('monthlyViewMode') || 'list';
   
@@ -3015,50 +3011,9 @@ function renderMonthly(){
         </div>
         <div class="muted" style="font-size:12px;">Tasks for daily pages</div>
       </div>
-      
-      <div style="margin-bottom:16px;">
-        <label for="monthlyTaskTitle" class="muted" style="display:block;margin-bottom:6px;">Task Name</label>
-        <input id="monthlyTaskTitle" type="text" 
-               placeholder="e.g., Review emails, Morning workout" 
-               value="${htmlesc(preservedTitle)}" 
-               style="margin-bottom:12px;" />
-
-        <div class="row" style="gap:8px;align-items:center;margin-bottom:12px;">
-          <button type="button" id="monthlyDetailsBtn" class="btn" style="font-size:12px;padding:5px 12px;">＋ Add description / subtasks</button>
-          <span id="monthlyDetailsIndicator" style="font-size:12px;color:var(--acc);display:${(_monthlyPendingSubs.length || _monthlyPendingDesc) ? 'inline' : 'none'};">Details added ✓</span>
-        </div>
-
-        <div class="row" style="gap:8px;margin-bottom:16px;">
-          <button id="monthlyAdd" class="btn acc">➕ Add Task</button>
-          <button id="monthlyClear" class="btn">Clear</button>
-          <button id="monthlyCopyPrev" class="btn" title="Copy tasks from previous month">Roll Over Tasks</button>
-        </div>
-        
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;">
-          <div>
-            <label for="monthlyTaskDays" class="muted" style="display:block;margin-bottom:6px;">Select Days</label>
-            <div class="monthly-days-grid">
-              <label class="monthly-day-option"><input type="checkbox" value="1" data-day="1"> Monday</label>
-              <label class="monthly-day-option"><input type="checkbox" value="2" data-day="2"> Tuesday</label>
-              <label class="monthly-day-option"><input type="checkbox" value="3" data-day="3"> Wednesday</label>
-              <label class="monthly-day-option"><input type="checkbox" value="4" data-day="4"> Thursday</label>
-              <label class="monthly-day-option"><input type="checkbox" value="5" data-day="5"> Friday</label>
-              <label class="monthly-day-option"><input type="checkbox" value="6" data-day="6"> Saturday</label>
-              <label class="monthly-day-option"><input type="checkbox" value="0" data-day="0"> Sunday</label>
-            </div>
-          </div>
-          
-          <div>
-            <div class="muted" style="margin-bottom:6px;">Quick Select</div>
-            <div style="display:flex;flex-direction:column;gap:4px;">
-              <button type="button" class="btn" data-days="1,2,3,4,5" style="font-size:12px;padding:6px 12px;text-align:left;">Weekdays (Mon-Fri)</button>
-              <button type="button" class="btn" data-days="0,6" style="font-size:12px;padding:6px 12px;text-align:left;">Weekends (Sat-Sun)</button>
-              <button type="button" class="btn" data-days="1,3,5" style="font-size:12px;padding:6px 12px;text-align:left;">MWF</button>
-              <button type="button" class="btn" data-days="2,4" style="font-size:12px;padding:6px 12px;text-align:left;">T/TH</button>
-              <button type="button" class="btn" data-days="0,1,2,3,4,5,6" style="font-size:12px;padding:6px 12px;text-align:left;">Daily</button>
-            </div>
-          </div>
-        </div>
+      <div class="row" style="gap:8px;">
+        <button id="monthlyNew" class="btn acc" style="flex:1;">＋ New Recurring Task</button>
+        <button id="monthlyCopyPrev" class="btn" title="Copy tasks from previous month">Roll Over Tasks</button>
       </div>
     </div>
 
@@ -3306,39 +3261,158 @@ function renderMonthly(){
     }, 100);
   }
 
-  // Restore selected days from preserved state
-  setTimeout(() => {
-    const dayCheckboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
-    if(dayCheckboxes.length && preservedDays.length) {
-      dayCheckboxes.forEach(cb => {
-        cb.checked = preservedDays.includes(cb.value);
-      });
-    }
-  }, 0);
+  // New monthly task creation modal
+  function openMonthlyCreateModal() {
+    let localDesc = '';
+    let localSubs = [];
 
-  // Quick select handlers for day buttons
-  function setupQuickSelect() {
-    document.querySelectorAll('[data-days]').forEach(btn => {
-      btn.onclick = () => {
-        const days = btn.dataset.days.split(',');
-        const checkboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
-        if(checkboxes.length) {
-          checkboxes.forEach(cb => {
-            cb.checked = days.includes(cb.value);
-          });
-          // Visual feedback
-          const originalBg = btn.style.background;
-          btn.style.background = 'var(--acc)';
-          btn.style.color = 'white';
-          setTimeout(() => {
-            btn.style.background = originalBg;
-            btn.style.color = '';
-          }, 300);
-        }
+    const DAYS_CFG = [
+      { label: 'Mon', value: '1' }, { label: 'Tue', value: '2' }, { label: 'Wed', value: '3' },
+      { label: 'Thu', value: '4' }, { label: 'Fri', value: '5' }, { label: 'Sat', value: '6' }, { label: 'Sun', value: '0' }
+    ];
+    const QUICK = [
+      { label: 'Daily',    days: ['1','2','3','4','5','6','0'] },
+      { label: 'Weekdays', days: ['1','2','3','4','5'] },
+      { label: 'Weekends', days: ['6','0'] },
+      { label: 'MWF',      days: ['1','3','5'] },
+      { label: 'T\u2013Th',  days: ['2','4'] }
+    ];
+
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;';
+
+    const syncSubs = () => {
+      modal.querySelectorAll('[data-cm-id]').forEach(row => {
+        const s = localSubs.find(x => x.id === row.dataset.cmId);
+        if(s) s.title = row.querySelector('.cm-stitle')?.value.trim() || '';
+      });
+    };
+
+    const renderSubsHtml = () => localSubs.map(s => `
+      <div class="row" data-cm-id="${s.id}" style="gap:6px;align-items:center;margin-bottom:6px;">
+        <input type="text" class="cm-stitle" value="${htmlesc(s.title)}" placeholder="Subtask title\u2026" style="flex:1;" />
+        <button class="btn" data-cm-remove="${s.id}" style="font-size:11px;padding:4px 8px;">\u2715</button>
+      </div>`).join('');
+
+    const buildInner = (savedTitle, savedDesc, checkedDays) => `
+      <div class="sketchInner" style="max-width:480px;width:100%;max-height:88vh;overflow-y:auto;padding:24px;">
+        <h3 style="margin-top:0;">New Recurring Task</h3>
+        <div class="list" style="gap:10px;">
+          <label>Task Name
+            <input id="cmTitle" type="text" placeholder="e.g. Morning Standup" autocomplete="off" value="${htmlesc(savedTitle||'')}" />
+          </label>
+          <div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:6px;">Repeat on</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+              ${DAYS_CFG.map(d => `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;">
+                <input type="checkbox" class="cm-day" value="${d.value}" ${(checkedDays||[]).includes(d.value)?'checked':''} />${d.label}
+              </label>`).join('')}
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:5px;">
+              ${QUICK.map(q => `<button type="button" class="btn cm-quick" data-days="${q.days.join(',')}" style="font-size:11px;padding:3px 8px;">${q.label}</button>`).join('')}
+            </div>
+          </div>
+          <label>Description
+            <textarea id="cmDesc" style="min-height:60px;resize:vertical;" placeholder="Optional notes\u2026">${htmlesc(savedDesc||'')}</textarea>
+          </label>
+          <div>
+            <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="font-size:13px;color:var(--muted);">Subtasks</span>
+              <button type="button" id="cmAddSub" class="btn" style="font-size:11px;padding:4px 9px;">+ Add</button>
+            </div>
+            <div id="cmSubList">${renderSubsHtml()}</div>
+          </div>
+        </div>
+        <div class="row" style="justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button id="cmSave" class="btn acc">Save</button>
+          <button id="cmCancel" class="btn">Cancel</button>
+        </div>
+      </div>`;
+
+    const close = () => { if(document.body.contains(modal)) document.body.removeChild(modal); };
+
+    const rerender = () => {
+      const savedTitle = modal.querySelector('#cmTitle')?.value || '';
+      const savedDesc  = modal.querySelector('#cmDesc')?.value || '';
+      const checkedDays = Array.from(modal.querySelectorAll('.cm-day:checked')).map(c => c.value);
+      syncSubs();
+      modal.innerHTML = buildInner(savedTitle, savedDesc, checkedDays);
+      bindModal();
+      const inputs = modal.querySelectorAll('.cm-stitle');
+      if(inputs.length) inputs[inputs.length - 1].focus();
+    };
+
+    const bindModal = () => {
+      modal.querySelector('#cmCancel').onclick = close;
+
+      modal.querySelectorAll('.cm-quick').forEach(btn => {
+        btn.onclick = () => {
+          const days = btn.dataset.days.split(',');
+          modal.querySelectorAll('.cm-day').forEach(cb => { cb.checked = days.includes(cb.value); });
+        };
+      });
+
+      modal.querySelector('#cmAddSub').onclick = () => {
+        syncSubs();
+        localSubs.push({ id: uid(), title: '' });
+        rerender();
       };
-    });
+
+      modal.querySelectorAll('[data-cm-remove]').forEach(btn => {
+        btn.onclick = () => {
+          syncSubs();
+          localSubs = localSubs.filter(s => s.id !== btn.dataset.cmRemove);
+          rerender();
+        };
+      });
+
+      modal.querySelector('#cmTitle').onkeydown = (e) => {
+        if(e.key === 'Enter') { e.preventDefault(); modal.querySelector('#cmSave')?.click(); }
+      };
+
+      modal.querySelector('#cmSave').onclick = () => {
+        const titleEl = modal.querySelector('#cmTitle');
+        const title = titleEl?.value.trim() || '';
+        if(!title) {
+          titleEl?.focus();
+          if(titleEl) { titleEl.style.outline = '2px solid #ff6b6b'; setTimeout(() => { titleEl.style.outline = ''; }, 2000); }
+          return;
+        }
+        const days = Array.from(modal.querySelectorAll('.cm-day:checked')).map(cb => parseInt(cb.value, 10)).filter(d => !isNaN(d));
+        if(!days.length) {
+          showValidationModal('Select Days Required', 'Please select at least one day of the week for this recurring task.');
+          return;
+        }
+        // Ghost-cleanup: soft-delete any existing non-deleted task with same title+month
+        (db.monthly || []).forEach(t => {
+          if(!t.deletedAt && t.month === monthKey && t.title.toLowerCase() === title.toLowerCase()) {
+            t.deletedAt = nowISO();
+            t.updatedAt = nowISO();
+            if(window._hardDeletedIds) window._hardDeletedIds.add(t.id);
+          }
+        });
+        syncSubs();
+        const description = modal.querySelector('#cmDesc')?.value.trim() || '';
+        const subtasks = localSubs.filter(s => s.title).map(s => ({ id: uid(), title: s.title, status: 'TODO' }));
+        db.monthly.push({ id: uid(), title, days, month: monthKey,
+          type: 'monthly_task', description, subtasks, tags: [],
+          createdAt: nowISO(), updatedAt: nowISO() });
+        close();
+        save();
+        drawMonthlyList();
+      };
+
+      modal.onclick = (e) => { if(e.target === modal) close(); };
+      const esc = (e) => { if(e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } };
+      document.addEventListener('keydown', esc);
+    };
+
+    modal.innerHTML = buildInner('', '', []);
+    document.body.appendChild(modal);
+    bindModal();
+    setTimeout(() => modal.querySelector('#cmTitle')?.focus(), 50);
   }
-  
+
   // View mode toggle handlers
   function setupViewToggle() {
     const gridBtn = document.getElementById('monthlyViewGrid');
@@ -3359,222 +3433,14 @@ function renderMonthly(){
     }
   }
 
-  // Popup modal for optional description + subtasks on new monthly task
-  function openDetailsModal() {
-    let localDesc = _monthlyPendingDesc;
-    let localSubs = _monthlyPendingSubs.map(s => ({ ...s }));
+  // Wire up the New Recurring Task button
+  const newTaskBtn = document.getElementById('monthlyNew');
+  if(newTaskBtn) newTaskBtn.onclick = openMonthlyCreateModal;
 
-    const modal = document.createElement('div');
-    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;';
 
-    const syncLocalSubs = () => {
-      modal.querySelectorAll('[data-lms-id]').forEach(row => {
-        const s = localSubs.find(x => x.id === row.dataset.lmsId);
-        if(s) s.title = row.querySelector('.lms-title')?.value.trim() || '';
-      });
-    };
-
-    const renderSubsHtml = () => localSubs.map(s => `
-      <div class="row" data-lms-id="${s.id}" style="gap:6px;align-items:center;margin-bottom:6px;">
-        <input type="text" class="lms-title" value="${htmlesc(s.title)}" placeholder="Subtask title…" style="flex:1;" />
-        <button class="btn" data-lms-remove="${s.id}" style="font-size:11px;padding:4px 8px;">✕</button>
-      </div>`).join('');
-
-    const buildInner = () => `
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:460px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,0.3);max-height:80vh;overflow-y:auto;">
-        <h3 style="margin:0 0 16px 0;color:var(--fg);font-size:16px;">Task Details <span style="font-weight:400;font-size:13px;color:var(--muted);">(optional)</span></h3>
-        <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted);">Description</label>
-        <textarea id="dtlDesc" placeholder="Notes, context or instructions for this recurring task…" style="margin-bottom:16px;min-height:72px;resize:vertical;width:100%;box-sizing:border-box;">${htmlesc(localDesc)}</textarea>
-        <div style="margin-bottom:16px;">
-          <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <label style="font-size:13px;color:var(--muted);">Subtasks <span style="font-weight:400;">(carried over each day)</span></label>
-            <button type="button" id="dtlAddSub" class="btn" style="font-size:11px;padding:4px 9px;">+ Add</button>
-          </div>
-          <div id="dtlSubList">${renderSubsHtml()}</div>
-        </div>
-        <div style="display:flex;gap:12px;justify-content:flex-end;">
-          <button id="dtlCancel" class="btn" style="padding:8px 16px;">Cancel</button>
-          <button id="dtlSave" class="btn acc" style="padding:8px 16px;">Save</button>
-        </div>
-      </div>`;
-
-    const rerender = () => { modal.innerHTML = buildInner(); bindModal(); };
-
-    const bindModal = () => {
-      modal.querySelector('#dtlAddSub').onclick = () => {
-        syncLocalSubs();
-        localSubs.push({ id: uid(), title: '' });
-        rerender();
-        const inputs = modal.querySelectorAll('.lms-title');
-        if(inputs.length) inputs[inputs.length - 1].focus();
-      };
-      modal.querySelectorAll('[data-lms-remove]').forEach(btn => {
-        btn.onclick = () => { syncLocalSubs(); localSubs = localSubs.filter(s => s.id !== btn.dataset.lmsRemove); rerender(); };
-      });
-      modal.querySelector('#dtlCancel').onclick = () => document.body.removeChild(modal);
-      modal.querySelector('#dtlSave').onclick = () => {
-        syncLocalSubs();
-        _monthlyPendingDesc = modal.querySelector('#dtlDesc')?.value.trim() || '';
-        _monthlyPendingSubs = localSubs.filter(s => s.title);
-        document.body.removeChild(modal);
-        const ind = document.getElementById('monthlyDetailsIndicator');
-        if(ind) ind.style.display = (_monthlyPendingSubs.length || _monthlyPendingDesc) ? 'inline' : 'none';
-      };
-      modal.onclick = (e) => { if(e.target === modal) document.body.removeChild(modal); };
-      const esc = (e) => { if(e.key === 'Escape') { document.body.removeChild(modal); document.removeEventListener('keydown', esc); } };
-      document.addEventListener('keydown', esc);
-    };
-
-    modal.innerHTML = buildInner();
-    document.body.appendChild(modal);
-    bindModal();
-    setTimeout(() => modal.querySelector('#dtlDesc')?.focus(), 50);
-  }
-
-  // Draw pending subtasks in the creation form
-  function drawPendingSubtasks() {
-    const container = document.getElementById('monthlySubtaskList');
-    if(!container) return;
-    container.innerHTML = _monthlyPendingSubs.map(sub => `
-      <div class="row" data-ms-id="${sub.id}" style="gap:6px;align-items:center;margin-bottom:4px;">
-        <input type="text" class="ms-title" value="${htmlesc(sub.title)}" placeholder="Subtask title…" style="flex:1;" />
-        <button class="btn" data-ms-remove="${sub.id}" style="font-size:11px;padding:4px 8px;">✕</button>
-      </div>`).join('');
-    container.querySelectorAll('[data-ms-remove]').forEach(btn => {
-      btn.onclick = () => {
-        // Sync titles before removal
-        container.querySelectorAll('[data-ms-id]').forEach(row => {
-          const s = _monthlyPendingSubs.find(x => x.id === row.dataset.msId);
-          if(s) s.title = row.querySelector('.ms-title').value.trim();
-        });
-        _monthlyPendingSubs = _monthlyPendingSubs.filter(s => s.id !== btn.dataset.msRemove);
-        drawPendingSubtasks();
-      };
-    });
-  }
-
-  // Add monthly task with improved validation and UX
-  function handleAddTask() {
-    const titleEl = document.getElementById('monthlyTaskTitle');
-    const title = titleEl ? titleEl.value.trim() : '';
-    
-    // Visual feedback for missing title
-    if(!title) {
-      titleEl?.focus();
-      // Visual feedback by temporarily changing border color
-      if(titleEl) {
-        const originalBorder = titleEl.style.borderColor;
-        titleEl.style.borderColor = '#ff6b6b';
-        setTimeout(() => {
-          titleEl.style.borderColor = originalBorder;
-        }, 2000);
-      }
-      return;
-    }
-
-    const checkboxes = document.querySelectorAll('.monthly-day-option input:checked');
-    const days = Array.from(checkboxes).map(cb => parseInt(cb.value, 10)).filter(d => !isNaN(d));
-    
-    if(!days.length){
-      // Visual feedback for missing days
-      const daysContainer = document.querySelector('.monthly-days-grid');
-      if(daysContainer) {
-        const originalBorder = daysContainer.style.borderColor;
-        daysContainer.style.borderColor = '#ff6b6b';
-        setTimeout(() => {
-          daysContainer.style.borderColor = originalBorder;
-        }, 2000);
-      }
-      showValidationModal('Select Days Required', 'Please select at least one day of the week for this recurring task.');
-      return;
-    }
-
-    // Check for duplicate task names within the current month
-    const exists = db.monthly.find(t => t.title.toLowerCase() === title.toLowerCase() && t.month === monthKey);
-    if(exists) {
-      showValidationModal('Duplicate Task', 'A task with this name already exists for this month. Please choose a different name.');
-      titleEl?.focus();
-      return;
-    }
-
-    const id = uid();
-    const subtasks = _monthlyPendingSubs.filter(s => s.title).map(s => ({ id: uid(), title: s.title, status: 'TODO' }));
-    const description = _monthlyPendingDesc || '';
-    // Store with the current month so tasks are month-scoped.
-    // They only roll over to the next month when the user clicks "Roll Over Tasks".
-    db.monthly.push({ id, title, days, month: monthKey,
-      type: 'monthly_task', description, subtasks, tags: [],
-      createdAt: nowISO(), updatedAt: nowISO() });
-
-    // Clear form
-    if(titleEl) titleEl.value = '';
-    _monthlyPendingDesc = '';
-    _monthlyPendingSubs = [];
-    const indicator = document.getElementById('monthlyDetailsIndicator');
-    if(indicator) indicator.style.display = 'none';
-    const allCheckboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
-    allCheckboxes.forEach(cb => cb.checked = false);
-    
-    // Visual feedback for successful addition
-    const addBtn = document.getElementById('monthlyAdd');
-    const originalText = addBtn?.innerHTML;
-    if(addBtn) {
-      addBtn.innerHTML = '✅ Added!';
-      addBtn.style.background = '#22c55e';
-      addBtn.style.borderColor = '#22c55e';
-      setTimeout(() => {
-        addBtn.innerHTML = originalText;
-        addBtn.style.background = '';
-        addBtn.style.borderColor = '';
-      }, 1500);
-    }
-    
-    save();
-    drawMonthlyList();
-    titleEl?.focus(); // Keep focus for easy addition of more tasks
-  }
-  // Event handlers with improved UX
-  const addBtn = document.getElementById('monthlyAdd');
-  const clearBtn = document.getElementById('monthlyClear');
-  const copyPrevBtn = document.getElementById('monthlyCopyPrev');
-  const titleInput = document.getElementById('monthlyTaskTitle');
-  
-  // Helper to track typing activity and prevent background sync interference
-  function setTypingState(isTyping) {
-    window._isTypingInForm = isTyping;
-    if(_typingTimer) clearTimeout(_typingTimer);
-    if(isTyping) {
-      // Clear the typing state after 3 seconds of inactivity
-      _typingTimer = setTimeout(() => {
-        window._isTypingInForm = false;
-      }, 3000);
-    }
-  }
-  
-  // Add task handler
-  if(addBtn) {
-    addBtn.onclick = handleAddTask;
-  }
-
-  // Wire up the optional details popup button
-  const detailsBtn = document.getElementById('monthlyDetailsBtn');
-  if(detailsBtn) detailsBtn.onclick = openDetailsModal;
-
-  // Clear form handler
-  if(clearBtn) {
-    clearBtn.onclick = () => {
-      if(titleInput) titleInput.value = '';
-      _monthlyPendingDesc = '';
-      _monthlyPendingSubs = [];
-      const clrIndicator = document.getElementById('monthlyDetailsIndicator');
-      if(clrIndicator) clrIndicator.style.display = 'none';
-      const checkboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
-      checkboxes.forEach(cb => cb.checked = false);
-      titleInput?.focus();
-    };
-  }
 
   // Copy tasks from previous month handler
+  const copyPrevBtn = document.getElementById('monthlyCopyPrev');
   if(copyPrevBtn) {
     copyPrevBtn.onclick = async () => {
       // Find the most recently populated month that is strictly before the current monthKey.
@@ -3613,33 +3479,6 @@ function renderMonthly(){
     };
   }
   
-  // Enter key to add task
-  if(titleInput) {
-    titleInput.onkeydown = (e) => {
-      if(e.key === 'Enter') {
-        e.preventDefault();
-        handleAddTask();
-      }
-    };
-    
-    // Track typing to prevent background sync interference
-    titleInput.oninput = () => {
-      setTypingState(true);
-    };
-    
-    titleInput.onfocus = () => setTypingState(true);
-    titleInput.onblur = () => setTypingState(false);
-  }
-  
-  // Track focus on days selection
-  const dayCheckboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
-  dayCheckboxes.forEach(cb => {
-    cb.onfocus = () => setTypingState(true);
-    cb.onblur = () => setTypingState(false);
-  });
-  
-  // Setup quick select buttons and view toggles
-  setupQuickSelect();
   setupViewToggle();
   
   // Month navigation handlers
