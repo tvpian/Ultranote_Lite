@@ -3160,8 +3160,11 @@ function renderMonthly(){
         if(task) {
           // Use a more styled confirmation that matches app design
           showDeleteConfirmation(task.title, () => {
+            // Guard against autosync resurrection: mark id as hard-deleted so the
+            // merge loop won't re-add it from a stale server snapshot.
+            window._hardDeletedIds.add(id);
             db.monthly = db.monthly.filter(x => x.id !== id);
-            save();
+            persistDB(); // immediate flush — no debounce, prevents sync resurrection
             drawMonthlyList();
           });
         }
