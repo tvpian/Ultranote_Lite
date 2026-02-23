@@ -2479,3 +2479,239 @@ select:focus {
   border-color: rgba(78,161,255,0.7);
   outline: none;
 }
+
+/* ==========================================================
+   VISUAL REFRESH — Phase 2: State-of-the-art upgrade
+   All additive overrides via cascade — zero layout changes.
+   ========================================================== */
+
+/* --- Inter font (Google Fonts CDN) --- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* --- Apply Inter everywhere + smarter bg --- */
+:root {
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+*, *::before, *::after {
+  font-family: var(--font) !important;
+}
+body {
+  background: radial-gradient(ellipse 90% 65% at 50% -10%,
+    rgba(30,55,100,0.18) 0%, transparent 70%),
+    var(--bg) !important;
+  background-attachment: fixed !important;
+}
+
+/* --- Brand name: gradient text --- */
+.title {
+  background: linear-gradient(135deg, #6eb5ff 0%, #4ea1ff 50%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  text-shadow: none; /* gradient text + text-shadow = invisible; use drop-filter instead */
+  filter: drop-shadow(0 0 18px rgba(78,161,255,0.4));
+}
+
+/* --- Header: sharper bottom border, better padding --- */
+header {
+  border-bottom: 1px solid rgba(78,161,255,0.12) !important;
+  padding: 12px 18px !important;
+}
+
+/* --- Sidebar/aside: glass surface --- */
+aside {
+  backdrop-filter: blur(20px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(160%) !important;
+  background: rgba(10,17,30,0.75) !important;
+  border: 1px solid rgba(255,255,255,0.055) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45),
+              inset 0 1px 0 rgba(255,255,255,0.06) !important;
+}
+
+/* --- Nav buttons: left-bar active indicator --- */
+nav button {
+  border-radius: 10px !important;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 9px 12px !important;
+}
+nav button.active {
+  background: rgba(78,161,255,0.1) !important;
+  border-color: transparent !important;
+  color: #8dc8ff !important;
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 #4ea1ff !important;
+}
+nav button:hover:not(.active) {
+  background: rgba(255,255,255,0.045) !important;
+  border-color: rgba(255,255,255,0.06) !important;
+}
+
+/* --- Cards: lifted glass look, edge highlight --- */
+.card {
+  border-radius: 18px !important;
+  border-color: rgba(255,255,255,0.055) !important;
+  background: linear-gradient(160deg,
+    rgba(20,30,48,0.95) 0%,
+    rgba(12,18,28,0.98) 100%) !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.5),
+              0 4px 16px rgba(0,0,0,0.35),
+              inset 0 1px 0 rgba(255,255,255,0.06) !important;
+  transition: box-shadow 0.25s ease, transform 0.2s ease,
+              border-color 0.2s ease !important;
+}
+.card:hover {
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5),
+              0 8px 28px rgba(0,0,0,0.45),
+              inset 0 1px 0 rgba(255,255,255,0.09) !important;
+  border-color: rgba(78,161,255,0.15) !important;
+  transform: translateY(-1px);
+}
+
+/* --- Buttons: surface gradient, sharper feel --- */
+.btn {
+  border-radius: 10px !important;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  background: linear-gradient(180deg,
+    rgba(30,48,72,0.8) 0%,
+    rgba(18,32,50,0.9) 100%) !important;
+  border-color: rgba(255,255,255,0.1) !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.4),
+              inset 0 1px 0 rgba(255,255,255,0.06) !important;
+  transition: all 0.15s ease !important;
+}
+.btn:hover:not(:disabled) {
+  background: linear-gradient(180deg,
+    rgba(40,60,88,0.9) 0%,
+    rgba(28,44,66,1) 100%) !important;
+  border-color: rgba(255,255,255,0.18) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.45),
+              inset 0 1px 0 rgba(255,255,255,0.09) !important;
+}
+.btn:active:not(:disabled) {
+  transform: translateY(0) !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.4),
+              inset 0 1px 0 rgba(255,255,255,0.04) !important;
+}
+/* Accent: vivid blue gradient */
+.btn.acc {
+  background: linear-gradient(135deg,
+    rgba(78,161,255,0.25) 0%,
+    rgba(60,130,220,0.15) 100%) !important;
+  border-color: rgba(78,161,255,0.7) !important;
+  color: #8dc8ff !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.4),
+              0 0 12px rgba(78,161,255,0.1),
+              inset 0 1px 0 rgba(255,255,255,0.08) !important;
+}
+.btn.acc:hover {
+  background: linear-gradient(135deg,
+    rgba(78,161,255,0.35) 0%,
+    rgba(60,130,220,0.22) 100%) !important;
+  border-color: #4ea1ff !important;
+  box-shadow: 0 2px 10px rgba(78,161,255,0.28),
+              inset 0 1px 0 rgba(255,255,255,0.12) !important;
+}
+
+/* --- Inputs: larger radius, premium feel --- */
+input[type="text"],
+input[type="date"],
+input[type="search"],
+textarea,
+select {
+  border-radius: 12px !important;
+  background: rgba(8,14,24,0.7) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  color: var(--fg) !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+input[type="text"]:focus,
+input[type="date"]:focus,
+input[type="search"]:focus,
+textarea:focus,
+select:focus {
+  border-color: rgba(78,161,255,0.6) !important;
+  box-shadow: 0 0 0 3px rgba(78,161,255,0.12),
+              inset 0 1px 3px rgba(0,0,0,0.2) !important;
+  background: rgba(10,18,30,0.85) !important;
+}
+
+/* --- Project buttons: match nav style --- */
+.projBtn {
+  border-radius: 10px !important;
+  font-size: 13px !important;
+}
+.projBtn.active {
+  background: rgba(78,161,255,0.1) !important;
+  border-color: transparent !important;
+  color: #8dc8ff !important;
+  box-shadow: inset 3px 0 0 #4ea1ff !important;
+  outline: none !important;
+}
+
+/* --- Pills: refined, semi-transparent --- */
+.pill {
+  border-radius: 6px !important;
+  background: rgba(78,161,255,0.08);
+  border-color: rgba(78,161,255,0.2) !important;
+  color: #8dc8ff !important;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px !important;
+}
+
+/* --- Scrollbar: thinner, accent thumb --- */
+::-webkit-scrollbar { width: 5px !important; height: 5px !important; }
+::-webkit-scrollbar-track { background: transparent !important; }
+::-webkit-scrollbar-thumb {
+  background: rgba(78,161,255,0.25) !important;
+  border-radius: 99px !important;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(78,161,255,0.5) !important;
+}
+
+/* --- Modals: elevated glass --- */
+#linkModal, #taskModal,
+.modal, [id$="Modal"] {
+  border-radius: 20px !important;
+  border-color: rgba(255,255,255,0.08) !important;
+  background: rgba(10,17,30,0.92) !important;
+  backdrop-filter: blur(24px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7),
+              inset 0 1px 0 rgba(255,255,255,0.08) !important;
+}
+
+/* --- Headings inside cards: tighter weight --- */
+.card h2, .card h3, .card h4 {
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+/* --- Muted text: slightly lighter --- */
+.muted { color: #6e8499 !important; font-size: 12px; }
+
+/* --- Danger button: vivid red tint --- */
+.btn.danger {
+  background: linear-gradient(135deg,
+    rgba(255,80,80,0.15) 0%,
+    rgba(200,50,50,0.08) 100%) !important;
+  border-color: rgba(255,100,100,0.5) !important;
+  color: #ff8585 !important;
+}
+.btn.danger:hover {
+  background: linear-gradient(135deg,
+    rgba(255,80,80,0.25) 0%,
+    rgba(200,50,50,0.15) 100%) !important;
+  border-color: #ff5555 !important;
+  box-shadow: 0 2px 10px rgba(255,60,60,0.2) !important;
+}
