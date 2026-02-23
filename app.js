@@ -1284,7 +1284,13 @@ function syncMonthlyTasksToDaily(daily, dateKey){
       seen.add(mt.title);
       const exists = db.tasks.some(t => t.noteId === daily.id && !t.deletedAt && t.title === mt.title);
       if(!exists){
-        createTask({ title: mt.title, noteId: daily.id, priority: 'medium' });
+        createTask({
+          title: mt.title, noteId: daily.id, priority: 'medium',
+          description: mt.description || '',
+          subtasks: Array.isArray(mt.subtasks) && mt.subtasks.length
+            ? mt.subtasks.map(s => ({ id: uid(), title: s.title, status: 'TODO' }))
+            : []
+        });
         changed = true;
       }
     });
@@ -2972,7 +2978,10 @@ function openTaskModal(taskId) {
 }
 
 // --- Monthly planning view ---
+// Pending subtasks for the monthly creation form; persists within a view session.
+let _monthlyPendingSubs = [];
 function renderMonthly(){
+  _monthlyPendingSubs = []; // reset on full re-render (month navigation)
   // Ensure the monthly collection exists
   if(!db.monthly) db.monthly = [];
   // Use the dedicated month selector, not selectedDailyDate, so that navigating
@@ -2986,6 +2995,7 @@ function renderMonthly(){
   
   // Preserve input state if re-rendering
   const preservedTitle = document.getElementById('monthlyTaskTitle')?.value || '';
+  const preservedDesc = document.getElementById('monthlyTaskDesc')?.value || '';
   const preservedDays = Array.from(document.querySelectorAll('.monthly-day-option input:checked') || []).map(cb => cb.value);
   
   // Preserve view mode
@@ -3009,7 +3019,18 @@ function renderMonthly(){
                placeholder="e.g., Review emails, Morning workout" 
                value="${htmlesc(preservedTitle)}" 
                style="margin-bottom:12px;" />
-        
+
+        <label for="monthlyTaskDesc" class="muted" style="display:block;margin-bottom:6px;">Description <span style="font-weight:400;">(optional)</span></label>
+        <textarea id="monthlyTaskDesc" placeholder="Notes, context or instructions for this recurring task…" style="margin-bottom:12px;min-height:58px;resize:vertical;">${htmlesc(preservedDesc)}</textarea>
+
+        <div style="margin-bottom:12px;">
+          <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <label class="muted">Subtasks <span style="font-weight:400;">(optional — carried over each day)</span></label>
+            <button type="button" id="monthlySubtaskAdd" class="btn" style="font-size:11px;padding:4px 9px;">+ Add Subtask</button>
+          </div>
+          <div id="monthlySubtaskList"></div>
+        </div>
+
         <div class="row" style="gap:8px;margin-bottom:16px;">
           <button id="monthlyAdd" class="btn acc">➕ Add Task</button>
           <button id="monthlyClear" class="btn">Clear</button>
@@ -3119,12 +3140,15 @@ function renderMonthly(){
                          dayCount === 3 && tDays.includes(1) && tDays.includes(3) && tDays.includes(5) ? 'MWF' :
                          (dayNames || 'No days set');
       
+      const descSnippet = t.description ? `<div class='muted' style='font-size:12px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>${htmlesc(t.description.slice(0,100))}${t.description.length > 100 ? '\u2026' : ''}</div>` : '';
+      const subBadge = Array.isArray(t.subtasks) && t.subtasks.length ? `<span class='pill' style='margin-left:6px;font-size:10px;'>${t.subtasks.length} subtask${t.subtasks.length !== 1 ? 's' : ''}</span>` : '';
       return `
         <div class='monthly-task-item'>
           <div class='monthly-task-header'>
-            <div class='monthly-task-title'>${htmlesc(t.title)}</div>
+            <div class='monthly-task-title'>${htmlesc(t.title)}${subBadge}</div>
             <button class='monthly-task-delete' data-del='${t.id}' title='Delete recurring task'>✕</button>
           </div>
+          ${descSnippet}
           <div class='monthly-task-schedule'>
             <span class='monthly-schedule-badge'>${htmlesc(daysSummary)}</span>
             <span class='muted'>${dayCount < 7 ? `${dayCount} day${dayCount !== 1 ? 's' : ''}/week` : 'Every day'}</span>
@@ -3332,6 +3356,28 @@ function renderMonthly(){
     }
   }
 
+  // Draw pending subtasks in the creation form
+  function drawPendingSubtasks() {
+    const container = document.getElementById('monthlySubtaskList');
+    if(!container) return;
+    container.innerHTML = _monthlyPendingSubs.map(sub => `
+      <div class="row" data-ms-id="${sub.id}" style="gap:6px;align-items:center;margin-bottom:4px;">
+        <input type="text" class="ms-title" value="${htmlesc(sub.title)}" placeholder="Subtask title…" style="flex:1;" />
+        <button class="btn" data-ms-remove="${sub.id}" style="font-size:11px;padding:4px 8px;">✕</button>
+      </div>`).join('');
+    container.querySelectorAll('[data-ms-remove]').forEach(btn => {
+      btn.onclick = () => {
+        // Sync titles before removal
+        container.querySelectorAll('[data-ms-id]').forEach(row => {
+          const s = _monthlyPendingSubs.find(x => x.id === row.dataset.msId);
+          if(s) s.title = row.querySelector('.ms-title').value.trim();
+        });
+        _monthlyPendingSubs = _monthlyPendingSubs.filter(s => s.id !== btn.dataset.msRemove);
+        drawPendingSubtasks();
+      };
+    });
+  }
+
   // Add monthly task with improved validation and UX
   function handleAddTask() {
     const titleEl = document.getElementById('monthlyTaskTitle');
@@ -3377,14 +3423,25 @@ function renderMonthly(){
     }
 
     const id = uid();
+    // Sync any pending subtask titles from the DOM before saving
+    const subRows = document.querySelectorAll('#monthlySubtaskList [data-ms-id]');
+    subRows.forEach(row => {
+      const s = _monthlyPendingSubs.find(x => x.id === row.dataset.msId);
+      if(s) s.title = row.querySelector('.ms-title').value.trim();
+    });
+    const subtasks = _monthlyPendingSubs.filter(s => s.title).map(s => ({ id: uid(), title: s.title, status: 'TODO' }));
+    const descFieldEl = document.getElementById('monthlyTaskDesc');
+    const description = descFieldEl ? descFieldEl.value.trim() : '';
     // Store with the current month so tasks are month-scoped.
     // They only roll over to the next month when the user clicks "Roll Over Tasks".
     db.monthly.push({ id, title, days, month: monthKey,
-      type: 'monthly_task', description: '', tags: [],
+      type: 'monthly_task', description, subtasks, tags: [],
       createdAt: nowISO(), updatedAt: nowISO() });
-    
+
     // Clear form
     if(titleEl) titleEl.value = '';
+    if(descFieldEl) descFieldEl.value = '';
+    _monthlyPendingSubs = [];
     const allCheckboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
     allCheckboxes.forEach(cb => cb.checked = false);
     
@@ -3428,11 +3485,31 @@ function renderMonthly(){
   if(addBtn) {
     addBtn.onclick = handleAddTask;
   }
-  
+
+  // Bind subtask add button
+  const monthlySubtaskAddBtn = document.getElementById('monthlySubtaskAdd');
+  if(monthlySubtaskAddBtn) {
+    monthlySubtaskAddBtn.onclick = () => {
+      // Sync existing row titles before appending
+      document.querySelectorAll('#monthlySubtaskList [data-ms-id]').forEach(row => {
+        const s = _monthlyPendingSubs.find(x => x.id === row.dataset.msId);
+        if(s) s.title = row.querySelector('.ms-title').value.trim();
+      });
+      _monthlyPendingSubs.push({ id: uid(), title: '' });
+      drawPendingSubtasks();
+      const inputs = document.querySelectorAll('#monthlySubtaskList .ms-title');
+      if(inputs.length) inputs[inputs.length - 1].focus();
+    };
+  }
+
   // Clear form handler
   if(clearBtn) {
     clearBtn.onclick = () => {
       if(titleInput) titleInput.value = '';
+      const descField = document.getElementById('monthlyTaskDesc');
+      if(descField) descField.value = '';
+      _monthlyPendingSubs = [];
+      drawPendingSubtasks();
       const checkboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
       checkboxes.forEach(cb => cb.checked = false);
       titleInput?.focus();
@@ -3463,7 +3540,10 @@ function renderMonthly(){
         const exists = (db.monthly || []).some(x => x.month === monthKey && x.title === t.title && JSON.stringify(x.days || []) === JSON.stringify(t.days || []));
         if (!exists) {
           db.monthly.push({ id: uid(), title: t.title, days: Array.isArray(t.days) ? [...t.days] : [],
-            month: monthKey, type: 'monthly_task', description: '', tags: [],
+            month: monthKey, type: 'monthly_task',
+            description: t.description || '',
+            subtasks: Array.isArray(t.subtasks) ? t.subtasks.map(s => ({ id: uid(), title: s.title, status: 'TODO' })) : [],
+            tags: [],
             createdAt: nowISO(), updatedAt: nowISO() });
           added++;
         }
@@ -3527,6 +3607,7 @@ function renderMonthly(){
   }
   
   // Initial render
+  drawPendingSubtasks();
   drawMonthlyList();
 }
 
