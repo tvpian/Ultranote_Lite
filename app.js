@@ -2958,6 +2958,8 @@ function openTaskModal(taskId) {
       newSubs.push({ id, title, status });
     });
     t.subtasks = newSubs;
+    // Stamp updatedAt so server mergeById knows this client version is newest
+    t.updatedAt = nowISO();
     // If all subtasks are done and at least one subtask exists, automatically mark the
     // parent task as DONE; otherwise set it to TODO. This optional behavior helps
     // streamline task management. If there are no subtasks, leave the status unchanged.
