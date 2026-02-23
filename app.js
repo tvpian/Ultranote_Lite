@@ -195,20 +195,20 @@ const THEMES = {
     , '--kbd-border': '#3a4a60'
   },
   light: {
-    '--bg': '#f8f9fa',
-    '--fg': '#1a202c',
-    '--muted': '#6c757d',
+    '--bg': '#f3f6fb',
+    '--fg': '#0f172a',
+    '--muted': '#64748b',
     '--card': '#ffffff',
-    '--acc': '#007bff',
-    '--border': '#d0d7e2',
-    '--btn-bg': '#f5f7fa',
-    '--btn-border': '#cbd5e0',
-    '--pill-border': '#cbd5e0',
-    '--header-bg': '#f8f9fa',
+    '--acc': '#2563eb',
+    '--border': '#e2e8f0',
+    '--btn-bg': '#ffffff',
+    '--btn-border': '#d1d9e6',
+    '--pill-border': '#c7d2e2',
+    '--header-bg': 'rgba(243,246,251,0.88)',
     '--input-bg': '#ffffff',
-    '--input-border': '#d1d5db'
-    , '--btn-active-bg': '#e7ecf3'
-    , '--kbd-border': '#cbd5e0'
+    '--input-border': '#d1d9e6'
+    , '--btn-active-bg': '#eff3fb'
+    , '--kbd-border': '#c7d2e2'
   }
 };
 
@@ -218,6 +218,7 @@ function applyTheme(){
   const vars = THEMES[theme] || THEMES.dark;
   const root = document.documentElement;
   Object.entries(vars).forEach(([key,val])=> root.style.setProperty(key, val));
+  root.setAttribute('data-theme', theme);
 }
 
 // --- Restored runtime glue (was missing) ---
