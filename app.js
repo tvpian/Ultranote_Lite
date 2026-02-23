@@ -1282,7 +1282,9 @@ function syncMonthlyTasksToDaily(daily, dateKey){
       // Deduplicate by title in case of duplicate entries
       if(seen.has(mt.title)) return;
       seen.add(mt.title);
-      const exists = db.tasks.some(t => t.noteId === daily.id && !t.deletedAt && t.title === mt.title);
+      // Include soft-deleted tasks in the check — if a user deleted a daily occurrence
+      // we must NOT recreate it on the next render.
+      const exists = db.tasks.some(t => t.noteId === daily.id && t.title === mt.title);
       if(!exists){
         createTask({
           title: mt.title, noteId: daily.id, priority: 'medium',
@@ -2980,6 +2982,7 @@ function openTaskModal(taskId) {
 // --- Monthly planning view ---
 // Pending subtasks for the monthly creation form; persists within a view session.
 let _monthlyPendingSubs = [];
+let _monthlyPendingDesc = '';
 function renderMonthly(){
   _monthlyPendingSubs = []; // reset on full re-render (month navigation)
   // Ensure the monthly collection exists
@@ -2995,7 +2998,6 @@ function renderMonthly(){
   
   // Preserve input state if re-rendering
   const preservedTitle = document.getElementById('monthlyTaskTitle')?.value || '';
-  const preservedDesc = document.getElementById('monthlyTaskDesc')?.value || '';
   const preservedDays = Array.from(document.querySelectorAll('.monthly-day-option input:checked') || []).map(cb => cb.value);
   
   // Preserve view mode
@@ -3020,15 +3022,9 @@ function renderMonthly(){
                value="${htmlesc(preservedTitle)}" 
                style="margin-bottom:12px;" />
 
-        <label for="monthlyTaskDesc" class="muted" style="display:block;margin-bottom:6px;">Description <span style="font-weight:400;">(optional)</span></label>
-        <textarea id="monthlyTaskDesc" placeholder="Notes, context or instructions for this recurring task…" style="margin-bottom:12px;min-height:58px;resize:vertical;">${htmlesc(preservedDesc)}</textarea>
-
-        <div style="margin-bottom:12px;">
-          <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px;">
-            <label class="muted">Subtasks <span style="font-weight:400;">(optional — carried over each day)</span></label>
-            <button type="button" id="monthlySubtaskAdd" class="btn" style="font-size:11px;padding:4px 9px;">+ Add Subtask</button>
-          </div>
-          <div id="monthlySubtaskList"></div>
+        <div class="row" style="gap:8px;align-items:center;margin-bottom:12px;">
+          <button type="button" id="monthlyDetailsBtn" class="btn" style="font-size:12px;padding:5px 12px;">＋ Add description / subtasks</button>
+          <span id="monthlyDetailsIndicator" style="font-size:12px;color:var(--acc);display:${(_monthlyPendingSubs.length || _monthlyPendingDesc) ? 'inline' : 'none'};">Details added ✓</span>
         </div>
 
         <div class="row" style="gap:8px;margin-bottom:16px;">
@@ -3356,6 +3352,78 @@ function renderMonthly(){
     }
   }
 
+  // Popup modal for optional description + subtasks on new monthly task
+  function openDetailsModal() {
+    let localDesc = _monthlyPendingDesc;
+    let localSubs = _monthlyPendingSubs.map(s => ({ ...s }));
+
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;';
+
+    const syncLocalSubs = () => {
+      modal.querySelectorAll('[data-lms-id]').forEach(row => {
+        const s = localSubs.find(x => x.id === row.dataset.lmsId);
+        if(s) s.title = row.querySelector('.lms-title')?.value.trim() || '';
+      });
+    };
+
+    const renderSubsHtml = () => localSubs.map(s => `
+      <div class="row" data-lms-id="${s.id}" style="gap:6px;align-items:center;margin-bottom:6px;">
+        <input type="text" class="lms-title" value="${htmlesc(s.title)}" placeholder="Subtask title…" style="flex:1;" />
+        <button class="btn" data-lms-remove="${s.id}" style="font-size:11px;padding:4px 8px;">✕</button>
+      </div>`).join('');
+
+    const buildInner = () => `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:460px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,0.3);max-height:80vh;overflow-y:auto;">
+        <h3 style="margin:0 0 16px 0;color:var(--fg);font-size:16px;">Task Details <span style="font-weight:400;font-size:13px;color:var(--muted);">(optional)</span></h3>
+        <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted);">Description</label>
+        <textarea id="dtlDesc" placeholder="Notes, context or instructions for this recurring task…" style="margin-bottom:16px;min-height:72px;resize:vertical;width:100%;box-sizing:border-box;">${htmlesc(localDesc)}</textarea>
+        <div style="margin-bottom:16px;">
+          <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <label style="font-size:13px;color:var(--muted);">Subtasks <span style="font-weight:400;">(carried over each day)</span></label>
+            <button type="button" id="dtlAddSub" class="btn" style="font-size:11px;padding:4px 9px;">+ Add</button>
+          </div>
+          <div id="dtlSubList">${renderSubsHtml()}</div>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:flex-end;">
+          <button id="dtlCancel" class="btn" style="padding:8px 16px;">Cancel</button>
+          <button id="dtlSave" class="btn acc" style="padding:8px 16px;">Save</button>
+        </div>
+      </div>`;
+
+    const rerender = () => { modal.innerHTML = buildInner(); bindModal(); };
+
+    const bindModal = () => {
+      modal.querySelector('#dtlAddSub').onclick = () => {
+        syncLocalSubs();
+        localSubs.push({ id: uid(), title: '' });
+        rerender();
+        const inputs = modal.querySelectorAll('.lms-title');
+        if(inputs.length) inputs[inputs.length - 1].focus();
+      };
+      modal.querySelectorAll('[data-lms-remove]').forEach(btn => {
+        btn.onclick = () => { syncLocalSubs(); localSubs = localSubs.filter(s => s.id !== btn.dataset.lmsRemove); rerender(); };
+      });
+      modal.querySelector('#dtlCancel').onclick = () => document.body.removeChild(modal);
+      modal.querySelector('#dtlSave').onclick = () => {
+        syncLocalSubs();
+        _monthlyPendingDesc = modal.querySelector('#dtlDesc')?.value.trim() || '';
+        _monthlyPendingSubs = localSubs.filter(s => s.title);
+        document.body.removeChild(modal);
+        const ind = document.getElementById('monthlyDetailsIndicator');
+        if(ind) ind.style.display = (_monthlyPendingSubs.length || _monthlyPendingDesc) ? 'inline' : 'none';
+      };
+      modal.onclick = (e) => { if(e.target === modal) document.body.removeChild(modal); };
+      const esc = (e) => { if(e.key === 'Escape') { document.body.removeChild(modal); document.removeEventListener('keydown', esc); } };
+      document.addEventListener('keydown', esc);
+    };
+
+    modal.innerHTML = buildInner();
+    document.body.appendChild(modal);
+    bindModal();
+    setTimeout(() => modal.querySelector('#dtlDesc')?.focus(), 50);
+  }
+
   // Draw pending subtasks in the creation form
   function drawPendingSubtasks() {
     const container = document.getElementById('monthlySubtaskList');
@@ -3423,15 +3491,8 @@ function renderMonthly(){
     }
 
     const id = uid();
-    // Sync any pending subtask titles from the DOM before saving
-    const subRows = document.querySelectorAll('#monthlySubtaskList [data-ms-id]');
-    subRows.forEach(row => {
-      const s = _monthlyPendingSubs.find(x => x.id === row.dataset.msId);
-      if(s) s.title = row.querySelector('.ms-title').value.trim();
-    });
     const subtasks = _monthlyPendingSubs.filter(s => s.title).map(s => ({ id: uid(), title: s.title, status: 'TODO' }));
-    const descFieldEl = document.getElementById('monthlyTaskDesc');
-    const description = descFieldEl ? descFieldEl.value.trim() : '';
+    const description = _monthlyPendingDesc || '';
     // Store with the current month so tasks are month-scoped.
     // They only roll over to the next month when the user clicks "Roll Over Tasks".
     db.monthly.push({ id, title, days, month: monthKey,
@@ -3440,8 +3501,10 @@ function renderMonthly(){
 
     // Clear form
     if(titleEl) titleEl.value = '';
-    if(descFieldEl) descFieldEl.value = '';
+    _monthlyPendingDesc = '';
     _monthlyPendingSubs = [];
+    const indicator = document.getElementById('monthlyDetailsIndicator');
+    if(indicator) indicator.style.display = 'none';
     const allCheckboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
     allCheckboxes.forEach(cb => cb.checked = false);
     
@@ -3486,30 +3549,18 @@ function renderMonthly(){
     addBtn.onclick = handleAddTask;
   }
 
-  // Bind subtask add button
-  const monthlySubtaskAddBtn = document.getElementById('monthlySubtaskAdd');
-  if(monthlySubtaskAddBtn) {
-    monthlySubtaskAddBtn.onclick = () => {
-      // Sync existing row titles before appending
-      document.querySelectorAll('#monthlySubtaskList [data-ms-id]').forEach(row => {
-        const s = _monthlyPendingSubs.find(x => x.id === row.dataset.msId);
-        if(s) s.title = row.querySelector('.ms-title').value.trim();
-      });
-      _monthlyPendingSubs.push({ id: uid(), title: '' });
-      drawPendingSubtasks();
-      const inputs = document.querySelectorAll('#monthlySubtaskList .ms-title');
-      if(inputs.length) inputs[inputs.length - 1].focus();
-    };
-  }
+  // Wire up the optional details popup button
+  const detailsBtn = document.getElementById('monthlyDetailsBtn');
+  if(detailsBtn) detailsBtn.onclick = openDetailsModal;
 
   // Clear form handler
   if(clearBtn) {
     clearBtn.onclick = () => {
       if(titleInput) titleInput.value = '';
-      const descField = document.getElementById('monthlyTaskDesc');
-      if(descField) descField.value = '';
+      _monthlyPendingDesc = '';
       _monthlyPendingSubs = [];
-      drawPendingSubtasks();
+      const clrIndicator = document.getElementById('monthlyDetailsIndicator');
+      if(clrIndicator) clrIndicator.style.display = 'none';
       const checkboxes = document.querySelectorAll('.monthly-day-option input[type="checkbox"]');
       checkboxes.forEach(cb => cb.checked = false);
       titleInput?.focus();
@@ -3607,7 +3658,6 @@ function renderMonthly(){
   }
   
   // Initial render
-  drawPendingSubtasks();
   drawMonthlyList();
 }
 
