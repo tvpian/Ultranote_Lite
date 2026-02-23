@@ -3398,6 +3398,10 @@ function renderMonthly(){
           type: 'monthly_task', description, subtasks, tags: [],
           createdAt: nowISO(), updatedAt: nowISO() });
         close();
+        // Immediately inject into any existing daily notes that match this task's schedule
+        const todayStr = todayKey();
+        const todayNote = db.notes.find(n => n.type === 'daily' && n.dateIndex === todayStr && !n.deletedAt);
+        if(todayNote) syncMonthlyTasksToDaily(todayNote, todayStr);
         save();
         drawMonthlyList();
       };
