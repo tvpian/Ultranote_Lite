@@ -2485,12 +2485,13 @@ select:focus {
    All additive overrides via cascade — zero layout changes.
    ========================================================== */
 
-/* --- Inter font (Google Fonts CDN) --- */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* --- Plus Jakarta Sans + JetBrains Mono (Google Fonts CDN) --- */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
-/* --- Apply Inter everywhere + smarter bg --- */
+/* --- Apply Plus Jakarta Sans everywhere --- */
 :root {
-  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 }
 *, *::before, *::after {
   font-family: var(--font) !important;
@@ -3014,7 +3015,7 @@ input[type="checkbox"]:checked::after {
   border-radius: 6px;
   padding: 1px 7px;
   font-size: 11px;
-  font-family: var(--font, 'Inter', system-ui) !important;
+  font-family: var(--font, 'Plus Jakarta Sans', system-ui) !important;
   font-weight: 500;
   color: #8dc8ff;
   letter-spacing: 0.1px;
@@ -3123,4 +3124,112 @@ footer a:hover { color: var(--acc) !important; text-decoration: underline; }
   border: 1px solid rgba(0,0,0,0.08) !important;
   box-shadow: 0 24px 80px rgba(0,0,0,0.15),
               inset 0 1px 0 rgba(255,255,255,1) !important;
+}
+
+/* ==========================================================
+   TYPOGRAPHY POLISH — Phase 5
+   Plus Jakarta Sans hierarchy + JetBrains Mono code blocks
+   ========================================================== */
+
+/* --- Global base --- */
+body {
+  font-size: 14px;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+}
+
+/* --- Code / mono: JetBrains Mono everywhere --- */
+.markdown-preview pre,
+.markdown-preview pre code,
+.markdown-preview code,
+pre, code, kbd:not(.kbd), textarea[spellcheck="false"] {
+  font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', 'Consolas', monospace) !important;
+  font-size: 13px !important;
+  font-variant-ligatures: contextual;
+}
+
+/* --- Markdown prose: tighter, more editorial --- */
+.markdown-preview {
+  font-family: var(--font) !important;
+  font-size: 14.5px !important;
+  line-height: 1.75 !important;
+  letter-spacing: -0.01em;
+}
+.markdown-preview h1 {
+  font-size: 1.7em !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1.2 !important;
+}
+.markdown-preview h2 {
+  font-size: 1.35em !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.025em !important;
+}
+.markdown-preview h3 {
+  font-size: 1.15em !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+}
+.markdown-preview strong {
+  font-weight: 700 !important;
+}
+
+/* --- Brand title: bolder + tighter tracking --- */
+.title {
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.04em !important;
+}
+
+/* --- Nav: slightly larger, proper weight --- */
+nav button {
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.015em !important;
+}
+nav button.active {
+  font-weight: 700 !important;
+}
+
+/* --- Card headings (section titles like "Today", "Projects") --- */
+.card > *:first-child,
+.card h2, .card h3 {
+  letter-spacing: -0.02em;
+}
+
+/* --- Buttons: tighter tracking looks crisper --- */
+.btn {
+  letter-spacing: -0.01em !important;
+  font-size: 13px !important;
+}
+
+/* --- Muted label text: slightly larger for PKS (PKS renders smaller optically) --- */
+.muted {
+  font-size: 12.5px !important;
+  letter-spacing: -0.005em;
+}
+
+/* --- Footer --- */
+footer {
+  font-size: 12px !important;
+  letter-spacing: 0.01em;
+}
+
+/* --- Input/textarea: comfortable reading size --- */
+input[type="text"],
+input[type="date"],
+input[type="search"],
+textarea {
+  font-size: 13.5px !important;
+  line-height: 1.5 !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* --- Pill labels --- */
+.pill {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
 }
