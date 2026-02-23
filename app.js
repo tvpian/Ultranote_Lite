@@ -540,7 +540,6 @@ function createTask({title, due=null, noteId=null, projectId=null, priority="med
                completedAt: null, deletedAt: null };
   db.tasks.push(t);
   logActivity('task:create', 'task', t.id, { title, projectId, priority, due });
-  db.tasks.push(t);
   // When creating a project task, update the Today page counter if present. This must occur
   // before returning so the counter updates immediately on task creation. Note: checking
   // for existence of updateProjectTasksButton guards against calling it before it is defined.
@@ -1572,13 +1571,12 @@ function renderToday(){
       if(dueInput) dueInput.value = '';
       drawTasks();
     };
-    ['keydown','keypress','keyup'].forEach(evt=>{
-      taskInput.addEventListener(evt, e=>{
-        const key = e.key || e.keyCode;
-        if(key === 'Enter' || key === 13){
-          handleAddTask();
-        }
-      });
+    taskInput.addEventListener('keydown', e=>{
+      const key = e.key || e.keyCode;
+      if(key === 'Enter' || key === 13){
+        e.preventDefault(); // prevent any form-submit / double-fire
+        handleAddTask();
+      }
     });
     // Mobile soft keyboards sometimes dispatch input event with insertLineBreak on Enter
     taskInput.addEventListener('input', e=>{
