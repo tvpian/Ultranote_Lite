@@ -3329,7 +3329,15 @@ function renderMonthly(){
         </div>
       </div>`;
 
-    const close = () => { if(document.body.contains(modal)) document.body.removeChild(modal); };
+    // Block autosync re-render while the modal is open
+    window._isTypingInForm = true;
+    window.__typingUntil = Date.now() + 60 * 60 * 1000; // 1 hour ceiling — reset on close
+
+    const close = () => {
+      window._isTypingInForm = false;
+      window.__typingUntil = 0;
+      if(document.body.contains(modal)) document.body.removeChild(modal);
+    };
 
     const rerender = () => {
       const savedTitle = modal.querySelector('#cmTitle')?.value || '';
