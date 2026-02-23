@@ -2302,3 +2302,180 @@ button.btn.mood-btn--active {
   opacity: 0.85;
 }
 }
+/* ==========================================================
+   VISUAL REFRESH — overrides earlier declarations via cascade
+   Pure cosmetic layer; zero layout or selector changes.
+   ========================================================== */
+
+/* --- Updated colour palette --- */
+:root {
+  --bg: #080c11;
+  --fg: #dde6f0;
+  --muted: #8fa3b8;
+  --card: #0f1620;
+  --card-hover: #141e2e;
+  --acc: #4ea1ff;
+  --acc-dim: rgba(78,161,255,0.12);
+  --border: #1a2538;
+  --btn-bg: #0f1e30;
+  --btn-border: #1f3d5c;
+  --pill-border: #2a4060;
+  --header-bg: rgba(8,12,17,0.85);
+  --input-bg: #090e17;
+  --input-border: #1a2e44;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 18px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.3);
+}
+
+/* --- Font smoothing --- */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial;
+}
+
+/* --- Frosted glass header + accent brand name --- */
+header {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  background: var(--header-bg);
+}
+.title {
+  color: var(--acc);
+  font-size: 16px;
+  font-weight: 700;
+  text-shadow: 0 0 22px rgba(78,161,255,0.35);
+}
+
+/* --- Sidebar/aside elevation --- */
+aside {
+  box-shadow: var(--shadow-sm);
+}
+
+/* --- Nav: clean minimal style, blue active state --- */
+nav button {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--muted) !important;
+  margin: 3px 0;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  padding: 9px 12px;
+}
+nav button:hover {
+  background: var(--card-hover) !important;
+  color: var(--fg) !important;
+  border-color: var(--border) !important;
+}
+nav button.active {
+  background: var(--acc-dim) !important;
+  border-color: rgba(78,161,255,0.35) !important;
+  color: var(--acc) !important;
+  font-weight: 600;
+  outline: none;
+}
+
+/* --- Cards: depth/elevation on hover --- */
+.card {
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: #1e3045;
+}
+
+/* --- Buttons: transitions, lift on hover, accent gradient --- */
+.btn {
+  transition: background 0.15s ease, border-color 0.15s ease,
+              transform 0.1s ease, box-shadow 0.15s ease !important;
+  font-size: 13px;
+}
+.btn:hover {
+  background: var(--card-hover) !important;
+  border-color: #2d5578 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+.btn:active {
+  transform: translateY(0) !important;
+  box-shadow: none !important;
+}
+/* Accent button: blue-tinted gradient */
+.btn.acc {
+  background: linear-gradient(135deg,
+    rgba(78,161,255,0.18) 0%,
+    rgba(78,161,255,0.07) 100%) !important;
+  border-color: rgba(78,161,255,0.65) !important;
+  color: var(--acc) !important;
+}
+.btn.acc:hover {
+  background: linear-gradient(135deg,
+    rgba(78,161,255,0.28) 0%,
+    rgba(78,161,255,0.14) 100%) !important;
+  border-color: var(--acc) !important;
+  box-shadow: 0 2px 14px rgba(78,161,255,0.22) !important;
+}
+
+/* --- Inputs: accent focus ring --- */
+input[type="text"]:focus,
+input[type="date"]:focus,
+textarea:focus {
+  border-color: rgba(78,161,255,0.7) !important;
+  box-shadow: 0 0 0 3px rgba(78,161,255,0.14) !important;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* --- Project sidebar buttons: match nav style --- */
+.projBtn {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--muted) !important;
+  font-size: 13px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  margin: 3px 0;
+}
+.projBtn:hover {
+  background: var(--card-hover) !important;
+  color: var(--fg) !important;
+  border-color: var(--border) !important;
+}
+.projBtn.active {
+  background: var(--acc-dim) !important;
+  border-color: rgba(78,161,255,0.4) !important;
+  color: var(--acc) !important;
+  font-weight: 600;
+  outline: none;
+}
+
+/* --- Pills: tighter, more refined --- */
+.pill {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  padding: 2px 9px;
+}
+
+/* --- Themed scrollbar (Webkit) --- */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #1e3550;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: #2a4a6e; }
+
+/* --- Select elements: match input theme --- */
+select {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--fg);
+  border-radius: 8px;
+  transition: border-color 0.15s ease;
+}
+select:focus {
+  border-color: rgba(78,161,255,0.7);
+  outline: none;
+}
