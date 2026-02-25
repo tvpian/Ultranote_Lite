@@ -975,6 +975,13 @@ function _navPop() {
 function renderNav(){
   nav.innerHTML = sections.map(s => `<button data-route="${s.id}" class="${route===s.id?'active':''}">${s.label}</button>`).join("");
   nav.querySelectorAll("button").forEach(b=> b.onclick = ()=>{ _navPush(); route=b.dataset.route; if(route==='today') selectedDailyDate = todayKey(); render(); });
+  // Due/overdue count badge on the Today nav button
+  const _todayNavBtn = nav.querySelector('[data-route="today"]');
+  if(_todayNavBtn) {
+    const _tStr = todayKey();
+    const _dueN = (db.tasks||[]).filter(t => t.status==='TODO' && !t.deletedAt && t.due && t.due <= _tStr).length;
+    if(_dueN) _todayNavBtn.innerHTML += ` <span style="display:inline-block;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;vertical-align:middle;font-weight:700;line-height:1.4;">${_dueN}</span>`;
+  }
 }
 
 function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
@@ -1399,7 +1406,9 @@ function renderToday(){
           <button id="taskAddBtn" class="btn">Add</button>
         </div>
         <div id="taskDupHint" style="display:none;margin-top:4px;padding:6px 10px;background:#2a1f10;border:1px solid #f0c040;border-radius:6px;font-size:12px;color:#f0c040;"></div>
+        <div id="dueBanner"></div>
         <div id="taskList" class="list" style="margin-top:8px;"></div>
+        <div id="prevTaskList" class="list"></div>
         <div id="backlogList" class="list" style="margin-top:8px;display:none;border-top:1px solid #1e2938;padding-top:8px;"></div>
         <div id="projectTaskList" class="list" style="margin-top:8px;display:none;"></div>
       </div>
@@ -1620,14 +1629,32 @@ function renderToday(){
   $("#toggleBacklog").onclick = ()=>{ const bl = $("#backlogList"); bl.style.display = bl.style.display==='none'? 'block':'none'; drawBacklog(); };
   function drawTasks(){
     const list = $("#taskList"); if(!list) return;
+    const todayStr = todayKey();
+    // Returns 'overdue','due-today','due-soon', or ''
+    const dueStatus = due => {
+      if(!due) return '';
+      if(due < todayStr) return 'overdue';
+      if(due === todayStr) return 'due-today';
+      const days = Math.round((new Date(due+'T00:00:00') - new Date(todayStr+'T00:00:00')) / 86400000);
+      return days <= 2 ? 'due-soon' : '';
+    };
     const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG' && !t.deletedAt)
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
     list.innerHTML = tasks.map(t=> {
       const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'};
+      const ds = dueStatus(t.due);
+      const borderColor = ds==='overdue'?'#ff4444':ds==='due-today'?'#f59e0b':ds==='due-soon'?'#ca8a04':colors[t.priority||'medium'];
+      let duePill = '';
+      if(t.due) {
+        if(t.status!=='DONE' && ds==='overdue')    duePill=`<span class='pill' style='background:#ff4444;color:#fff;font-weight:600;'>OVERDUE</span>`;
+        else if(t.status!=='DONE' && ds==='due-today') duePill=`<span class='pill' style='background:#f59e0b;color:#1a1a1a;font-weight:600;'>Due Today</span>`;
+        else if(t.status!=='DONE' && ds==='due-soon')  duePill=`<span class='pill' style='background:#78350f;color:#fef3c7;'>Due ${formatDateString(t.due)}</span>`;
+        else duePill=`<span class='pill'>${formatDateString(t.due)}</span>`;
+      }
       return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
         <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
-        <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;'>${htmlesc(t.title)}${t.due ? ` <span class='pill'>${formatDateString(t.due)}</span>` : ''}</span>
+        <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${borderColor};padding-left:8px;'>${htmlesc(t.title)}${duePill ? ' '+duePill : ''}</span>
       </label>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
@@ -1638,23 +1665,54 @@ function renderToday(){
     }).join('');
     // bind handlers
     list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawTasks(); drawBacklog(); });
-    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{
-      // Delete the task and re-render local lists. We intentionally avoid calling
-      // drawProjectTasks() here to prevent auto-revealing the project tasks list.
-      deleteTask(b.dataset.del);
-      drawTasks();
-      drawBacklog();
-      // Update the project task badge if necessary. deleteTask already triggers
-      // updateProjectTasksButton for project tasks, so no additional call needed.
-    });
-    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{
-      // Move task to backlog. Avoid calling drawProjectTasks() here to respect the
-      // user's toggle state. The badge will update via moveToBacklog().
-      moveToBacklog(b.dataset.b);
-      drawTasks();
-      drawBacklog();
-    });
+    list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); drawBacklog(); });
+    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
     list.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{ openTaskModal(b.dataset.edit); });
+    // Due/overdue summary banner
+    const banner = document.getElementById('dueBanner');
+    if(banner) {
+      const allOpen = (db.tasks||[]).filter(t => t.status==='TODO' && !t.deletedAt && t.due);
+      const nOver  = allOpen.filter(t => t.due < todayStr).length;
+      const nToday = allOpen.filter(t => t.due === todayStr).length;
+      if(nOver || nToday) {
+        const parts = [];
+        if(nOver)  parts.push(`<strong style='color:#ff6666;'>${nOver} overdue</strong>`);
+        if(nToday) parts.push(`<strong style='color:#fbbf24;'>${nToday} due today</strong>`);
+        banner.innerHTML = `<div style='padding:6px 10px;margin-bottom:4px;background:rgba(255,68,68,0.1);border:1px solid rgba(255,68,68,0.35);border-radius:6px;font-size:12px;'>⚠️ ${parts.join(' · ')}</div>`;
+      } else {
+        banner.innerHTML = '';
+      }
+    }
+    // Unfinished tasks from the previous 7 days (non-recurring daily tasks only)
+    const prevList = document.getElementById('prevTaskList');
+    if(prevList) {
+      const cutoffStr = new Date(new Date(todayStr+'T00:00:00').getTime() - 7*86400000).toISOString().slice(0,10);
+      const prevDayIds = new Set((db.notes||[]).filter(n => n.type==='daily' && !n.deletedAt && n.dateIndex >= cutoffStr && n.dateIndex < todayStr).map(n => n.id));
+      const monthlyTitles = new Set((db.monthly||[]).filter(m => !m.deletedAt).map(m => m.title.toLowerCase()));
+      const prevTasks = (db.tasks||[]).filter(t =>
+        t.status==='TODO' && !t.deletedAt && !t.projectId &&
+        prevDayIds.has(t.noteId) && !monthlyTitles.has((t.title||'').toLowerCase())
+      );
+      if(prevTasks.length) {
+        prevList.innerHTML = `<div style='font-size:12px;color:var(--muted);margin:10px 0 4px;border-top:1px solid var(--btn-border);padding-top:8px;'>📋 Unfinished from previous days</div>` +
+          prevTasks.map(t => {
+            const noteDate = (db.notes||[]).find(n => n.id === t.noteId)?.dateIndex || '';
+            const ds = dueStatus(t.due);
+            let dp = t.due ? (ds==='overdue' ? `<span class='pill' style='background:#ff4444;color:#fff;font-size:10px;'>OVERDUE</span>` : `<span class='pill' style='font-size:10px;'>${formatDateString(t.due)}</span>`) : '';
+            return `<div class='row' style='justify-content:space-between;'>
+              <label class='row' style='gap:8px;'>
+                <input type='checkbox' data-pid='${t.id}'/>
+                <span style='font-size:13px;border-left:2px dashed var(--btn-border);padding-left:8px;'>${htmlesc(t.title)} ${dp}<span class='pill' style='font-size:10px;opacity:0.6;'>from ${noteDate}</span></span>
+              </label>
+              <button class='btn' data-pdel='${t.id}' style='font-size:11px;'>✕</button>
+            </div>`;
+          }).join('');
+        prevList.querySelectorAll('[data-pid]').forEach(cb => cb.onchange = () => { setTaskStatus(cb.dataset.pid, cb.checked?'DONE':'TODO'); drawTasks(); });
+        prevList.querySelectorAll('[data-pdel]').forEach(b => b.onclick = () => { deleteTask(b.dataset.pdel); drawTasks(); });
+      } else {
+        prevList.innerHTML = '';
+      }
+    }
   }
   function drawBacklog(){
     const list = $("#backlogList");
