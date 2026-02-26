@@ -1682,17 +1682,32 @@ function renderToday(){
     list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); drawBacklog(); });
     list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
     list.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{ openTaskModal(b.dataset.edit); });
-    // Due/overdue summary banner
+    // Due/overdue summary banner — lists task titles so user can locate them
     const banner = document.getElementById('dueBanner');
     if(banner) {
       const allOpen = (db.tasks||[]).filter(t => t.status==='TODO' && !t.deletedAt && t.due);
-      const nOver  = allOpen.filter(t => t.due < todayStr).length;
-      const nToday = allOpen.filter(t => t.due === todayStr).length;
-      if(nOver || nToday) {
-        const parts = [];
-        if(nOver)  parts.push(`<strong style='color:#ff6666;'>${nOver} overdue</strong>`);
-        if(nToday) parts.push(`<strong style='color:#fbbf24;'>${nToday} due today</strong>`);
-        banner.innerHTML = `<div style='padding:6px 10px;margin-bottom:4px;background:rgba(255,68,68,0.1);border:1px solid rgba(255,68,68,0.35);border-radius:6px;font-size:12px;'>⚠️ ${parts.join(' · ')}</div>`;
+      const overdueList  = allOpen.filter(t => t.due < todayStr);
+      const dueTodayList = allOpen.filter(t => t.due === todayStr);
+      if(overdueList.length || dueTodayList.length) {
+        // Helper: describe where a task lives
+        const taskSource = t => {
+          if(t.projectId){ const p = (db.projects||[]).find(p=>p.id===t.projectId); return p ? `project: ${htmlesc(p.name)}` : 'project'; }
+          if(t.noteId){ const n = (db.notes||[]).find(n=>n.id===t.noteId); return n && n.dateIndex ? n.dateIndex : 'note'; }
+          return 'no note';
+        };
+        const makeRows = (list, color) => list.map(t =>
+          `<div style='margin-top:3px;display:flex;align-items:baseline;gap:4px;'>
+            <span style='color:${color};font-weight:600;font-size:11px;'>●</span>
+            <span style='flex:1;'>${htmlesc(t.title)}</span>
+            <span style='font-size:10px;color:var(--muted);white-space:nowrap;'>${taskSource(t)}</span>
+            <span style='font-size:10px;color:var(--muted);white-space:nowrap;'>${formatDateString(t.due)}</span>
+          </div>`
+        ).join('');
+        let html = `<div style='padding:6px 10px;margin-bottom:4px;background:rgba(255,68,68,0.1);border:1px solid rgba(255,68,68,0.35);border-radius:6px;font-size:12px;'>`;
+        if(overdueList.length)  html += `<div>⚠️ <strong style='color:#ff6666;'>${overdueList.length} overdue</strong></div>${makeRows(overdueList,'#ff6666')}`;
+        if(dueTodayList.length) html += `<div style='margin-top:${overdueList.length?'6px':'0'};'>🔔 <strong style='color:#fbbf24;'>${dueTodayList.length} due today</strong></div>${makeRows(dueTodayList,'#fbbf24')}`;
+        html += `</div>`;
+        banner.innerHTML = html;
       } else {
         banner.innerHTML = '';
       }
