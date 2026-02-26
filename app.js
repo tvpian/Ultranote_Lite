@@ -598,8 +598,10 @@ function taskSimilarity(a, b){
 }
 // Groups all non-deleted tasks into clusters where any two tasks have similarity >= threshold.
 // Returns array of arrays, only groups with 2+ tasks.
+// EXCLUDES tasks whose title matches a monthly recurring entry — those legitimately repeat every day.
 function findDuplicateTaskGroups(threshold = 0.75){
-  const tasks = db.tasks.filter(t => !t.deletedAt && t.status !== 'DONE');
+  const monthlyTitles = new Set((db.monthly||[]).filter(m => !m.deletedAt).map(m => m.title.toLowerCase()));
+  const tasks = db.tasks.filter(t => !t.deletedAt && t.status !== 'DONE' && !monthlyTitles.has((t.title||'').toLowerCase()));
   const visited = new Set();
   const groups = [];
   for(let i = 0; i < tasks.length; i++){
@@ -1291,9 +1293,19 @@ function syncMonthlyTasksToDaily(daily, dateKey){
       // Deduplicate by title in case of duplicate entries
       if(seen.has(mt.title)) return;
       seen.add(mt.title);
-      // Include soft-deleted tasks in the check — if a user deleted a daily occurrence
-      // we must NOT recreate it on the next render.
-      const exists = db.tasks.some(t => t.noteId === daily.id && t.title === mt.title);
+      // Only count a task as existing if it is NOT soft-deleted.
+      // If a past bug or accidental deletion removed a recurring task, we want it
+      // to reappear automatically on the next render rather than stay gone forever.
+      // (Old comment: "include deleted in check" was causing permanent disappearance.)
+      const existingTask = db.tasks.find(t => t.noteId === daily.id && t.title === mt.title);
+      if(existingTask && existingTask.deletedAt){
+        // Undelete it instead of creating a duplicate
+        delete existingTask.deletedAt;
+        existingTask.status = existingTask.status === 'DONE' ? 'DONE' : 'TODO';
+        existingTask.updatedAt = nowISO();
+        changed = true;
+      }
+      const exists = !!existingTask;
       if(!exists){
         createTask({
           title: mt.title, noteId: daily.id, priority: 'medium',
