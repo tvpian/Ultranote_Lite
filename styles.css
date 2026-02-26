@@ -3315,18 +3315,8 @@ textarea {
 
 /* Touch targets: make sure all buttons are at least 40px tall on mobile */
 @media (max-width: 900px) {
-  .btn {
-    min-height: 36px;
-  }
-  nav button {
-    min-height: 40px;
-  }
   /* Slightly reduce card padding to gain horizontal space */
   .card {
     padding: 10px 12px;
-  }
-  /* Input rows wrap naturally */
-  .row {
-    flex-wrap: wrap;
   }
 }
