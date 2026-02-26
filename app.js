@@ -624,6 +624,7 @@ function deleteTask(id){
   const t = db.tasks.find(x => x.id === id);
   if (!t) return;
   t.deletedAt = nowISO();
+  t.updatedAt = nowISO(); // must be after deletedAt so server merge sees client as winner
   save();
   // If deleting a project task, update the Today page project task counter. Removing
   // the task from the DB should immediately reflect in the badge count.
@@ -683,6 +684,7 @@ function restoreTask(id){
   const t = db.tasks.find(x => x.id === id);
   if(!t) return;
   delete t.deletedAt;
+  t.updatedAt = nowISO(); // stamp so server merge keeps this restored state
   // If the note this task belonged to no longer exists, detach noteId so the
   // task surfaces in Review → Pending Tasks instead of being silently orphaned.
   if(t.noteId && !db.notes.find(n => n.id === t.noteId)){
@@ -1694,23 +1696,41 @@ function renderToday(){
         prevDayIds.has(t.noteId) && !monthlyTitles.has((t.title||'').toLowerCase())
       );
       if(prevTasks.length) {
-        prevList.innerHTML = `<div style='font-size:12px;color:var(--muted);margin:10px 0 4px;border-top:1px solid var(--btn-border);padding-top:8px;'>📋 Unfinished from previous days</div>` +
-          prevTasks.map(t => {
-            const noteDate = (db.notes||[]).find(n => n.id === t.noteId)?.dateIndex || '';
-            const ds = dueStatus(t.due);
-            let dp = t.due ? (ds==='overdue' ? `<span class='pill' style='background:#ff4444;color:#fff;font-size:10px;'>OVERDUE</span>` : `<span class='pill' style='font-size:10px;'>${formatDateString(t.due)}</span>`) : '';
-            return `<div class='row' style='justify-content:space-between;'>
-              <label class='row' style='gap:8px;'>
-                <input type='checkbox' data-pid='${t.id}'/>
-                <span style='font-size:13px;border-left:2px dashed var(--btn-border);padding-left:8px;'>${htmlesc(t.title)} ${dp}<span class='pill' style='font-size:10px;opacity:0.6;'>from ${noteDate}</span></span>
-              </label>
-              <button class='btn' data-pdel='${t.id}' style='font-size:11px;'>✕</button>
-            </div>`;
-          }).join('');
-        prevList.querySelectorAll('[data-pid]').forEach(cb => cb.onchange = () => { setTaskStatus(cb.dataset.pid, cb.checked?'DONE':'TODO'); drawTasks(); });
+        // Persist collapse state across re-renders
+        if(window._prevTasksCollapsed === undefined) window._prevTasksCollapsed = false;
+        const collapsed = window._prevTasksCollapsed;
+        const arrow = collapsed ? '▶' : '▼';
+        const taskRows = collapsed ? '' : prevTasks.map(t => {
+          const noteDate = (db.notes||[]).find(n => n.id === t.noteId)?.dateIndex || '';
+          const ds = dueStatus(t.due);
+          let dp = t.due ? (ds==='overdue' ? `<span class='pill' style='background:#ff4444;color:#fff;font-size:10px;'>OVERDUE</span>` : `<span class='pill' style='font-size:10px;'>${formatDateString(t.due)}</span>`) : '';
+          return `<div class='row' style='justify-content:space-between;'>
+            <label class='row' style='gap:8px;cursor:pointer;'>
+              <input type='checkbox' data-pid='${t.id}'/>
+              <span style='font-size:13px;border-left:2px dashed var(--btn-border);padding-left:8px;'>${htmlesc(t.title)} ${dp}<span class='pill' style='font-size:10px;opacity:0.6;'>from ${noteDate}</span></span>
+            </label>
+            <button class='btn' data-pdel='${t.id}' style='font-size:11px;' title='Dismiss'>✕</button>
+          </div>`;
+        }).join('');
+        prevList.innerHTML =
+          `<div id='prevTasksHeader' style='font-size:12px;color:var(--muted);margin:10px 0 4px;border-top:1px solid var(--btn-border);padding-top:8px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;'>
+            <span>${arrow}</span>
+            <span>📋 Unfinished from previous days <span style='opacity:0.7;'>(${prevTasks.length})</span></span>
+          </div>` + taskRows;
+        // Toggle collapse on header click
+        prevList.querySelector('#prevTasksHeader').onclick = () => {
+          window._prevTasksCollapsed = !window._prevTasksCollapsed;
+          drawTasks();
+        };
+        // Mark done → task disappears immediately on re-render
+        prevList.querySelectorAll('[data-pid]').forEach(cb => cb.onchange = () => {
+          setTaskStatus(cb.dataset.pid, 'DONE');
+          drawTasks();
+        });
         prevList.querySelectorAll('[data-pdel]').forEach(b => b.onclick = () => { deleteTask(b.dataset.pdel); drawTasks(); });
       } else {
         prevList.innerHTML = '';
+        window._prevTasksCollapsed = false; // reset when no tasks remain
       }
     }
   }
@@ -2527,14 +2547,20 @@ function renderReview(){
     const id = b.dataset.restore;
     const task = db.tasks.find(t => t.id === id);
     if(task){
-      // If restoring a completed task (status DONE), reassign it to today's daily note
-      if(task.status === 'DONE'){
-        const key = selectedDailyDate || todayKey();
-        let daily = db.notes.find(n => n.type === 'daily' && n.dateIndex === key);
-        if(!daily) daily = createDailyNoteFor(key);
-        // Assign task to today's daily note
-        task.noteId = daily.id;
+      // Only reassign noteId if the task's original note is gone/deleted,
+      // or if the task has no noteId at all (orphaned / project task).
+      // Preserving the original noteId prevents today's task list from changing
+      // when a task completed from a past note is restored.
+      const originalNote = task.noteId ? db.notes.find(n => n.id === task.noteId && !n.deletedAt) : null;
+      if(!originalNote && !task.projectId){
+        // Original note is gone — park the task on today's daily note
+        const key = todayKey();
+        let todayNote = db.notes.find(n => n.type === 'daily' && n.dateIndex === key && !n.deletedAt);
+        if(!todayNote) todayNote = createDailyNoteFor(key);
+        task.noteId = todayNote.id;
       }
+      // Stamp updatedAt so the noteId change wins any pending server merge
+      task.updatedAt = nowISO();
     }
     setTaskStatus(id,'TODO');
     renderReview();
