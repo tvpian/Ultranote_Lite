@@ -979,13 +979,15 @@ function _navPop() {
 function renderNav(){
   nav.innerHTML = sections.map(s => `<button data-route="${s.id}" class="${route===s.id?'active':''}">${s.label}</button>`).join("");
   nav.querySelectorAll("button").forEach(b=> b.onclick = ()=>{ _navPush(); route=b.dataset.route; if(route==='today') selectedDailyDate = todayKey(); render(); });
-  // Due/overdue count badge on the Today nav button
+  // Due/overdue count badge — shown on both the desktop sidebar nav AND the mobile bottom bar
+  const _tStr = todayKey();
+  const _dueN = (db.tasks||[]).filter(t => t.status==='TODO' && !t.deletedAt && t.due && t.due <= _tStr).length;
+  const _badgeHtml = _dueN ? ` <span style="display:inline-block;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;vertical-align:middle;font-weight:700;line-height:1.4;">${_dueN}</span>` : '';
   const _todayNavBtn = nav.querySelector('[data-route="today"]');
-  if(_todayNavBtn) {
-    const _tStr = todayKey();
-    const _dueN = (db.tasks||[]).filter(t => t.status==='TODO' && !t.deletedAt && t.due && t.due <= _tStr).length;
-    if(_dueN) _todayNavBtn.innerHTML += ` <span style="display:inline-block;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;vertical-align:middle;font-weight:700;line-height:1.4;">${_dueN}</span>`;
-  }
+  if(_todayNavBtn && _dueN) _todayNavBtn.innerHTML += _badgeHtml;
+  // Mobile bottom bar — reset the Today button label then apply badge
+  const _mbToday = document.querySelector('#mobileBar [data-nav="today"]');
+  if(_mbToday) _mbToday.innerHTML = 'Today' + _badgeHtml;
 }
 
 function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
@@ -1697,10 +1699,10 @@ function renderToday(){
           return 'no note';
         };
         const makeRows = (list, color) => list.map(t =>
-          `<div style='margin-top:3px;display:flex;align-items:baseline;gap:4px;'>
+          `<div style='margin-top:3px;display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;'>
             <span style='color:${color};font-weight:600;font-size:11px;'>●</span>
-            <span style='flex:1;'>${htmlesc(t.title)}</span>
-            <span style='font-size:10px;color:var(--muted);white-space:nowrap;'>${taskSource(t)}</span>
+            <span style='flex:1;min-width:0;word-break:break-word;'>${htmlesc(t.title)}</span>
+            <span class='banner-source' style='font-size:10px;color:var(--muted);white-space:nowrap;'>${taskSource(t)}</span>
             <span style='font-size:10px;color:var(--muted);white-space:nowrap;'>${formatDateString(t.due)}</span>
           </div>`
         ).join('');

@@ -3233,3 +3233,100 @@ textarea {
   font-weight: 600 !important;
   letter-spacing: 0.01em !important;
 }
+/* ===================================================================
+   MOBILE / TABLET POLISH
+   Fills in gaps not covered by the base 900px breakpoint:
+   - Due banner source column hides on very small screens
+   - Notebook TOC + editor stack vertically on phones
+   - Mobile bar active badge styling
+   - Prevent overflow on dynamic content
+   =================================================================== */
+
+/* Hide the "source" context column inside the due/overdue banner on
+   narrow phones — the task title + date alone are enough. */
+@media (max-width: 600px) {
+  .banner-source {
+    display: none;
+  }
+}
+
+/* Notebook view: the TOC sidebar + editor are a side-by-side flex container
+   with inline styles. On mobile we reflow them to stack vertically using
+   the :has() selector (Chrome 105+, Safari 15.4+, Firefox 121+). */
+@media (max-width: 900px) {
+  /* The notebook wrapper has inline display:flex — stack children vertically */
+  div:has(> #nbToc) {
+    flex-direction: column !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  /* TOC becomes a compact horizontal-scrollable strip */
+  #nbToc {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    max-height: 160px;
+    border-right: none !important;
+    border-bottom: 1px solid var(--btn-border);
+    flex-shrink: 0 !important;
+  }
+  /* TOC list scrolls horizontally so all pages are reachable */
+  #tocList {
+    flex-direction: row !important;
+    overflow-x: auto;
+    white-space: nowrap;
+    gap: 6px !important;
+    padding-bottom: 4px;
+  }
+  #tocList .nb-toc-item {
+    display: inline-block;
+    white-space: normal;
+    min-width: 100px;
+    max-width: 200px;
+    word-break: break-word;
+  }
+  /* Page editor gets remaining vertical space */
+  #nbPageEditor {
+    min-height: 50vh;
+    height: auto !important;
+  }
+
+  /* Review analytics grid: allow the inner stat cards to reflow */
+  .review .grid-2 > .card,
+  .review > div > .card {
+    min-width: 0;
+  }
+
+  /* Prevent due banner rows from being cut off */
+  #dueBanner > div {
+    overflow-wrap: anywhere;
+  }
+
+  /* Make sure the quick-add task row wraps on tablet */
+  #taskTitle {
+    min-width: 0;
+  }
+}
+
+/* Mobile bar badge should look the same as the sidebar badge */
+#mobileBar [data-nav="today"] span {
+  vertical-align: middle;
+}
+
+/* Touch targets: make sure all buttons are at least 40px tall on mobile */
+@media (max-width: 900px) {
+  .btn {
+    min-height: 36px;
+  }
+  nav button {
+    min-height: 40px;
+  }
+  /* Slightly reduce card padding to gain horizontal space */
+  .card {
+    padding: 10px 12px;
+  }
+  /* Input rows wrap naturally */
+  .row {
+    flex-wrap: wrap;
+  }
+}
