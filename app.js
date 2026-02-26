@@ -1761,6 +1761,8 @@ function renderToday(){
         window._prevTasksCollapsed = false; // reset when no tasks remain
       }
     }
+    // Sync the nav badge count after any task change
+    renderNav();
   }
   function drawBacklog(){
     const list = $("#backlogList");
@@ -1849,6 +1851,8 @@ function renderToday(){
         openTaskModal(b.dataset.edit);
       })
     );
+    // Sync the nav badge count after any task change
+    renderNav();
   }
   // Expose the drawProjectTasks function globally so other helpers (like
   // updateProjectTasksButton) can invoke it when necessary. This is safe
