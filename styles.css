@@ -3320,3 +3320,17 @@ textarea {
     padding: 10px 12px;
   }
 }
+
+/* ── No horizontal scroll ──────────────────────────────────────────
+   overflow-x: clip prevents a page-level scrollbar without creating a
+   new stacking context (so position:fixed header/modals still work).
+   min-width:0 on grid children stops a single wide element from
+   blowing the grid track past the viewport width on mobile.          */
+html {
+  overflow-x: clip;
+}
+main > aside,
+main > section {
+  min-width: 0;
+  overflow-x: hidden;
+}
