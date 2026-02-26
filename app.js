@@ -1638,20 +1638,21 @@ function renderToday(){
       });
     });
   }
+  // Returns 'overdue','due-today','due-soon', or '' — shared by drawTasks and drawProjectTasks
+  function dueStatus(due){
+    if(!due) return '';
+    const ts = todayKey();
+    if(due < ts) return 'overdue';
+    if(due === ts) return 'due-today';
+    const days = Math.round((new Date(due+'T00:00:00') - new Date(ts+'T00:00:00')) / 86400000);
+    return days <= 2 ? 'due-soon' : '';
+  }
   $("#captureBtn")?.addEventListener('click', handleQuickCapture);
   $("#showProjectTasks").onclick = ()=>{ const list = $("#projectTaskList"); const isVisible = list.style.display !== 'none'; list.style.display = isVisible? 'none':'block'; drawProjectTasks(); };
   $("#toggleBacklog").onclick = ()=>{ const bl = $("#backlogList"); bl.style.display = bl.style.display==='none'? 'block':'none'; drawBacklog(); };
   function drawTasks(){
     const list = $("#taskList"); if(!list) return;
     const todayStr = todayKey();
-    // Returns 'overdue','due-today','due-soon', or ''
-    const dueStatus = due => {
-      if(!due) return '';
-      if(due < todayStr) return 'overdue';
-      if(due === todayStr) return 'due-today';
-      const days = Math.round((new Date(due+'T00:00:00') - new Date(todayStr+'T00:00:00')) / 86400000);
-      return days <= 2 ? 'due-soon' : '';
-    };
     const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG' && !t.deletedAt)
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
     list.innerHTML = tasks.map(t=> {
@@ -1805,10 +1806,19 @@ function renderToday(){
       .map(t => {
         const proj = db.projects.find(p => p.id === t.projectId);
         const colors = { high: '#ff6b6b', medium: '#4ea1ff', low: '#64748b' };
+        const ds = dueStatus(t.due);
+        const borderColor = ds==='overdue'?'#ff4444':ds==='due-today'?'#f59e0b':ds==='due-soon'?'#ca8a04':colors[t.priority||'medium'];
+        let duePill = '';
+        if(t.due){
+          if(ds==='overdue')        duePill=`<span class='pill' style='background:#ff4444;color:#fff;font-weight:600;'>OVERDUE</span>`;
+          else if(ds==='due-today') duePill=`<span class='pill' style='background:#f59e0b;color:#1a1a1a;font-weight:600;'>Due Today</span>`;
+          else if(ds==='due-soon')  duePill=`<span class='pill' style='background:#78350f;color:#fef3c7;'>Due ${formatDateString(t.due)}</span>`;
+          else                      duePill=`<span class='pill'>${formatDateString(t.due)}</span>`;
+        }
         return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
         <input type='checkbox' ${t.status === 'DONE' ? 'checked' : ''} data-id='${t.id}'/>
-        <span class='${t.status === 'DONE' ? 'muted' : ''}' style='border-left:3px solid ${colors[t.priority || 'medium']};padding-left:8px;'>${htmlesc(t.title)}${t.due ? ` <span class='pill'>${formatDateString(t.due)}</span>` : ''} <span class='pill'>${proj ? htmlesc(proj.name) : 'Unknown'}</span></span>
+        <span class='${t.status === 'DONE' ? 'muted' : ''}' style='border-left:3px solid ${borderColor};padding-left:8px;'>${htmlesc(t.title)}${duePill ? ' '+duePill : ''} <span class='pill'>${proj ? htmlesc(proj.name) : 'Unknown'}</span></span>
       </label>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
