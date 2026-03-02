@@ -158,8 +158,26 @@ async function persistDB(){
                            !(window.__typingUntil && Date.now() < window.__typingUntil);
         if (notEditing) {
           const COLS = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
-          COLS.forEach(k => { if (Array.isArray(result.db[k])) db[k] = result.db[k]; });
+          COLS.forEach(k => {
+            if (!Array.isArray(result.db[k])) return;
+            if (!Array.isArray(db[k])) { db[k] = result.db[k]; return; }
+            // Update items in-place so open closures (e.g. openNote's `n` reference) stay valid.
+            // Replacing the whole array would detach the captured `n` and lose unsaved attachment pushes.
+            result.db[k].forEach(serverItem => {
+              const idx = db[k].findIndex(x => x.id === serverItem.id);
+              if (idx >= 0) {
+                Object.assign(db[k][idx], serverItem);
+              } else {
+                db[k].push(serverItem);
+              }
+            });
+          });
           if (result.db.settings) db.settings = { ...result.db.settings, ...db.settings };
+          // If a note is open its attachments may have been updated by another device.
+          // Refresh the list without blowing away the editor.
+          if (window._openNoteId && typeof window._renderAttachments === 'function') {
+            window._renderAttachments();
+          }
         }
       }
     }
@@ -4349,23 +4367,45 @@ function openNote(id){
   if(attachInput){
     attachInput.onchange = (e)=>{
       const files = Array.from(e.target.files || []);
-      files.forEach(file=>{
+      e.target.value = ''; // reset early so the same file can be picked again
+      if (!files.length) return;
+      // Read all files in parallel then append and save in one shot.
+      // Reading them one-at-a-time with separate save() calls causes a race:
+      // the debounced persistDB can fire between readers, the server response
+      // then replaces db.notes, detaching the `n` reference so later pushes
+      // end up on a stale object that is never serialised.
+      Promise.all(files.map(file => new Promise(resolve => {
         const reader = new FileReader();
-        reader.onload = (ev)=>{
-          const dataUrl = ev.target.result;
-          n.attachments.push({id: uid(), name: file.name, type: file.type, data: dataUrl});
-          save();
-          renderAttachmentsList();
-        };
+        reader.onload = ev => resolve({ id: uid(), name: file.name, type: file.type, data: ev.target.result });
         reader.readAsDataURL(file);
+      }))).then(newAtts => {
+        if (!n.attachments) n.attachments = [];
+        newAtts.forEach(att => n.attachments.push(att));
+        save();
+        renderAttachmentsList();
       });
-      // Reset input so same file can be selected again
-      e.target.value = '';
     };
   }
 
   // Expose attachment renderer so other modals (e.g., voice, sketch) can refresh attachments
   window._renderAttachments = renderAttachmentsList;
+
+  // Background-fetch the latest server state so changes saved on another device
+  // (e.g. a voice note recorded on the phone) are visible immediately when this
+  // note is opened on the PC.  We update only the attachments on the live `n`
+  // object so the editor content is not disturbed.
+  (async () => {
+    try {
+      const fresh = await fetchDB();
+      if (fresh && Array.isArray(fresh.notes)) {
+        const freshNote = fresh.notes.find(x => x.id === id);
+        if (freshNote && freshNote.attachments) {
+          n.attachments = freshNote.attachments;
+          renderAttachmentsList();
+        }
+      }
+    } catch(e) { /* non-critical, local state is still shown */ }
+  })();
 
   // Ensure links array exists on the note
   if(!Array.isArray(n.links)) n.links = [];

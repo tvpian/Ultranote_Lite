@@ -41,7 +41,21 @@
       const remoteA = Array.isArray(remote[k])? remote[k]:[];
       const merged = _mergeArrayById(localA, remoteA);
       if(JSON.stringify(merged)!==JSON.stringify(localA)) changed=true;
-      db[k]=merged;
+      // Update in-place to keep open-closure references (e.g. openNote's `n`) alive.
+      // If we replace the array wholesale, the captured `n` detaches and further
+      // attachment pushes / saves operate on an orphaned object.
+      if (!Array.isArray(db[k])) { db[k] = merged; return; }
+      // Remove items that don't appear in merged (hard-deleted remotely)
+      const mergedIds = new Set(merged.map(x=>x.id));
+      for (let i = db[k].length - 1; i >= 0; i--) {
+        if (!mergedIds.has(db[k][i].id)) db[k].splice(i, 1);
+      }
+      // Update existing + add new
+      merged.forEach(m => {
+        const idx = db[k].findIndex(x => x.id === m.id);
+        if (idx >= 0) { Object.assign(db[k][idx], m); }
+        else { db[k].push(m); }
+      });
     });
     const prevAuto = db.settings && Object.prototype.hasOwnProperty.call(db.settings,'autoReload') ? db.settings.autoReload : undefined;
     db.settings = { ...(remote.settings||{}), ...(db.settings||{}) };
@@ -69,15 +83,19 @@
       console.log('📥 Auto-sync: Merging remote changes...');
       const hadChanges = _mergeInbound(remote);
       if(hadChanges){
-        // Upload the merged result back to the server. This ensures that records
-        // this device added while offline (stored only in localStorage) get
-        // persisted to the server now that connectivity is restored.
-        // Uses a small delay so the render isn't blocked.
         if(typeof save==='function'){
           setTimeout(()=>save(), 500);
           console.log('⬆️ Auto-sync: Uploading merged local state to server');
         }
-        if(typeof render==='function'){ render(); console.log('🔄 Auto-sync: UI refreshed'); }
+        // If a note is currently open, only refresh the attachments list — do NOT call
+        // render() because that would overwrite the note editor with the route view.
+        if(window._openNoteId && typeof window._renderAttachments === 'function'){
+          window._renderAttachments();
+          console.log('🔄 Auto-sync: Refreshed open note attachments');
+        } else if(typeof render==='function'){
+          render();
+          console.log('🔄 Auto-sync: UI refreshed');
+        }
       }
     }catch(e){ console.warn('❌ Auto-sync fetch failed', e); }
   }
