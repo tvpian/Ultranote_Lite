@@ -4397,47 +4397,44 @@ function openNote(id){
   
   // Button event listener
   if(toggleModeBtn) toggleModeBtn.onclick = toggleMode;
-  
-  // Keyboard shortcuts for this note editor
-  const keyHandler = (e) => {
-    // Ctrl+Shift+V to toggle edit/preview
-    if(e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v' || e.code === 'KeyV' || e.keyCode === 86)) {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleMode();
-      return false;
-    }
-    
-    // Ctrl+S to save note
+
+  // Ctrl+S handler — bound directly to the editable elements so it fires
+  // before any browser-level "Save Page" interception, regardless of focus.
+  const onCtrlS = (e) => {
     if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
+      e.stopPropagation();
       doSaveNote();
-      return false;
     }
   };
-  
-  // Remove any previously registered note key handler to prevent listener accumulation
-  if (window._noteKeyHandler) {
+  // Ctrl+Shift+V toggle handler (kept separate for clarity)
+  const onCtrlShiftV = (e) => {
+    if(e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v' || e.code === 'KeyV')) {
+      e.preventDefault();
+      toggleMode();
+    }
+  };
+  // Bind to the actual input elements — most reliable: fires before browser shortcuts
+  const titleEl = document.getElementById('title');
+  if(contentBoxEl) { contentBoxEl.addEventListener('keydown', onCtrlS); contentBoxEl.addEventListener('keydown', onCtrlShiftV); }
+  if(titleEl)      { titleEl.addEventListener('keydown', onCtrlS); titleEl.addEventListener('keydown', onCtrlShiftV); }
+  if(previewEl)    { previewEl.setAttribute('tabindex','0'); previewEl.addEventListener('keydown', onCtrlS); previewEl.addEventListener('keydown', onCtrlShiftV); }
+  // Also capture on document+window as belt-and-suspenders
+  if(window._noteKeyHandler) {
     document.removeEventListener('keydown', window._noteKeyHandler, true);
     window.removeEventListener('keydown', window._noteKeyHandler, true);
     window._noteKeyHandler = null;
   }
-  const handlerOpts = { capture: true, passive: false };
-  document.addEventListener('keydown', keyHandler, handlerOpts);
-  window.addEventListener('keydown', keyHandler, handlerOpts);
-  window._noteKeyHandler = keyHandler;
-  
+  document.addEventListener('keydown', onCtrlS, { capture: true, passive: false });
+  window.addEventListener('keydown', onCtrlS,   { capture: true, passive: false });
+  window._noteKeyHandler = onCtrlS;
+
   // Start in edit mode
   isPreviewMode = false;
   contentBoxEl.style.display = 'block';
   previewEl.style.display = 'none';
   toggleModeBtn.classList.add('acc');
   toggleModeBtn.textContent = 'Edit';
-  
-  // Make preview element focusable for keyboard shortcuts
-  if(previewEl) {
-    previewEl.setAttribute('tabindex', '0');
-  }
 }
 
 // --- Sketch modal functionality ---
