@@ -109,6 +109,7 @@ pm2 delete ultranote     # remove from PM2
 | `ecosystem.config.js` | PM2 config — port, password, file watch list |
 | `package.json` | Dependencies |
 | `quotes.json` | Quotes shown on the login screen |
+| `backup.sh` | Daily backup script — commits `data.json` to the private backup repo |
 | `data.json` | Live database — auto-created on first save, **do not commit if repo is public** |
 
 ---
@@ -119,7 +120,84 @@ pm2 delete ultranote     # remove from PM2
 - The browser saves to the server on every note/task/settings change.
 - **Backup:** copy `data.json` somewhere safe at any time.
 - **Restore:** stop the server, replace `data.json`, restart.
-- `data.json` is in `.gitignore` by default.
+- `data.json` is in `.gitignore` — it is **not** committed to the source repo.
+
+---
+
+## Two-Repo Setup (Recommended)
+
+Keep source code and data in separate private GitHub repositories:
+
+| Repo | What goes in it | Visibility |
+|------|----------------|------------|
+| `ultranote` (this repo) | All code — `app.js`, `server.js`, `styles.css`, etc. | Private or public |
+| `ultranote-backup` (separate) | `data.json` only, auto-committed by `backup.sh` | **Private** |
+
+This means your notes are versioned independently of the code, you can roll back to any previous day's data, and the source repo stays clean.
+
+---
+
+## Automated Daily Backup to GitHub
+
+### Step 1 — Create the backup repo
+
+Create a new **private** repo on GitHub named `ultranote-backup` (no README, no .gitignore).
+
+### Step 2 — Generate an SSH key on the server
+
+```bash
+ssh-keygen -t ed25519 -C "ultranote-backup" -f ~/.ssh/ultranote_backup -N ""
+cat ~/.ssh/ultranote_backup.pub
+```
+
+Copy the output (starts with `ssh-ed25519 ...`).
+
+### Step 3 — Add the key to GitHub
+
+Go to your `ultranote-backup` repo → **Settings → Deploy keys → Add deploy key**
+- Title: `ultranote server`
+- Key: paste the public key
+- ✅ **Allow write access**
+
+### Step 4 — Tell SSH to use this key for GitHub
+
+Add to `~/.ssh/config`:
+
+```
+Host github-backup
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/ultranote_backup
+```
+
+### Step 5 — Clone the backup repo
+
+```bash
+git clone git@github-backup:YOUR_GITHUB_USERNAME/ultranote-backup.git ~/ultranote-backup
+```
+
+### Step 6 — Run a test backup
+
+```bash
+chmod +x /media/mbwh/pop/tvp_ws/note_taking_app/backup.sh
+/media/mbwh/pop/tvp_ws/note_taking_app/backup.sh
+```
+
+You should see `Backup pushed successfully.` and a commit in the GitHub repo.
+
+### Step 7 — Schedule daily midnight backups via cron
+
+```bash
+crontab -e
+```
+
+Add this line:
+
+```
+0 0 * * * /media/mbwh/pop/tvp_ws/note_taking_app/backup.sh >> /media/mbwh/pop/tvp_ws/note_taking_app/backup.log 2>&1
+```
+
+Logs are written to `backup.log` in the project folder. The script skips the commit if `data.json` hasn't changed since the last backup.
 
 ---
 

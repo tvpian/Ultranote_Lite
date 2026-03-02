@@ -10,4 +10,6 @@ dist/
 
 # Live database — kept in private backup repo, not in public source
 data.json
+# Backup script log
+backup.log
 data.json.bak
