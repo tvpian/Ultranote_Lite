@@ -4230,6 +4230,7 @@ function openNote(id){
     showSavedToast('noteSaveStatus');
   };
   saveBtn.onclick = doSaveNote;
+  window._doSaveNote = doSaveNote;
   document.getElementById('back').onclick = ()=> _navPop();
   document.getElementById('duplicate').onclick = ()=>{
     const copy = createNote({
@@ -4401,9 +4402,10 @@ function openNote(id){
   // Ctrl+S handler — bound directly to the editable elements so it fires
   // before any browser-level "Save Page" interception, regardless of focus.
   const onCtrlS = (e) => {
-    if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+    const isCtrl = e.ctrlKey || e.metaKey;
+    if(isCtrl && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       doSaveNote();
     }
   };
@@ -4714,6 +4716,7 @@ function render(){
   // Reset the open note tracking so that background sync will not reopen a note when the user has navigated away.
   window._openNoteId = null;
   window._editorDirty = false;
+  window._doSaveNote = null;
   
   // Clean up note-specific keyboard shortcuts
   if(window._noteKeyHandler) {
