@@ -3,7 +3,7 @@
 #
 # Setup (first time only):
 #   1. Clone your backup repo:
-#        git clone git@github-backup:tvpian/Ultranote_Data.git ~/ultranote-data
+#        git clone git@github-backup:tvpian/Ultranote_Data.git ~/.local/share/ultranote-data
 #   2. Make this script executable:
 #        chmod +x backup.sh
 #   3. Add a cron job for daily midnight backup:
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 SOURCE="/media/mbwh/pop/tvp_ws/note_taking_app/data.json"
-BACKUP_REPO="${HOME}/ultranote-data"
+BACKUP_REPO="${HOME}/.local/share/ultranote-data"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
 # Guard: source file must exist
@@ -25,7 +25,7 @@ fi
 # Guard: backup repo must be cloned already
 if [ ! -d "$BACKUP_REPO/.git" ]; then
   echo "[$TIMESTAMP] ERROR: Backup repo not found at $BACKUP_REPO" >&2
-  echo "  Run: git clone git@github-backup:tvpian/Ultranote_Data.git ~/ultranote-data" >&2
+  echo "  Run: git clone git@github-backup:tvpian/Ultranote_Data.git ~/.local/share/ultranote-data" >&2
   exit 1
 fi
 
