@@ -1,202 +1,220 @@
-# UltraNote Lite
+# UltraNote
 
-Lightweight, local‑first note + daily logging + task system with optional Express JSON persistence. Mobile friendly, keyboard centric, themable.
+A personal knowledge and productivity workspace — daily notes, tasks, projects, notebooks, ideas, links, and a journal, all in one self-hosted app. Runs on a single Node.js server, stores everything in a local JSON file, and works offline via a service worker.
 
-## Features (current)
+---
 
-- Daily notes (template driven) with unfinished task rollover/backlog
-- General notes, ideas, project notes, links (CRUD, pin, tag)
-- Tasks with status (TODO/DONE/BACKLOG), optional due dates, quick add
-- Project list & filtering
-- Links management + tagging (shared tag system with notes)
-- Global Vault search (notes, links, tasks, projects)
-- Templates manager (default + custom)
-  - Meeting Notes
-  - Project Plan
-  - Weekly Review
-  - Course / Lecture Notes
-  - Project Execution Log
-- Tag extraction via #tag syntax
-- Custom modal dialogs (confirm/prompt) for consistent UI
-- Attachments / sketches (referenced by sketchModal styles)
-- Keyboard shortcuts (quick add, navigation)*
-- Local storage + background sync to server (data.json)
-- Responsive drawer navigation & mobile bottom bar
-- Simple theming via CSS variables
-- Export (DB / individual note)*
+## Features
 
-(*If some features not yet fully modularized they reside in `app.js`.)
+| Section | What it does |
+|---------|-------------|
+| **Today** | Daily note with customizable template, scratchpad, task inbox, task rollover/backlog, journal |
+| **Projects** | Project list, per-project notes and tasks, task status (TODO / DONE / BACKLOG), due dates, priorities |
+| **Ideas** | Freeform idea notes, pin, tag, search |
+| **Notebooks** | Multi-page notebooks with markdown support |
+| **Vault** | Global search across all notes, tasks, projects, links |
+| **Links** | Save, tag, and manage reference links |
+| **Monthly** | Monthly planning view |
+| **Review** | Soft-deleted (trashable/restorable) notes and tasks |
+| **Journal** | Persistent journal section on the Today page |
 
-## Files Overview
+**Cross-cutting:**
+- Markdown editor with toolbar, live preview toggle (Ctrl+Shift+V), and Ctrl+S to save
+- "Saved ✓" inline confirmation on every save
+- Pin, tag, due-date badges (overdue / due today / due soon)
+- Monthly task carry-forward
+- Sketch canvas — draw and embed diagrams into notes
+- Voice memo attachment
+- Template manager (meeting notes, project plan, weekly review, course notes, execution log + custom)
+- Auto-sync across browser sessions (polling)
+- Responsive layout with mobile bottom bar
+- Dark theme with CSS variable theming
+- Password-protected login with rate limiting and lockout
+- PWA / offline support via service worker
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js ≥ 18
+- npm
+
+### 1. Clone and install
+
+```bash
+git clone <repo-url>
+cd note_taking_app
+npm install
+```
+
+### 2. Set your password
+
+Open `ecosystem.config.js` and set `APP_PASSWORD`:
+
+```js
+env: { NODE_ENV: "production", PORT: 3366, APP_PASSWORD: "your-password-here" }
+```
+
+> If you skip this the server falls back to `change-me`. Change it before exposing to any network.
+
+### 3. Run
+
+**Development (direct node):**
+```bash
+APP_PASSWORD=yourpassword node server.js
+# Open http://localhost:3366
+```
+
+**Production with PM2 (recommended):**
+```bash
+npm install -g pm2
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup   # run the printed command to auto-start on reboot
+```
+
+**Useful PM2 commands:**
+```bash
+pm2 logs ultranote       # live logs
+pm2 restart ultranote    # restart after config changes
+pm2 stop ultranote       # stop
+pm2 delete ultranote     # remove from PM2
+```
+
+---
+
+## Authentication
+
+- All non-localhost visitors are shown a login page before accessing the app.
+- Password is set via the `APP_PASSWORD` environment variable in `ecosystem.config.js`.
+- **5 failed attempts** trigger a **2-minute lockout**.
+- Sessions last **24 hours**.
+- IPs listed in `allowedIps` in `server.js` bypass login — `127.0.0.1` / `::1` are always allowed. Add your LAN or VPN IP there if needed.
+- The session secret is hardcoded in `server.js` — change it for anything beyond personal local use.
+
+---
+
+## Files
 
 | File | Purpose |
 |------|---------|
-| `index.html` | Base HTML shell; loads `styles.css` & `app.js`; contains app layout containers (nav, content, modals). |
-| `styles.css` | Extracted stylesheet: theme tokens, layout, responsive rules, modal + sketch + mobile bar styles. |
-| `app.js` | All client logic: state/store, persistence (`/api/db` + localStorage), models (notes/tasks/projects/templates/links), rendering (navigation, pages), search, modals, rollover, tagging, backlog, attachments. (Monolithic pending modular split.) |
-| `server.js` | Minimal Express 5 API: serves static files & JSON DB at `/api/db` (GET/POST) persisted to `data.json`. |
-| `package.json` | Dependency manifest (no scripts yet). |
-| `data.json` (runtime) | Persisted state (created after first save). |
+| `server.js` | Express server — static files, `/api/db` persistence, login/auth, session handling |
+| `app.js` | All client-side logic — rendering, state, keyboard shortcuts, modals, all views |
+| `index.html` | HTML shell — layout containers (nav, content, modals) and bootstrap script |
+| `styles.css` | All styles — theme tokens, layout, responsive rules, component styles |
+| `sw.js` | Service worker — offline caching (bump `CACHE` version string after every deploy) |
+| `autosync.js` | Auto-sync polling — keeps multiple open tabs in sync |
+| `ecosystem.config.js` | PM2 config — port, password, file watch list |
+| `package.json` | Dependencies |
+| `quotes.json` | Quotes shown on the login screen |
+| `data.json` | Live database — auto-created on first save, **do not commit if repo is public** |
 
-### Dependencies (not all may be fully wired yet)
+---
 
-- `express` – backend API
-- `prismjs` / `@types/prismjs` – code highlighting
-- `@fortawesome/*` – icons
-- `pptxgenjs` – potential export to slides
-- `sharp`, `image-size` – image processing (attachments/thumbnails)
-- `tailwindcss`, `postcss`, `autoprefixer` – (future utility build; currently custom CSS is primary)
-- `typescript`, `ts-node` – planned TS migration
+## Data & Backup
 
-## Data Model (simplified)
+- All data lives in `data.json` in the project root.
+- The browser saves to the server on every note/task/settings change.
+- **Backup:** copy `data.json` somewhere safe at any time.
+- **Restore:** stop the server, replace `data.json`, restart.
+- `data.json` is in `.gitignore` by default.
 
-```
-{
-  notes: [{ id, title, content, type(daily|note|idea), dateIndex?, projectId?, tags[], pinned, createdAt, updatedAt }],
-  tasks: [{ id, title, status:TODO|DONE|BACKLOG, noteId?, projectId?, due?, priority, createdAt, completedAt? }],
-  projects: [{ id, name, createdAt }],
-  templates: [{ id, name, content, createdAt }],
-  links: [{ id, title, url, tags[], pinned, status, createdAt, updatedAt }],
-  settings: { rollover, seenTip, autoCarryTasks, dailyTemplate, ... }
-}
-```
+---
 
 ## API
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/db` | Returns full DB JSON (empty object if none). |
-| POST | `/api/db` | Replaces DB with posted JSON object. |
+| `GET` | `/api/db` | Returns the full database as JSON |
+| `POST` | `/api/db` | Replaces the database with the posted JSON body |
+| `GET` | `/login` | Login page |
+| `POST` | `/login` | Submit password |
+| `GET` | `/logout` | Clear session and redirect to login |
 
-(No auth; intended for local use.)
-
-## Running
-
-### 1. Install deps
-```
-npm install
-```
-
-### 2. Start backend + static serving
-```
-node server.js
-# Visit http://localhost:3366
-```
-
-### 3. PM2 (production-ish)
-```
-npm install -g pm2
-pm2 start server.js --name ultranote
-pm2 logs ultranote
-pm2 save
-pm2 startup   # follow printed instructions
-```
-
-Optional ecosystem file:
-```
-pm2 start ecosystem.config.js
-```
-
-### 4. Pure static (read‑only / localStorage only)
-```
-npx http-server .
-# (But /api/db calls will 404)
-```
-
-## Persistence & Backup
-
-- Primary live state: in‑memory within page + localStorage key `ultranote-lite`
-- Server sync: periodic / debounced POST to `/api/db` writing `data.json`
-- Manual backup: copy `data.json` or export (in UI)*
-- Restore: replace `data.json` (stop server first if cautious)
-
-## Templates
-
-Names & purposes:
-
-1. Meeting Notes – structured meeting capture
-2. Project Plan – objective, milestones, risks
-3. Weekly Review – reflection / planning
-4. Course / Lecture Notes – concept & question oriented capture
-5. Project Execution Log – operational session log (steps, decisions, issues)
-
-Daily template customizable via settings (fields in `settings.dailyTemplate`).
-
-## Keyboard (typical defaults)*
-
-- Navigation via sidebar buttons
-- Enter in quick task input adds task
-- Custom key handlers located in `app.js` (search for `keydown`)
-
-(*Exact mapping: inspect `app.js` since modular refactor pending.)
-
-## Modularization Roadmap
-
-Planned split (see discussion):
-```
-js/
-  utils.js
-  store.js
-  persistence.js
-  models.js
-  router.js
-  views/
-    today.js
-    projects.js
-    ideas.js
-    links.js
-    vault.js
-    review.js
-    templates.js
-    noteEditor.js
-  components/
-  index.js
-```
-Incrementally move logic from `app.js` into these modules.
-
-## Development Tips
-
-- Keep `data.json` out of version control if personal data (add to `.gitignore`).
-- Consider adding `scripts` in `package.json`:
-```
-"scripts": {
-  "start": "node server.js",
-  "dev": "node server.js",
-  "pm2": "pm2 start server.js --name ultranote"
-}
-```
-- For TypeScript migration, introduce a `src/` directory and compile to `dist/`.
-
-## Security Notes
-
-- No authentication / CORS restrictions; do not expose publicly as‑is.
-- JSON overwrite endpoint trusts client—add auth or token if deploying.
-
-## Troubleshooting
-
-| Issue | Cause | Fix |
-|-------|-------|-----|
-| PM2 app named `-f` | Misplaced flag | `pm2 delete all` then start with proper syntax |
-| Port in use | Previous instance | `lsof -i :3366`, kill or change `PORT` |
-| data not saving | FS permission or crash | Check `~/.pm2/logs/*.log` or console output |
-| Daily note not created | Deferred creation | Open Today tab & click create prompt |
-
-## License
-
-MIT License
-
-Copyright (c) 2025 Tharun V Puthanveettil
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the “Software”), to deal
-in the Software without restriction, including without limitation the rights…
-[full standard MIT text continues]
-
-
-## Acknowledgements
-
-Font Awesome, PrismJS, Express, TailwindCSS ecosystem.
+All endpoints require an authenticated session (or a whitelisted IP).
 
 ---
 
-For further modularization or test scaffolding ask for targeted refactors.
+## Keyboard Shortcuts
+
+| Shortcut | Where | Action |
+|----------|-------|--------|
+| `Ctrl+S` | Note editor, daily page, draft, notebook page | Save |
+| `Ctrl+Shift+V` | Note editor | Toggle markdown preview |
+| `Enter` | Task quick-add input | Add task |
+
+---
+
+## Service Worker & Caching
+
+Static assets are cached under a versioned name in `sw.js` (e.g. `ultranote-lite-v7-full`).
+
+**After any deploy that changes `app.js`, `styles.css`, `index.html`, or `sw.js`:**
+1. Bump the cache version string in `sw.js`
+2. Restart PM2 (`pm2 restart ultranote`)
+3. Each user needs a hard refresh (Ctrl+Shift+R) once, after which the new service worker takes over automatically
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| Port 3366 already in use | Previous instance still running | `lsof -i :3366` → kill the PID, or change `PORT` in `ecosystem.config.js` |
+| Code changes not showing | Old service worker serving cached files | Bump cache version in `sw.js`, hard refresh (Ctrl+Shift+R) |
+| Data not saving | `data.json` permission error or server crash | `pm2 logs ultranote` — check for write permission errors |
+| Login loop | Cookie / session issue | Ensure browser allows cookies for the site; restart the server |
+| Daily note not created | First visit | Open the Today tab and click the create prompt |
+| PM2 process named `-f` | Flag accidentally used as name | `pm2 delete all`, then `pm2 start ecosystem.config.js` |
+| Changes on remote machine not syncing | Auto-sync off or browser tab in background | Toggle "Auto-sync" in the app header, or reload the tab |
+
+---
+
+## Security Notes
+
+- Do **not** expose this directly on a public IP without HTTPS and a reverse proxy (nginx / Caddy).
+- The `/api/db` POST does a full database overwrite — there is no field-level validation; it trusts authenticated sessions.
+- Change the session secret in `server.js` before sharing with others.
+
+---
+
+## Data Model
+
+```jsonc
+{
+  "notes": [{
+    "id": "string", "title": "string", "content": "string",
+    "type": "daily | note | idea",
+    "dateIndex": "YYYY-MM-DD",   // daily notes only
+    "projectId": "string | null",
+    "tags": ["string"], "pinned": false,
+    "createdAt": "ISO", "updatedAt": "ISO", "deletedAt": "ISO | null"
+  }],
+  "tasks": [{
+    "id": "string", "title": "string",
+    "status": "TODO | DONE | BACKLOG",
+    "noteId": "string | null", "projectId": "string | null",
+    "due": "YYYY-MM-DD | null", "priority": "high | medium | low",
+    "createdAt": "ISO", "completedAt": "ISO | null", "deletedAt": "ISO | null"
+  }],
+  "projects":  [{ "id": "string", "name": "string", "createdAt": "ISO" }],
+  "notebooks": [{ "id": "string", "name": "string", "createdAt": "ISO" }],
+  "pages":     [{ "id": "string", "notebookId": "string", "title": "string", "content": "string", "createdAt": "ISO", "updatedAt": "ISO" }],
+  "links":     [{ "id": "string", "title": "string", "url": "string", "tags": [], "pinned": false, "createdAt": "ISO" }],
+  "templates": [{ "id": "string", "name": "string", "content": "string", "createdAt": "ISO" }],
+  "settings": {
+    "rollover": true,
+    "autoCarryTasks": false,
+    "dailyTemplate": "string",
+    "theme": "dark"
+  }
+}
+```
+
+---
+
+## License
+
+MIT — Copyright (c) 2025 Tharun V Puthanveettil
