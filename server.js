@@ -154,7 +154,8 @@ button:active{ transform:translateY(1px); }
 footer{ margin-top:1.2rem; text-align:center; color:var(--muted); font-size:.75rem; }
 .badge{ display:inline-block; background:rgba(255,255,255,.08); border:1px solid var(--border);
   padding:.35rem .75rem; border-radius:999px; font-size:.75rem; }
-.icon{ text-align:center; font-size:2rem; margin-bottom:.4rem; }
+.icon{ text-align:center; margin-bottom:.75rem; }
+.icon svg{ opacity:.7; }
 .date-line{ text-align:center; color:var(--muted); font-size:.78rem; letter-spacing:.06em; text-transform:uppercase; margin:0 0 1.5rem; }
 @keyframes card-in{ from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
 .card{ animation:card-in .38s cubic-bezier(.22,.68,0,1.2) both; }
@@ -163,7 +164,12 @@ footer{ margin-top:1.2rem; text-align:center; color:var(--muted); font-size:.75r
 </head>
 <body>
   <div class="card"${errHtml ? ' aria-live="polite"' : ''}>
-    <div class="icon">🔐</div>
+    <div class="icon">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6ea0e0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </div>
     <h1>UltraNote</h1>
     <p class="date-line" id="dateline"></p>
     <form method="POST" action="/login" autocomplete="off">
