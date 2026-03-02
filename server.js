@@ -149,17 +149,23 @@ button{
 button:hover{ background:#6ea0e0; }
 button:active{ transform:translateY(1px); }
 .err{ color:#ff6b6b; font-size:.9rem; text-align:center; margin-top:.25rem; font-weight:600; }
-.note{ font-size:.8rem; color:var(--muted); text-align:center; margin-top:.6rem; font-style:italic; }
+.note{ font-size:.82rem; color:var(--muted); text-align:center; margin-top:.75rem; font-style:italic; line-height:1.6;
+  border-top:1px solid var(--border); padding-top:.75rem; }
 footer{ margin-top:1.2rem; text-align:center; color:var(--muted); font-size:.75rem; }
 .badge{ display:inline-block; background:rgba(255,255,255,.08); border:1px solid var(--border);
   padding:.35rem .75rem; border-radius:999px; font-size:.75rem; }
+.icon{ text-align:center; font-size:2rem; margin-bottom:.4rem; }
+.date-line{ text-align:center; color:var(--muted); font-size:.78rem; letter-spacing:.06em; text-transform:uppercase; margin:0 0 1.5rem; }
+@keyframes card-in{ from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+.card{ animation:card-in .38s cubic-bezier(.22,.68,0,1.2) both; }
 @media (max-width:520px){ body{padding:1rem;} .card{padding:2rem 1.25rem;} }
 </style>
 </head>
 <body>
   <div class="card"${errHtml ? ' aria-live="polite"' : ''}>
+    <div class="icon">🔐</div>
     <h1>UltraNote</h1>
-    <p class="subtitle">Secure Workspace Access</p>
+    <p class="date-line" id="dateline"></p>
     <form method="POST" action="/login" autocomplete="off">
       <div>
         <label for="pw">Password</label>
@@ -167,10 +173,15 @@ footer{ margin-top:1.2rem; text-align:center; color:var(--muted); font-size:.75r
       </div>
       <button type="submit">Enter Workspace</button>
       ${errHtml}
-      <div class="note">“${q}”</div>
+      <div class="note">"${q}"</div>
     </form>
     <footer><span class="badge">Private</span></footer>
   </div>
+  <script>
+    const d = new Date();
+    document.getElementById('dateline').textContent =
+      d.toLocaleDateString(undefined,{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  </script>
 </body>
 </html>`);
 });
