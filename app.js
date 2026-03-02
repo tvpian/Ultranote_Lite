@@ -247,8 +247,8 @@ function uid(){ return Math.random().toString(36).slice(2,10); }
 // Debounced save – reduces write frequency
 let _saveTimer; function save(){ clearTimeout(_saveTimer); _saveTimer = setTimeout(()=>persistDB(), 400); }
 
-// Show a brief "✓ Saved" confirmation pill at the bottom-centre of the screen.
-// Safe to call from any save handler; re-calling while visible resets the timer.
+// Show a brief "✓ Saved" indicator in the bottom-right corner.
+// Subtle and non-intrusive — re-calling while visible resets the timer.
 function showSavedToast() {
   let t = document.getElementById('_savedToast');
   if (!t) {
@@ -256,19 +256,18 @@ function showSavedToast() {
     t.id = '_savedToast';
     t.style.cssText = [
       'position:fixed',
-      'bottom:72px',
-      'left:50%',
-      'transform:translateX(-50%)',
-      'background:var(--card-bg,#122134)',
-      'border:1px solid var(--accent,#4ea1ff)',
-      'color:var(--accent,#4ea1ff)',
-      'padding:5px 18px',
-      'border-radius:20px',
-      'font-size:13px',
-      'font-weight:600',
+      'bottom:20px',
+      'right:20px',
+      'background:var(--card-bg,#0e1c2b)',
+      'border-left:2px solid var(--accent,#4ea1ff)',
+      'color:var(--muted,#7da0bb)',
+      'padding:4px 10px',
+      'border-radius:3px',
+      'font-size:12px',
+      'font-weight:500',
       'z-index:99999',
       'pointer-events:none',
-      'transition:opacity 0.25s',
+      'transition:opacity 0.3s',
       'opacity:0'
     ].join(';');
     document.body.appendChild(t);
@@ -276,7 +275,7 @@ function showSavedToast() {
   t.textContent = '✓ Saved';
   t.style.opacity = '1';
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 1600);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 1400);
 }
 
 // ------------------------------------------------------------------
@@ -1281,11 +1280,10 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
     }
   };
   
-  // Add shortcut to draft form fields
-  ['draftTitle', 'draftTags', 'draftContent'].forEach(id => {
-    const el = document.getElementById(id);
-    if(el) el.addEventListener('keydown', draftKeyHandler);
-  });
+  // Attach as document-level capture handler so Ctrl+S fires regardless of focus
+  if(window._draftKeyHandler) document.removeEventListener('keydown', window._draftKeyHandler, true);
+  document.addEventListener('keydown', draftKeyHandler, true);
+  window._draftKeyHandler = draftKeyHandler;
   document.getElementById('draftCancel').onclick = ()=> _navPop();
   const addSketchBtn = document.getElementById('draftAddSketch');
   if(typeof openSketchModal==='function') addSketchBtn.onclick = ()=>{
@@ -1914,6 +1912,10 @@ function renderToday(){
   if (window._todayKeyHandler) {
     document.removeEventListener('keydown', window._todayKeyHandler, true);
     window.removeEventListener('keydown', window._todayKeyHandler, true);
+  }
+  if (window._draftKeyHandler) {
+    document.removeEventListener('keydown', window._draftKeyHandler, true);
+    window._draftKeyHandler = null;
   }
   const globalDailyKeyHandler = (e) => {
     // Support Ctrl (Windows/Linux) and Meta (Mac) without Shift
@@ -4028,6 +4030,7 @@ function openPageInNotebook(pageId, nbId){
     content.querySelectorAll('.nb-toc-item').forEach(el=>{
       if(el.dataset.pageId===p.id) el.textContent=titleEl.value.trim()||'Untitled';
     });
+    showSavedToast();
     const s=statusEl(); if(s){ s.textContent='Saved \u2713'; setTimeout(()=>{ const ss=statusEl(); if(ss) ss.textContent=''; },2000); }
   };
 
@@ -4159,6 +4162,10 @@ function openNote(id){
     document.removeEventListener('keydown', window._pgKeyHandler, true);
     document.removeEventListener('keydown', window._pgKeyHandler);
     window._pgKeyHandler = null;
+  }
+  if(window._draftKeyHandler){
+    document.removeEventListener('keydown', window._draftKeyHandler, true);
+    window._draftKeyHandler = null;
   }
   const n = db.notes.find(x=>x.id===id);
   if(!n){
