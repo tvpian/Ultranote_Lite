@@ -1093,71 +1093,7 @@ function renderLinks(){
 }
 // --- End Links view ---
 
-// --- Note editor ---
-function openNote(id){
-  const n = db.notes.find(x=>x.id===id); if(!n){ alert('Note not found'); return; }
-  content.innerHTML = `
-    <div class="card">
-      <input id="title" type="text" value="${htmlesc(n.title)}" />
-      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
-        <input id="tags" type="text" placeholder="Tags (space separated)" value="${(n.tags||[]).map(t=>'#'+t).join(' ')}" />
-        <label style="margin-left:8px;"><input id="pinned" type="checkbox" ${n.pinned?'checked':''}> Pin</label>
-        <button id="addSketch" class="btn" style="font-size:12px;">Add Sketch</button>
-      </div>
-      <div style="margin-top:8px;"><textarea id="contentBox" style="min-height:300px;">${htmlesc(n.content||'')}</textarea></div>
-      <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;">
-        <button id="save" class="btn acc">Save</button>
-        <button id="back" class="btn">Back</button>
-        <button id="duplicate" class="btn">Duplicate</button>
-        <button id="export" class="btn">Export</button>
-        <button id="delete" class="btn" style="border-color:#ff6b6b;color:#ff6b6b;">Delete</button>
-      </div>`;
-  const saveBtn = document.getElementById('save');
-  saveBtn.onclick = ()=>{
-    const tagText = document.getElementById('tags').value;
-    const tags = tagText ? tagText.split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean) : [];
-    updateNote(n.id, {
-      title: document.getElementById('title').value,
-      content: document.getElementById('contentBox').value,
-      tags,
-      pinned: document.getElementById('pinned').checked
-    });
-  };
-  document.getElementById('back').onclick = ()=>{
-    if(n.type==='daily'){ route='today'; render(); }
-    else if(n.projectId){ route='projects'; render(); }
-    else if(n.type==='idea'){ route='ideas'; render(); }
-    else { route='vault'; render(); }
-  };
-  document.getElementById('duplicate').onclick = ()=>{
-    const copy = createNote({
-      title: document.getElementById('title').value + ' (Copy)',
-      content: document.getElementById('contentBox').value,
-      tags: (document.getElementById('tags').value||'').split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean),
-      projectId: n.projectId,
-      type: n.type
-    });
-    openNote(copy.id);
-  };
-  document.getElementById('export').onclick = ()=>{
-    const blob = new Blob([document.getElementById('contentBox').value], {type:'text/plain'});
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${n.title.replace(/[^a-z0-9]/gi,'_')}.txt`; a.click(); URL.revokeObjectURL(a.href);
-  };
-  document.getElementById('delete').onclick = ()=>{
-    if(!confirm('Delete this note and its tasks? This cannot be undone.')) return;
-    // Remove tasks linked to this note
-    db.tasks = db.tasks.filter(t=> t.noteId !== n.id);
-    // Remove the note
-    db.notes = db.notes.filter(x=> x.id !== n.id);
-    save();
-    if(n.type==='daily'){ route='today'; render(); }
-    else if(n.projectId){ route='projects'; render(); }
-    else if(n.type==='idea'){ route='ideas'; render(); }
-    else { route='vault'; render(); }
-  };
-  const addSketchBtn = document.getElementById('addSketch');
-  if(typeof openSketchModal === 'function') addSketchBtn.onclick = ()=> openSketchModal(n.id);
-}
+// openNote() is defined in app.js (full version with Ctrl+S, save status, markdown toolbar, etc.)
 
 // --- Global app logic ---
 function render(){
