@@ -18,8 +18,9 @@ const APP_PASSWORD = process.env.APP_PASSWORD || 'change-me';
 const allowedIps = new Set(['127.0.0.1', '::1', '26.57.15.177']);
 
 // Middlewares to parse JSON and URL‑encoded bodies
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true }));
+// Large limit needed because attachments (audio, images) are stored as base64 inside data.json
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // Session middleware – the session data lives server‑side with improved persistence
 app.use(session({

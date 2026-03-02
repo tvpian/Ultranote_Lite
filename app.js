@@ -4304,20 +4304,37 @@ function openNote(id){
       return;
     }
     attList.innerHTML = n.attachments.map(att=>{
-      // Show image or audio preview for supported types, else show file name
-      const isImg = att.type && att.type.startsWith('image');
-      const isAudio = att.type && att.type.startsWith('audio');
+      const t = att.type || '';
+      const isImg   = t.startsWith('image');
+      const isAudio = t.startsWith('audio');
+      const isVideo = t.startsWith('video');
+      const isPdf   = t === 'application/pdf';
+      const isText  = t.startsWith('text');
       let preview;
       if(isImg){
-        preview = `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />`;
+        preview = `<img src="${att.data}" alt="${htmlesc(att.name)}"
+          style="max-width:100%;max-height:200px;border:1px solid var(--btn-border);border-radius:8px;display:block;" />`;
       } else if(isAudio){
-        preview = `<audio controls src="${att.data}" style="width:100%;"></audio>`;
+        preview = `<audio controls src="${att.data}" style="width:100%;margin-top:4px;"></audio>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">${htmlesc(att.name)}</div>`;
+      } else if(isVideo){
+        preview = `<video controls src="${att.data}"
+          style="max-width:100%;max-height:200px;border:1px solid var(--btn-border);border-radius:8px;display:block;"></video>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">${htmlesc(att.name)}</div>`;
+      } else if(isPdf){
+        preview = `<a href="${att.data}" target="_blank" rel="noopener"
+          style="display:inline-flex;align-items:center;gap:6px;font-size:13px;">📄 ${htmlesc(att.name)}</a>`;
+      } else if(isText){
+        preview = `<a href="${att.data}" download="${htmlesc(att.name)}"
+          style="display:inline-flex;align-items:center;gap:6px;font-size:13px;">📝 ${htmlesc(att.name)}</a>`;
       } else {
-        preview = `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
+        // Generic download link for anything else (zip, docx, etc.)
+        preview = `<a href="${att.data}" download="${htmlesc(att.name)}"
+          style="display:inline-flex;align-items:center;gap:6px;font-size:13px;">📎 ${htmlesc(att.name)}</a>`;
       }
-      return `<div class='row' style='justify-content:space-between;align-items:center;'>
-        <div style='flex:1;'>${preview}</div>
-        <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
+      return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--btn-border);'>
+        <div style='flex:1;min-width:0;'>${preview}</div>
+        <button class='btn' data-remove='${att.id}' style='font-size:11px;flex-shrink:0;'>✕ Remove</button>
       </div>`;
     }).join('');
     // Bind remove handlers
@@ -4851,18 +4868,17 @@ function openVoiceModal(noteId) {
       const chosenType = preferredTypes.find(supportsType) || '';
       const fallbackInput = document.getElementById('voiceFileFallback');
 
-      // If MediaRecorder is unavailable or the context is not secure, use fallback
-      if (!hasMediaRecorder || !isSecure) {
+      // If MediaRecorder API is completely unavailable, go straight to file picker
+      if (!hasMediaRecorder) {
         if (fallbackInput) {
-          // Trigger native file/audio capture. The onchange handler will handle the file.
           fallbackInput.click();
         } else {
-          alert('Recording is not supported in this environment.');
+          alert('Recording is not supported in this browser.');
         }
         return;
       }
       try {
-        // Request microphone stream
+        // Request microphone stream — will throw on non-secure origins or if permission denied
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         // Initialize MediaRecorder with supported MIME type if provided
         mediaRecorder = chosenType ? new MediaRecorder(stream, { mimeType: chosenType }) : new MediaRecorder(stream);
@@ -4891,13 +4907,13 @@ function openVoiceModal(noteId) {
         if (stopBtn) stopBtn.disabled = false;
         if (insertBtn) insertBtn.disabled = true;
       } catch (err) {
-        // If microphone access fails, fall back to file input if available
-        if (fallbackInput) {
-          alert('Could not access microphone. Using the system recorder instead.');
-          fallbackInput.click();
-        } else {
-          alert('Could not access microphone: ' + err.message);
-        }
+        // Microphone access failed (permission denied, non-secure origin, etc.)
+        // Offer file picker as alternative so user can attach a pre-recorded audio file
+        const msg = !isSecure
+          ? 'Microphone recording requires accessing the app via localhost or HTTPS.\nYou can instead pick an audio file from your device.'
+          : 'Could not access microphone: ' + err.message + '\nYou can instead pick an audio file.';
+        alert(msg);
+        if (fallbackInput) fallbackInput.click();
       }
     };
   }
