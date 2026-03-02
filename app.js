@@ -247,21 +247,13 @@ function uid(){ return Math.random().toString(36).slice(2,10); }
 // Debounced save – reduces write frequency
 let _saveTimer; function save(){ clearTimeout(_saveTimer); _saveTimer = setTimeout(()=>persistDB(), 400); }
 
-// Show inline "Saved ✓" confirmation — same style as the journal section.
-// Finds the active status span in the current view automatically.
-function showSavedToast() {
-  // Remove any leftover floating toast from the old implementation
-  const old = document.getElementById('_savedToast');
-  if (old) old.remove();
-  // Find whichever status span is currently in the DOM
-  const span = document.getElementById('noteSaveStatus') ||
-               document.getElementById('pgSaveStatus') ||
-               document.getElementById('dailySaveStatus') ||
-               document.getElementById('draftSaveStatus');
-  if (!span) return;
-  span.textContent = 'Saved ✓';
-  clearTimeout(span._savedTimer);
-  span._savedTimer = setTimeout(() => { if (span.textContent === 'Saved ✓') span.textContent = ''; }, 2000);
+// Show inline "Saved ✓" next to the save button — pass the span id explicitly.
+function showSavedToast(spanId) {
+  const el = document.getElementById(spanId);
+  if (!el) return;
+  el.textContent = 'Saved ✓';
+  clearTimeout(el._st);
+  el._st = setTimeout(() => { el.textContent = ''; }, 2000);
 }
 
 // ------------------------------------------------------------------
@@ -1254,7 +1246,7 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
       // Clear the draft voices so they don't leak into subsequent drafts
       window._draftVoices = [];
     }
-    showSavedToast();
+    showSavedToast('draftSaveStatus');
     openNote(newNote.id);
   };
   
@@ -1492,7 +1484,7 @@ function renderToday(){
         </div>
       </div>
     </div>`;
-  $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); showSavedToast(); };
+  $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); showSavedToast('dailySaveStatus'); };
   
   // Add Ctrl+S shortcut for daily save
   const dailyKeyHandler = (e) => {
@@ -4243,7 +4235,7 @@ function openNote(id){
     });
     // Mark the note as no longer dirty once it has been saved.
     window._editorDirty = false;
-    showSavedToast();
+    showSavedToast('noteSaveStatus');
   };
   document.getElementById('back').onclick = ()=> _navPop();
   document.getElementById('duplicate').onclick = ()=>{
@@ -4426,9 +4418,10 @@ function openNote(id){
     // Ctrl+S to save note
     if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
-      e.stopImmediatePropagation(); // prevent any other capture-phase listener from also firing
+      e.stopImmediatePropagation();
       const sBtn = document.getElementById('save');
-      if(sBtn) { sBtn.click(); }
+      if(sBtn) sBtn.click();
+      showSavedToast('noteSaveStatus');
       return false;
     }
   };
