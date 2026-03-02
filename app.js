@@ -247,6 +247,38 @@ function uid(){ return Math.random().toString(36).slice(2,10); }
 // Debounced save – reduces write frequency
 let _saveTimer; function save(){ clearTimeout(_saveTimer); _saveTimer = setTimeout(()=>persistDB(), 400); }
 
+// Show a brief "✓ Saved" confirmation pill at the bottom-centre of the screen.
+// Safe to call from any save handler; re-calling while visible resets the timer.
+function showSavedToast() {
+  let t = document.getElementById('_savedToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = '_savedToast';
+    t.style.cssText = [
+      'position:fixed',
+      'bottom:72px',
+      'left:50%',
+      'transform:translateX(-50%)',
+      'background:var(--card-bg,#122134)',
+      'border:1px solid var(--accent,#4ea1ff)',
+      'color:var(--accent,#4ea1ff)',
+      'padding:5px 18px',
+      'border-radius:20px',
+      'font-size:13px',
+      'font-weight:600',
+      'z-index:99999',
+      'pointer-events:none',
+      'transition:opacity 0.25s',
+      'opacity:0'
+    ].join(';');
+    document.body.appendChild(t);
+  }
+  t.textContent = '✓ Saved';
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 1600);
+}
+
 // ------------------------------------------------------------------
 // Reminder notifications
 //
@@ -1235,6 +1267,7 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
       // Clear the draft voices so they don't leak into subsequent drafts
       window._draftVoices = [];
     }
+    showSavedToast();
     openNote(newNote.id);
   };
   
@@ -1471,7 +1504,7 @@ function renderToday(){
         </div>
       </div>
     </div>`;
-  $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); };
+  $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); showSavedToast(); };
   
   // Add Ctrl+S shortcut for daily save
   const dailyKeyHandler = (e) => {
@@ -1520,6 +1553,7 @@ function renderToday(){
   const saveJournal = ()=>{
     if(!journalEl) return;
     updateNote(daily.id, { journal: journalEl.value });
+    showSavedToast();
     const s=journalSaveStatusEl(); if(s){ s.textContent='Saved ✓'; setTimeout(()=>{ const ss=journalSaveStatusEl(); if(ss) ss.textContent=''; },2000); }
   };
   if(journalSaveBtn) journalSaveBtn.onclick = saveJournal;
@@ -3097,6 +3131,7 @@ function openTaskModal(taskId) {
       t.completedAt = allDone ? nowISO() : null;
     }
     save();
+    showSavedToast();
     modal.classList.remove('show');
     // Re-render relevant views
     render();
@@ -4211,6 +4246,7 @@ function openNote(id){
     });
     // Mark the note as no longer dirty once it has been saved.
     window._editorDirty = false;
+    showSavedToast();
   };
   document.getElementById('back').onclick = ()=> _navPop();
   document.getElementById('duplicate').onclick = ()=>{
