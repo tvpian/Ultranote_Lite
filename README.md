@@ -143,6 +143,7 @@ All endpoints require an authenticated session (or a whitelisted IP).
 |----------|-------|--------|
 | `Ctrl+S` | Note editor, daily page, draft, notebook page | Save |
 | `Ctrl+Shift+V` | Note editor | Toggle markdown preview |
+| `Ctrl+L` | Anywhere | Logout |
 | `Enter` | Task quick-add input | Add task |
 
 ---

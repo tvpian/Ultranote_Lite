@@ -14,8 +14,17 @@
       }
     }
   }
+  function _globalCtrlL(e) {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'l' || e.key === 'L' || e.code === 'KeyL')) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      window.location.href = '/logout';
+    }
+  }
   document.addEventListener('keydown', _globalCtrlS, { capture: true, passive: false });
   window.addEventListener('keydown', _globalCtrlS, { capture: true, passive: false });
+  document.addEventListener('keydown', _globalCtrlL, { capture: true, passive: false });
+  window.addEventListener('keydown', _globalCtrlL, { capture: true, passive: false });
 })();
 
 // --- Local-first store (now via backend) ---
