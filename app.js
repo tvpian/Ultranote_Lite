@@ -4411,38 +4411,20 @@ function openNote(id){
     // Ctrl+S to save note
     if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
-      e.stopImmediatePropagation();
       doSaveNote();
       return false;
     }
   };
   
-  // Add keyboard shortcuts with capture phase to ensure they work
   // Remove any previously registered note key handler to prevent listener accumulation
-  // when the user opens one note from within another (e.g. via linked notes).
   if (window._noteKeyHandler) {
     document.removeEventListener('keydown', window._noteKeyHandler, true);
-    document.removeEventListener('keydown', window._noteKeyHandler);
+    window.removeEventListener('keydown', window._noteKeyHandler, true);
     window._noteKeyHandler = null;
   }
-  // Document level listener first (highest priority)
-  document.addEventListener('keydown', keyHandler, true); // true = capture phase
-  
-  // Add to specific elements as backup
-  if(contentBoxEl) {
-    contentBoxEl.addEventListener('keydown', keyHandler);
-  }
-  // Also add to title field for convenience
-  const titleEl = document.getElementById('title');
-  if(titleEl) {
-    titleEl.addEventListener('keydown', keyHandler);
-  }
-  // Add to preview element so shortcuts work in preview mode
-  if(previewEl) {
-    previewEl.addEventListener('keydown', keyHandler);
-  }
-  
-  // Store the handler globally so it can be cleaned up when leaving the note
+  const handlerOpts = { capture: true, passive: false };
+  document.addEventListener('keydown', keyHandler, handlerOpts);
+  window.addEventListener('keydown', keyHandler, handlerOpts);
   window._noteKeyHandler = keyHandler;
   
   // Start in edit mode
@@ -4738,8 +4720,8 @@ function render(){
   
   // Clean up note-specific keyboard shortcuts
   if(window._noteKeyHandler) {
-    document.removeEventListener('keydown', window._noteKeyHandler, true); // Remove capture phase listener
-    document.removeEventListener('keydown', window._noteKeyHandler); // Remove bubble phase listener
+    document.removeEventListener('keydown', window._noteKeyHandler, true);
+    window.removeEventListener('keydown', window._noteKeyHandler, true);
     window._noteKeyHandler = null;
   }
 
