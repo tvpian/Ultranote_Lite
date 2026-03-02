@@ -3233,3 +3233,12 @@ textarea {
   font-weight: 600 !important;
   letter-spacing: 0.01em !important;
 }
+
+/* --- Voice recorder: pulsing red indicator when recording --- */
+#voiceTimer.rec-active {
+  color: #ff4444;
+  animation: rec-blink 1s step-start infinite;
+}
+@keyframes rec-blink {
+  50% { opacity: 0.25; }
+}

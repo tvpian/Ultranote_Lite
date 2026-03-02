@@ -4195,10 +4195,10 @@ function openNote(id){
           <option value="">— No Project —</option>
           ${db.projects.map(p=>`<option value="${p.id}" ${n.projectId===p.id?'selected':''}>${htmlesc(p.name)}</option>`).join('')}
         </select>
-        <button id="addSketch" class="btn" style="font-size:12px;">Add Sketch</button>
-        <button id="addVoice" class="btn" style="font-size:12px;">Add Voice</button>
+        <button id="addSketch" class="btn" style="font-size:12px;" title="Draw a sketch">🎨 Sketch</button>
+        <button id="addVoice" class="btn" style="font-size:12px;" title="Record voice note">🎙 Voice</button>
         <!-- Attachment uploader -->
-        <label class="btn" for="noteAttachFile" style="font-size:12px;">Attach</label>
+        <label class="btn" for="noteAttachFile" style="font-size:12px;" title="Attach a file">📎 Attach</label>
         <input id="noteAttachFile" type="file" class="hidden" multiple />
       </div>
       <div class="row" style="margin-top:8px; gap:8px; align-items:center;">
@@ -4616,99 +4616,6 @@ function openSketchModal(noteId) {
         if (typeof window._renderAttachments === 'function') {
           window._renderAttachments();
         }
-        // Update the attachments list if the note editor is open.
-        const attList = document.getElementById('attachments');
-        if (attList) {
-          // Simple re-render: rebuild the list and bind remove handlers.
-          if (!note.attachments || note.attachments.length === 0) {
-            attList.innerHTML = '';
-          } else {
-            attList.innerHTML = note.attachments.map(att => {
-              const isImg = att.type && att.type.startsWith('image');
-              const isAudio = att.type && att.type.startsWith('audio');
-              let preview;
-              if (isImg) {
-                preview = `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />`;
-              } else if (isAudio) {
-                preview = `<audio controls src="${att.data}" style="width:100%;"></audio>`;
-              } else {
-                preview = `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
-              }
-              return `<div class='row' style='justify-content:space-between;align-items:center;'>
-        <div style='flex:1;'>${preview}</div>
-        <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
-      </div>`;
-            }).join('');
-            attList.querySelectorAll('[data-remove]').forEach(b => {
-              b.onclick = () => {
-                const id = b.dataset.remove;
-                note.attachments = note.attachments.filter(x => x.id !== id);
-                save();
-                // Refresh list after deletion
-                if (!note.attachments || note.attachments.length === 0) {
-                  attList.innerHTML = '';
-                } else {
-                  attList.innerHTML = note.attachments.map(att => {
-                    const isImg2 = att.type && att.type.startsWith('image');
-                    const isAudio2 = att.type && att.type.startsWith('audio');
-                    let preview2;
-                    if (isImg2) {
-                      preview2 = `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />`;
-                    } else if (isAudio2) {
-                      preview2 = `<audio controls src="${att.data}" style="width:100%;"></audio>`;
-                    } else {
-                      preview2 = `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
-                    }
-                    return `<div class='row' style='justify-content:space-between;align-items:center;'>
-        <div style='flex:1;'>${preview2}</div>
-        <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
-      </div>`;
-                  }).join('');
-                  // Re-bind remove handlers after updating
-                  attList.querySelectorAll('[data-remove]').forEach(btn => {
-                    btn.onclick = () => {
-                      const id2 = btn.dataset.remove;
-                      note.attachments = note.attachments.filter(x => x.id !== id2);
-                      save();
-                      if (!note.attachments || note.attachments.length === 0) {
-                        attList.innerHTML = '';
-                      } else {
-                        attList.innerHTML = note.attachments.map(att => {
-                          const isImg3 = att.type && att.type.startsWith('image');
-                          const preview3 = isImg3 ? `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />` : `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
-                          return `<div class='row' style='justify-content:space-between;align-items:center;'>
-        <div style='flex:1;'>${preview3}</div>
-        <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
-      </div>`;
-                        }).join('');
-                        // Final re-bind to avoid stale handlers
-                        attList.querySelectorAll('[data-remove]').forEach(reBtn => {
-                          reBtn.onclick = () => {
-                            const id3 = reBtn.dataset.remove;
-                            note.attachments = note.attachments.filter(x => x.id !== id3);
-                            save();
-                            if (!note.attachments || note.attachments.length === 0) {
-                              attList.innerHTML = '';
-                            } else {
-                              attList.innerHTML = note.attachments.map(att => {
-                                const isImg4 = att.type && att.type.startsWith('image');
-                                const preview4 = isImg4 ? `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />` : `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
-                                return `<div class='row' style='justify-content:space-between;align-items:center;'>
-        <div style='flex:1;'>${preview4}</div>
-        <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
-      </div>`;
-                              }).join('');
-                            }
-                          };
-                        });
-                      }
-                    };
-                  });
-                }
-              };
-            });
-          }
-        }
       }
     }
     closeModal();
@@ -4870,14 +4777,20 @@ function openVoiceModal(noteId) {
   const timerEl = document.getElementById('voiceTimer');
   // Recording state
   let chunks = [];
+  let recordedBlob = null;      // the last complete recorded Blob (set in onstop)
   let mediaRecorder = null;
   let timerInterval = null;
   let startTime = 0;
-  // Update timer display
+  const MAX_RECORDING_SECS = 10 * 60; // 10-minute hard limit
+  // Update timer display, auto-stop at limit
   function updateTimer() {
-    const now = Date.now();
-    const elapsed = now - startTime;
+    const elapsed = Date.now() - startTime;
     const secs = Math.floor(elapsed / 1000);
+    if (secs >= MAX_RECORDING_SECS) {
+      // Auto-stop: call stopBtn click to go through normal onstop path
+      if (stopBtn && !stopBtn.disabled) stopBtn.click();
+      return;
+    }
     const mins = String(Math.floor(secs / 60)).padStart(2, '0');
     const sec = String(secs % 60).padStart(2, '0');
     if (timerEl) timerEl.textContent = `${mins}:${sec}`;
@@ -4888,11 +4801,15 @@ function openVoiceModal(noteId) {
       try { mediaRecorder.stop(); } catch (err) { }
     }
     chunks = [];
+    recordedBlob = null;
     if (timerInterval) {
       clearInterval(timerInterval);
       timerInterval = null;
     }
-    if (timerEl) timerEl.textContent = '00:00';
+    if (timerEl) {
+      timerEl.textContent = '00:00';
+      timerEl.classList.remove('rec-active');
+    }
     if (startBtn) startBtn.disabled = false;
     if (stopBtn) stopBtn.disabled = true;
     if (insertBtn) insertBtn.disabled = true;
@@ -4955,19 +4872,22 @@ function openVoiceModal(noteId) {
         mediaRecorder.onstop = () => {
           // When recording stops, create blob and preview
           const blobType = chosenType || 'audio/webm';
-          const blob = new Blob(chunks, { type: blobType });
-          const url = URL.createObjectURL(blob);
+          recordedBlob = new Blob(chunks, { type: blobType });
+          const url = URL.createObjectURL(recordedBlob);
           if (previewEl) previewEl.src = url;
           if (insertBtn) insertBtn.disabled = false;
+          if (timerEl) timerEl.classList.remove('rec-active');
           // Stop capturing from microphone
           stream.getTracks().forEach(t => t.stop());
         };
         // Reset chunks and start recording
+        recordedBlob = null;
         chunks = [];
         mediaRecorder.start();
         startTime = Date.now();
         timerInterval = setInterval(updateTimer, 200);
         startBtn.disabled = true;
+        if (timerEl) timerEl.classList.add('rec-active');
         if (stopBtn) stopBtn.disabled = false;
         if (insertBtn) insertBtn.disabled = true;
       } catch (err) {
@@ -5003,58 +4923,24 @@ function openVoiceModal(noteId) {
   }
   if (insertBtn) {
     insertBtn.onclick = async () => {
-      if (!chunks.length) return;
-      const blob = new Blob(chunks, { type: 'audio/webm' });
-      const dataUrl = await blobToDataURL(blob);
-      const name = `Voice ${new Date().toLocaleString()}.webm`;
+      if (!recordedBlob) return;
+      const mimeType = recordedBlob.type.split(';')[0] || 'audio/webm';
+      const ext = (mimeType.split('/')[1] || 'webm');
+      const dataUrl = await blobToDataURL(recordedBlob);
+      const name = `Voice ${new Date().toLocaleString()}.${ext}`;
       if (noteId === '__draft__') {
         if (!window._draftVoices) window._draftVoices = [];
-        window._draftVoices.push({ id: uid(), name, type: 'audio/webm', data: dataUrl });
+        window._draftVoices.push({ id: uid(), name, type: mimeType, data: dataUrl });
       } else {
         const note = db.notes.find(n => n.id === noteId);
         if (note) {
           if (!note.attachments) note.attachments = [];
-          note.attachments.push({ id: uid(), name, type: 'audio/webm', data: dataUrl });
+          note.attachments.push({ id: uid(), name, type: mimeType, data: dataUrl });
           save();
         }
       }
-      // Update attachments list in open note view
-      if (noteId !== '__draft__') {
-        const attList = document.getElementById('attachments');
-        if (attList) {
-          const note = db.notes.find(n => n.id === noteId);
-          if (note) {
-            attList.innerHTML = (note.attachments || []).map(att => {
-              const isImg = att.type && att.type.startsWith('image');
-              const isAudio = att.type && att.type.startsWith('audio');
-              let preview;
-              if (isImg) {
-                preview = `<img src="${att.data}" alt="${htmlesc(att.name)}" style="max-width:100%;max-height:150px;border:1px solid #203041;border-radius:8px;" />`;
-              } else if (isAudio) {
-                preview = `<audio controls src="${att.data}" style="width:100%;"></audio>`;
-              } else {
-                preview = `<span class='pill' style='margin-right:6px;'>${htmlesc(att.name)}</span>`;
-              }
-              return `<div class='row' style='justify-content:space-between;align-items:center;'>
-        <div style='flex:1;'>${preview}</div>
-        <button class='btn' data-remove='${att.id}' style='font-size:12px;'>Remove</button>
-      </div>`;
-            }).join('');
-            attList.querySelectorAll('[data-remove]').forEach(b => {
-              b.onclick = () => {
-                const id2 = b.dataset.remove;
-                note.attachments = note.attachments.filter(x => x.id !== id2);
-                save();
-                // Remove the row and update list
-                const parent = b.closest('.row');
-                if (parent) parent.remove();
-              };
-            });
-          }
-        }
-      }
-      // After inserting audio, ensure the attachments list is refreshed using the global renderer
-      if(noteId !== '__draft__' && typeof window._renderAttachments === 'function') {
+      // Refresh attachment list via the canonical renderer registered by openNote()
+      if (noteId !== '__draft__' && typeof window._renderAttachments === 'function') {
         window._renderAttachments();
       }
       reset();
@@ -5079,7 +4965,8 @@ function openVoiceModal(noteId) {
         // Create a clone of the blob to maintain consistent type property
         const arrayBuffer = await file.arrayBuffer();
         const blobClone = new Blob([arrayBuffer], { type: file.type || 'audio/mp4' });
-        // Replace chunks with the single blob
+        // Store as recordedBlob so insertBtn handler can use it (and chunks for legacy compat)
+        recordedBlob = blobClone;
         chunks = [blobClone];
         // Update preview
         const url = URL.createObjectURL(blobClone);
