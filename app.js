@@ -4406,7 +4406,7 @@ function openNote(id){
     if(isCtrl && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      doSaveNote();
+      saveBtn.click();
     }
   };
   // Ctrl+Shift+V toggle handler (kept separate for clarity)
