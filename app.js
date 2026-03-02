@@ -1,6 +1,23 @@
 // This file contains all the JavaScript logic for UltraNote Lite.
 // Extracted from the original index.html to improve modularity and maintainability.
 
+// --- Permanent global Ctrl+S interceptor (registered once, never removed) ---
+// Calls window._doSaveNote if a note editor is open.
+// This fires at capture phase before any element-level handler or browser default.
+(function() {
+  function _globalCtrlS(e) {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+      if (typeof window._doSaveNote === 'function') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        window._doSaveNote();
+      }
+    }
+  }
+  document.addEventListener('keydown', _globalCtrlS, { capture: true, passive: false });
+  window.addEventListener('keydown', _globalCtrlS, { capture: true, passive: false });
+})();
+
 // --- Local-first store (now via backend) ---
 const storeKey = "ultranote-lite"; // kept for compatibility
 const nowISO = () => new Date().toISOString();
