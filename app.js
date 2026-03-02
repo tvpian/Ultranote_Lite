@@ -247,17 +247,25 @@ function uid(){ return Math.random().toString(36).slice(2,10); }
 // Debounced save – reduces write frequency
 let _saveTimer; function save(){ clearTimeout(_saveTimer); _saveTimer = setTimeout(()=>persistDB(), 400); }
 
-// Show a brief "✓ Saved" indicator in the bottom-right corner.
-// Subtle and non-intrusive — re-calling while visible resets the timer.
-function showSavedToast() {
+// Show a brief "✓ Saved" indicator anchored just below the given button element.
+// Pass the save button so the toast always appears near where the user clicked/triggered.
+// Re-calling while visible resets the fade timer.
+function showSavedToast(anchorEl) {
+  // Auto-detect the active save button if none supplied
+  if (!anchorEl) {
+    anchorEl = document.getElementById('save') ||
+               document.getElementById('saveDaily') ||
+               document.getElementById('pgSave') ||
+               document.getElementById('draftSave') ||
+               document.getElementById('taskSave') ||
+               document.getElementById('journalSave');
+  }
   let t = document.getElementById('_savedToast');
   if (!t) {
     t = document.createElement('div');
     t.id = '_savedToast';
     t.style.cssText = [
       'position:fixed',
-      'bottom:20px',
-      'right:20px',
       'background:var(--card-bg,#0e1c2b)',
       'border-left:2px solid var(--accent,#4ea1ff)',
       'color:var(--muted,#7da0bb)',
@@ -273,6 +281,19 @@ function showSavedToast() {
     document.body.appendChild(t);
   }
   t.textContent = '✓ Saved';
+  // Position just below the anchor button; fall back to bottom-right
+  if (anchorEl) {
+    const r = anchorEl.getBoundingClientRect();
+    t.style.left = r.left + 'px';
+    t.style.top  = (r.bottom + 6) + 'px';
+    t.style.bottom = 'auto';
+    t.style.right  = 'auto';
+  } else {
+    t.style.bottom = '20px';
+    t.style.right  = '20px';
+    t.style.top    = 'auto';
+    t.style.left   = 'auto';
+  }
   t.style.opacity = '1';
   clearTimeout(t._timer);
   t._timer = setTimeout(() => { t.style.opacity = '0'; }, 1400);
@@ -1246,7 +1267,8 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
         <button id="draftCancel" class="btn">Cancel</button>
       </div>
     </div>`;
-  document.getElementById('draftSave').onclick = () => {
+  document.getElementById('draftSave').onclick = function() {
+    const draftBtn = this;
     const t = document.getElementById('draftTitle').value.trim() || 'Untitled';
     const tags = (document.getElementById('draftTags').value || '').split(/\s+/).map(x => x.startsWith('#') ? x.slice(1) : x).filter(Boolean);
     const newNote = createNote({ title: t, content: document.getElementById('draftContent').value, tags, projectId, type, pinned: document.getElementById('draftPinned').checked });
@@ -1266,7 +1288,7 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
       // Clear the draft voices so they don't leak into subsequent drafts
       window._draftVoices = [];
     }
-    showSavedToast();
+    showSavedToast(draftBtn);
     openNote(newNote.id);
   };
   
@@ -1275,7 +1297,8 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
     if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
       e.stopPropagation();
-      document.getElementById('draftSave').click();
+      const dBtn = document.getElementById('draftSave');
+      if(dBtn) dBtn.click(); // onclick handles showSavedToast
       return false;
     }
   };
@@ -1502,7 +1525,7 @@ function renderToday(){
         </div>
       </div>
     </div>`;
-  $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); showSavedToast(); };
+  $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); showSavedToast($("#saveDaily")); };
   
   // Add Ctrl+S shortcut for daily save
   const dailyKeyHandler = (e) => {
@@ -1551,7 +1574,7 @@ function renderToday(){
   const saveJournal = ()=>{
     if(!journalEl) return;
     updateNote(daily.id, { journal: journalEl.value });
-    showSavedToast();
+    showSavedToast(journalSaveBtn);
     const s=journalSaveStatusEl(); if(s){ s.textContent='Saved ✓'; setTimeout(()=>{ const ss=journalSaveStatusEl(); if(ss) ss.textContent=''; },2000); }
   };
   if(journalSaveBtn) journalSaveBtn.onclick = saveJournal;
@@ -1924,7 +1947,7 @@ function renderToday(){
       e.preventDefault();
       e.stopImmediatePropagation();
       const btn = document.getElementById('saveDaily');
-      if (btn) btn.click();
+      if (btn) { btn.click(); showSavedToast(btn); }
       // Also trigger journal save if present
       const jBtn = document.getElementById('journalSave');
       if (jBtn) jBtn.click();
@@ -3133,7 +3156,7 @@ function openTaskModal(taskId) {
       t.completedAt = allDone ? nowISO() : null;
     }
     save();
-    showSavedToast();
+    showSavedToast(saveBtn);
     modal.classList.remove('show');
     // Re-render relevant views
     render();
@@ -4012,13 +4035,15 @@ function openPageInNotebook(pageId, nbId){
     if((e.ctrlKey||e.metaKey) && e.key==='s'){
       e.preventDefault();
       e.stopPropagation();
-      document.getElementById('pgSave')?.click();
+      const pgBtn = document.getElementById('pgSave');
+      if(pgBtn) pgBtn.click(); // onclick handles showSavedToast
     }
   };
   document.addEventListener('keydown', pgKeyHandler, true);
   window._pgKeyHandler = pgKeyHandler;
 
-  document.getElementById('pgSave').onclick=()=>{
+  document.getElementById('pgSave').onclick=function(){
+    const pgSaveBtn = this;
     const tags=(document.getElementById('pgTags').value||'')
       .split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean);
     updateNote(p.id,{
@@ -4030,7 +4055,7 @@ function openPageInNotebook(pageId, nbId){
     content.querySelectorAll('.nb-toc-item').forEach(el=>{
       if(el.dataset.pageId===p.id) el.textContent=titleEl.value.trim()||'Untitled';
     });
-    showSavedToast();
+    showSavedToast(pgSaveBtn);
     const s=statusEl(); if(s){ s.textContent='Saved \u2713'; setTimeout(()=>{ const ss=statusEl(); if(ss) ss.textContent=''; },2000); }
   };
 
@@ -4253,7 +4278,7 @@ function openNote(id){
     });
     // Mark the note as no longer dirty once it has been saved.
     window._editorDirty = false;
-    showSavedToast();
+    showSavedToast(saveBtn);
   };
   document.getElementById('back').onclick = ()=> _navPop();
   document.getElementById('duplicate').onclick = ()=>{
@@ -4437,8 +4462,8 @@ function openNote(id){
     if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
       e.stopImmediatePropagation(); // prevent any other capture-phase listener from also firing
-      const saveBtn = document.getElementById('save');
-      if(saveBtn) saveBtn.click();
+      const sBtn = document.getElementById('save');
+      if(sBtn) { sBtn.click(); showSavedToast(sBtn); }
       return false;
     }
   };
