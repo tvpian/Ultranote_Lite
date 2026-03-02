@@ -1225,17 +1225,14 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
         <span id="draftSaveStatus" class="muted" style="font-size:11px;"></span>
       </div>
     </div>`;
-  document.getElementById('draftSave').onclick = function() {
-    const draftBtn = this;
+  const doSaveDraft = () => {
     const t = document.getElementById('draftTitle').value.trim() || 'Untitled';
     const tags = (document.getElementById('draftTags').value || '').split(/\s+/).map(x => x.startsWith('#') ? x.slice(1) : x).filter(Boolean);
     const newNote = createNote({ title: t, content: document.getElementById('draftContent').value, tags, projectId, type, pinned: document.getElementById('draftPinned').checked });
     // If there are sketches attached to the draft, assign them as attachments to the new note
     if (window._draftSketches && window._draftSketches.length) {
-      // Clone sketches to avoid reusing the same object reference
       newNote.attachments = window._draftSketches.map(att => ({ ...att }));
       save();
-      // Clear the draft sketches so they don't leak into subsequent drafts
       window._draftSketches = [];
     }
     // If there are voices attached to the draft, append them as attachments
@@ -1243,20 +1240,18 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
       if (!newNote.attachments) newNote.attachments = [];
       newNote.attachments = newNote.attachments.concat(window._draftVoices.map(att => ({ ...att })));
       save();
-      // Clear the draft voices so they don't leak into subsequent drafts
       window._draftVoices = [];
     }
-    showSavedToast('draftSaveStatus');
     openNote(newNote.id);
   };
+  document.getElementById('draftSave').onclick = doSaveDraft;
   
   // Add Ctrl+S shortcut for draft save
   const draftKeyHandler = (e) => {
     if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
       e.stopPropagation();
-      const dBtn = document.getElementById('draftSave');
-      if(dBtn) dBtn.click(); // onclick handles showSavedToast
+      doSaveDraft();
       return false;
     }
   };
@@ -1484,14 +1479,15 @@ function renderToday(){
         </div>
       </div>
     </div>`;
-  $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); showSavedToast('dailySaveStatus'); };
+  const doSaveDaily = () => { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); showSavedToast('dailySaveStatus'); };
+  $("#saveDaily").onclick = doSaveDaily;
   
   // Add Ctrl+S shortcut for daily save
   const dailyKeyHandler = (e) => {
     if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
       e.stopPropagation();
-      $("#saveDaily").click();
+      doSaveDaily();
       return false;
     }
   };
@@ -1904,8 +1900,7 @@ function renderToday(){
     if (isCtrl && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      const btn = document.getElementById('saveDaily');
-      if (btn) btn.click(); // onclick handles showSavedToast
+      doSaveDaily();
       // Also trigger journal save if present
       const jBtn = document.getElementById('journalSave');
       if (jBtn) jBtn.click();
@@ -3988,19 +3983,7 @@ function openPageInNotebook(pageId, nbId){
     document.removeEventListener('keydown', window._pgKeyHandler, true);
     document.removeEventListener('keydown', window._pgKeyHandler);
   }
-  const pgKeyHandler=e=>{
-    if((e.ctrlKey||e.metaKey) && e.key==='s'){
-      e.preventDefault();
-      e.stopPropagation();
-      const pgBtn = document.getElementById('pgSave');
-      if(pgBtn) pgBtn.click(); // onclick handles showSavedToast
-    }
-  };
-  document.addEventListener('keydown', pgKeyHandler, true);
-  window._pgKeyHandler = pgKeyHandler;
-
-  document.getElementById('pgSave').onclick=function(){
-    const pgSaveBtn = this;
+  const doSavePage = () => {
     const tags=(document.getElementById('pgTags').value||'')
       .split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean);
     updateNote(p.id,{
@@ -4008,12 +3991,22 @@ function openPageInNotebook(pageId, nbId){
       content: contentEl.value,
       tags
     });
-    // Update TOC label without full re-render
     content.querySelectorAll('.nb-toc-item').forEach(el=>{
       if(el.dataset.pageId===p.id) el.textContent=titleEl.value.trim()||'Untitled';
     });
     const s=statusEl(); if(s){ s.textContent='Saved \u2713'; setTimeout(()=>{ const ss=statusEl(); if(ss) ss.textContent=''; },2000); }
   };
+  const pgKeyHandler=e=>{
+    if((e.ctrlKey||e.metaKey) && e.key==='s'){
+      e.preventDefault();
+      e.stopPropagation();
+      doSavePage();
+    }
+  };
+  document.addEventListener('keydown', pgKeyHandler, true);
+  window._pgKeyHandler = pgKeyHandler;
+
+  document.getElementById('pgSave').onclick = doSavePage;
 
   document.getElementById('pgDelete').onclick=async()=>{
     const ok=await showConfirm(`Delete page "${p.title}"? It can be restored from Review.`,'Delete','Cancel');
@@ -4222,7 +4215,7 @@ function openNote(id){
     });
   }
   const saveBtn = document.getElementById('save');
-  saveBtn.onclick = () => {
+  const doSaveNote = () => {
     const tagText = document.getElementById('tags').value;
     const tags = tagText ? tagText.split(/\s+/).map(t => t.startsWith('#') ? t.slice(1) : t).filter(Boolean) : [];
     const selectedProjectId = document.getElementById('noteProject')?.value || null;
@@ -4233,10 +4226,10 @@ function openNote(id){
       pinned: document.getElementById('pinned').checked,
       projectId: selectedProjectId || null
     });
-    // Mark the note as no longer dirty once it has been saved.
     window._editorDirty = false;
     showSavedToast('noteSaveStatus');
   };
+  saveBtn.onclick = doSaveNote;
   document.getElementById('back').onclick = ()=> _navPop();
   document.getElementById('duplicate').onclick = ()=>{
     const copy = createNote({
@@ -4419,9 +4412,7 @@ function openNote(id){
     if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      const sBtn = document.getElementById('save');
-      if(sBtn) sBtn.click();
-      showSavedToast('noteSaveStatus');
+      doSaveNote();
       return false;
     }
   };
