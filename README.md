@@ -141,7 +141,7 @@ This means your notes are versioned independently of the code, you can roll back
 
 ### Step 1 — Create the backup repo
 
-Create a new **private** repo on GitHub named `ultranote-backup` (no README, no .gitignore).
+The backup repo is already created: `git@github.com:tvpian/Ultranote_Data.git`
 
 ### Step 2 — Generate an SSH key on the server
 
@@ -173,7 +173,7 @@ Host github-backup
 ### Step 5 — Clone the backup repo
 
 ```bash
-git clone git@github-backup:YOUR_GITHUB_USERNAME/ultranote-backup.git ~/ultranote-backup
+git clone git@github-backup:tvpian/Ultranote_Data.git ~/ultranote-backup
 ```
 
 ### Step 6 — Run a test backup
