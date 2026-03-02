@@ -173,7 +173,7 @@ Host github-backup
 ### Step 5 — Clone the backup repo
 
 ```bash
-git clone git@github-backup:tvpian/Ultranote_Data.git ~/ultranote-backup
+git clone git@github-backup:tvpian/Ultranote_Data.git ~/ultranote-data
 ```
 
 ### Step 6 — Run a test backup
