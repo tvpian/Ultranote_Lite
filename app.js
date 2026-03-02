@@ -247,56 +247,21 @@ function uid(){ return Math.random().toString(36).slice(2,10); }
 // Debounced save – reduces write frequency
 let _saveTimer; function save(){ clearTimeout(_saveTimer); _saveTimer = setTimeout(()=>persistDB(), 400); }
 
-// Show a brief "✓ Saved" indicator anchored just below the given button element.
-// Pass the save button so the toast always appears near where the user clicked/triggered.
-// Re-calling while visible resets the fade timer.
-function showSavedToast(anchorEl) {
-  // Auto-detect the active save button if none supplied
-  if (!anchorEl) {
-    anchorEl = document.getElementById('save') ||
-               document.getElementById('saveDaily') ||
-               document.getElementById('pgSave') ||
-               document.getElementById('draftSave') ||
-               document.getElementById('taskSave') ||
-               document.getElementById('journalSave');
-  }
-  let t = document.getElementById('_savedToast');
-  if (!t) {
-    t = document.createElement('div');
-    t.id = '_savedToast';
-    t.style.cssText = [
-      'position:fixed',
-      'background:var(--card-bg,#0e1c2b)',
-      'border-left:2px solid var(--accent,#4ea1ff)',
-      'color:var(--muted,#7da0bb)',
-      'padding:4px 10px',
-      'border-radius:3px',
-      'font-size:12px',
-      'font-weight:500',
-      'z-index:99999',
-      'pointer-events:none',
-      'transition:opacity 0.3s',
-      'opacity:0'
-    ].join(';');
-    document.body.appendChild(t);
-  }
-  t.textContent = '✓ Saved';
-  // Position just below the anchor button; fall back to bottom-right
-  if (anchorEl) {
-    const r = anchorEl.getBoundingClientRect();
-    t.style.left = r.left + 'px';
-    t.style.top  = (r.bottom + 6) + 'px';
-    t.style.bottom = 'auto';
-    t.style.right  = 'auto';
-  } else {
-    t.style.bottom = '20px';
-    t.style.right  = '20px';
-    t.style.top    = 'auto';
-    t.style.left   = 'auto';
-  }
-  t.style.opacity = '1';
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 1400);
+// Show inline "Saved ✓" confirmation — same style as the journal section.
+// Finds the active status span in the current view automatically.
+function showSavedToast() {
+  // Remove any leftover floating toast from the old implementation
+  const old = document.getElementById('_savedToast');
+  if (old) old.remove();
+  // Find whichever status span is currently in the DOM
+  const span = document.getElementById('noteSaveStatus') ||
+               document.getElementById('pgSaveStatus') ||
+               document.getElementById('dailySaveStatus') ||
+               document.getElementById('draftSaveStatus');
+  if (!span) return;
+  span.textContent = 'Saved ✓';
+  clearTimeout(span._savedTimer);
+  span._savedTimer = setTimeout(() => { if (span.textContent === 'Saved ✓') span.textContent = ''; }, 2000);
 }
 
 // ------------------------------------------------------------------
@@ -1265,6 +1230,7 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
       <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;">
         <button id="draftSave" class="btn acc">Save</button>
         <button id="draftCancel" class="btn">Cancel</button>
+        <span id="draftSaveStatus" class="muted" style="font-size:11px;"></span>
       </div>
     </div>`;
   document.getElementById('draftSave').onclick = function() {
@@ -1288,7 +1254,7 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
       // Clear the draft voices so they don't leak into subsequent drafts
       window._draftVoices = [];
     }
-    showSavedToast(draftBtn);
+    showSavedToast();
     openNote(newNote.id);
   };
   
@@ -1451,6 +1417,7 @@ function renderToday(){
           <option value="">Apply Template...</option>
           ${db.templates.map(t=>`<option value="${t.id}">${htmlesc(t.name)}</option>`).join("")}
         </select>
+        <span id="dailySaveStatus" class="muted" style="font-size:11px;"></span>
       </div>
       <div class="muted" style="margin-top:6px;font-size:11px;">${key===todayKey()? 'Current day' : 'Viewing: '+ new Date(key+"T00:00:00").toDateString()}</div>
     </div>
@@ -1525,7 +1492,7 @@ function renderToday(){
         </div>
       </div>
     </div>`;
-  $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); showSavedToast($("#saveDaily")); };
+  $("#saveDaily").onclick = ()=> { updateNote(daily.id, { title: $("#dailyTitle").value, content: $("#dailyContent").value }); showSavedToast(); };
   
   // Add Ctrl+S shortcut for daily save
   const dailyKeyHandler = (e) => {
@@ -1574,7 +1541,6 @@ function renderToday(){
   const saveJournal = ()=>{
     if(!journalEl) return;
     updateNote(daily.id, { journal: journalEl.value });
-    showSavedToast(journalSaveBtn);
     const s=journalSaveStatusEl(); if(s){ s.textContent='Saved ✓'; setTimeout(()=>{ const ss=journalSaveStatusEl(); if(ss) ss.textContent=''; },2000); }
   };
   if(journalSaveBtn) journalSaveBtn.onclick = saveJournal;
@@ -1947,7 +1913,7 @@ function renderToday(){
       e.preventDefault();
       e.stopImmediatePropagation();
       const btn = document.getElementById('saveDaily');
-      if (btn) { btn.click(); showSavedToast(btn); }
+      if (btn) btn.click(); // onclick handles showSavedToast
       // Also trigger journal save if present
       const jBtn = document.getElementById('journalSave');
       if (jBtn) jBtn.click();
@@ -3156,7 +3122,6 @@ function openTaskModal(taskId) {
       t.completedAt = allDone ? nowISO() : null;
     }
     save();
-    showSavedToast(saveBtn);
     modal.classList.remove('show');
     // Re-render relevant views
     render();
@@ -4055,7 +4020,6 @@ function openPageInNotebook(pageId, nbId){
     content.querySelectorAll('.nb-toc-item').forEach(el=>{
       if(el.dataset.pageId===p.id) el.textContent=titleEl.value.trim()||'Untitled';
     });
-    showSavedToast(pgSaveBtn);
     const s=statusEl(); if(s){ s.textContent='Saved \u2713'; setTimeout(()=>{ const ss=statusEl(); if(ss) ss.textContent=''; },2000); }
   };
 
@@ -4244,12 +4208,13 @@ function openNote(id){
         </div>
         <div id="linkedNotesList" class="list" style="margin-top:6px;"></div>
       </div>
-      <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;">
+      <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;align-items:center;">
         <button id="save" class="btn acc">Save</button>
         <button id="back" class="btn">Back</button>
         <button id="duplicate" class="btn">Duplicate</button>
         <button id="export" class="btn">Export</button>
         <button id="delete" class="btn" style="border-color:#ff6b6b;color:#ff6b6b;">Delete</button>
+        <span id="noteSaveStatus" class="muted" style="font-size:11px;"></span>
       </div>`;
   // Bind the markdown toolbar to the content box
   bindMarkdownToolbar('contentBox');
@@ -4278,7 +4243,7 @@ function openNote(id){
     });
     // Mark the note as no longer dirty once it has been saved.
     window._editorDirty = false;
-    showSavedToast(saveBtn);
+    showSavedToast();
   };
   document.getElementById('back').onclick = ()=> _navPop();
   document.getElementById('duplicate').onclick = ()=>{
@@ -4463,7 +4428,7 @@ function openNote(id){
       e.preventDefault();
       e.stopImmediatePropagation(); // prevent any other capture-phase listener from also firing
       const sBtn = document.getElementById('save');
-      if(sBtn) { sBtn.click(); showSavedToast(sBtn); }
+      if(sBtn) { sBtn.click(); }
       return false;
     }
   };
