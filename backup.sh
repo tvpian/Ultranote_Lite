@@ -13,7 +13,7 @@
 set -euo pipefail
 
 SOURCE="/media/mbwh/pop/tvp_ws/note_taking_app/data.json"
-BACKUP_REPO="${HOME}/ultranote-backup"
+BACKUP_REPO="${HOME}/ultranote-data"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
 # Guard: source file must exist
@@ -32,6 +32,9 @@ fi
 cp "$SOURCE" "$BACKUP_REPO/data.json"
 
 cd "$BACKUP_REPO"
+
+# Pull remote changes first to avoid conflicts from concurrent pushes
+git pull --rebase --quiet origin main 2>/dev/null || true
 
 # Nothing changed — skip commit
 if git diff --quiet data.json; then
