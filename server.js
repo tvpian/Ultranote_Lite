@@ -2,10 +2,12 @@ const express  = require('express');
 const fs       = require('fs');
 const path     = require('path');
 const session  = require('express-session');
+const FileStore = require('session-file-store')(session);
 
 const app      = express();
 const PORT     = process.env.PORT || 3366;
 const DATA_FILE = path.join(__dirname, 'data.json');
+const SESSIONS_DIR = path.join(__dirname, '.sessions');
 
 const MAX_ATTEMPTS = 5;          // tries before temporary lockout
 const LOCK_MS = 2 * 60 * 1000;   // 2 minutes lock
@@ -13,6 +15,20 @@ const LOCK_MS = 2 * 60 * 1000;   // 2 minutes lock
 
 // Password for first‑time visitors: set via env or fallback
 const APP_PASSWORD = process.env.APP_PASSWORD || 'change-me';
+// Session secret: prefer env var; fall back to a stable file-based secret so
+// existing cookies still validate across restarts without forcing re-login.
+const SESSION_SECRET = process.env.SESSION_SECRET || (() => {
+  const secretFile = path.join(__dirname, '.session-secret');
+  try {
+    if (fs.existsSync(secretFile)) return fs.readFileSync(secretFile, 'utf8').trim();
+    const generated = require('crypto').randomBytes(48).toString('hex');
+    fs.writeFileSync(secretFile, generated, { mode: 0o600 });
+    return generated;
+  } catch (e) {
+    console.warn('Could not persist session secret, using ephemeral one:', e.message);
+    return require('crypto').randomBytes(48).toString('hex');
+  }
+})();
 
 // Whitelisted IPs (always allow loopback)
 const allowedIps = new Set(['127.0.0.1', '::1', '26.57.15.177']);
@@ -22,14 +38,23 @@ const allowedIps = new Set(['127.0.0.1', '::1', '26.57.15.177']);
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
-// Session middleware – the session data lives server‑side with improved persistence
+// Session middleware – sessions persisted to disk via session-file-store so
+// pm2 restarts and code reloads no longer log every device out.
 app.use(session({
-  secret: 'ultranote-session-secret',
+  store: new FileStore({
+    path: SESSIONS_DIR,
+    retries: 1,
+    ttl: 24 * 60 * 60,        // seconds — match cookie maxAge
+    reapInterval: 60 * 60,    // hourly cleanup of expired session files
+    logFn: () => {}           // silence verbose info logs; errors still surface
+  }),
+  secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: { 
     secure: false,    // Set to true if using HTTPS
     httpOnly: true,   // Prevent XSS attacks
+    sameSite: 'lax',  // mitigate CSRF on top-level navigations
     maxAge: 24 * 60 * 60 * 1000 // 24 hours (instead of session-only)
   }
 }));
@@ -268,12 +293,32 @@ function readData() {
 
 function writeData(obj) {
   try {
-    // Keep a rolling backup (.bak) before overwriting so a single bad write
-    // never destroys the only copy.
+    // Rotate daily backups: .bak (most recent) → .bak.1 → .bak.2 → … → .bak.7.
+    // This way a single bad write can be recovered from any of the last 7 known-good
+    // snapshots instead of just one. The shift is best-effort: a failure to rotate
+    // never blocks the actual write.
     if (fs.existsSync(DATA_FILE)) {
-      fs.copyFileSync(DATA_FILE, DATA_FILE + '.bak');
+      try {
+        for (let i = 6; i >= 1; i--) {
+          const src = `${DATA_FILE}.bak.${i}`;
+          const dst = `${DATA_FILE}.bak.${i + 1}`;
+          if (fs.existsSync(src)) fs.renameSync(src, dst);
+        }
+        if (fs.existsSync(`${DATA_FILE}.bak`)) {
+          fs.renameSync(`${DATA_FILE}.bak`, `${DATA_FILE}.bak.1`);
+        }
+        fs.copyFileSync(DATA_FILE, `${DATA_FILE}.bak`);
+      } catch (rotErr) {
+        console.warn('Backup rotation warning:', rotErr.message);
+      }
     }
-    fs.writeFileSync(DATA_FILE, JSON.stringify(obj, null, 2));
+    // Atomic write: write to a temp file in the same directory, then rename.
+    // rename() on POSIX is atomic within a filesystem, so a crash mid-write can
+    // never leave data.json truncated or partially-written. Worst case: the temp
+    // file lingers and the previous data.json is preserved untouched.
+    const tmp = `${DATA_FILE}.tmp.${process.pid}.${Date.now()}`;
+    fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
+    fs.renameSync(tmp, DATA_FILE);
     return true;
   } catch (e) {
     console.error('Write error', e);

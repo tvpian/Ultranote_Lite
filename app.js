@@ -74,7 +74,7 @@ function createDailyNoteFor(dateKey, contentOverride){
         carryTasks.forEach(t => {
           // Move the task to the new daily note rather than duplicating it
           t.noteId = daily.id;
-          t.createdAt = nowISO();
+          t.updatedAt = nowISO();
         });
         if(carryTasks.length) save();
       }
@@ -87,7 +87,7 @@ function createDailyNoteFor(dateKey, contentOverride){
       // Move existing project tasks to the new daily note rather than cloning them
       projectPool.forEach(t=>{
         t.noteId = daily.id;
-        t.createdAt = nowISO();
+        t.updatedAt = nowISO();
       });
       if(projectPool.length) save();
     }
@@ -97,15 +97,16 @@ function createDailyNoteFor(dateKey, contentOverride){
   syncMonthlyTasksToDaily(daily, dateKey);
   return daily;
 }
-// NEW: unified handler to open or create the selected daily note (deferred creation)
+// NEW: unified handler to open or create the selected daily note
 function createOrOpenDaily(){
-  const dateInput = document.getElementById('dailyDateNav');
   const today = todayKey();
-  let key = (dateInput && dateInput.value) ? dateInput.value : (selectedDailyDate || today);
-  if(key > today) key = today; // prevent future
-  selectedDailyDate = key;
-  // Do NOT auto-create daily note here; only render view; creation happens on user Save
-  route='today';
+  // Always snap to today when the user hits this button
+  selectedDailyDate = today;
+  // Auto-create if it doesn't exist yet — no prompting needed for today
+  if (!db.notes.find(n => n.type === 'daily' && n.dateIndex === today && !n.deletedAt)) {
+    createDailyNoteFor(today);
+  }
+  route = 'today';
   render();
 }
 
@@ -163,10 +164,17 @@ async function persistDB(){
             if (!Array.isArray(db[k])) { db[k] = result.db[k]; return; }
             // Update items in-place so open closures (e.g. openNote's `n` reference) stay valid.
             // Replacing the whole array would detach the captured `n` and lose unsaved attachment pushes.
+            // SAFETY: only update a local item from the server response if the server version is
+            // strictly newer. This prevents a stale POST response (sent before a sketch/attachment
+            // was added) from overwriting the freshly-mutated local item.
             result.db[k].forEach(serverItem => {
               const idx = db[k].findIndex(x => x.id === serverItem.id);
               if (idx >= 0) {
-                Object.assign(db[k][idx], serverItem);
+                const localTs  = Date.parse(db[k][idx].updatedAt  || db[k][idx].createdAt  || 0);
+                const serverTs = Date.parse(serverItem.updatedAt || serverItem.createdAt || 0);
+                if (serverTs > localTs) {
+                  Object.assign(db[k][idx], serverItem);
+                }
               } else {
                 db[k].push(serverItem);
               }
@@ -440,6 +448,11 @@ async function initApp(){
     if (localData) {
       const COLS = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
       const tsOf = r => Date.parse(r.updatedAt || r.createdAt || 0);
+      // Heuristic: a note/record with real user content is more valuable than a
+      // template-only version, regardless of timestamp. Auto-created daily notes
+      // get fresh updatedAt but only template content, which should never overwrite
+      // a server copy that has actual user-written data.
+      const contentLen = r => ((r.content || '') + (r.journal || '') + (r.description || '')).length;
       COLS.forEach(k => {
         const sArr = Array.isArray(serverData[k]) ? serverData[k] : [];
         const lArr = Array.isArray(localData[k])  ? localData[k]  : [];
@@ -449,6 +462,10 @@ async function initApp(){
           const s = map.get(r.id);
           if (!s) { map.set(r.id, r); return; }                 // new local record → add
           if (r.deletedAt && !s.deletedAt) { map.set(r.id, r); return; } // local delete → honor
+          // Never let a local record with less content overwrite a server record
+          // that has substantive content — this prevents auto-created template notes
+          // from clobbering real data saved from another device.
+          if (contentLen(s) > 100 && contentLen(r) < contentLen(s)) return; // keep server
           if (!s.deletedAt && tsOf(r) > tsOf(s)) map.set(r.id, r);     // local is genuinely newer
         });
         serverData[k] = Array.from(map.values());
@@ -476,6 +493,12 @@ async function initApp(){
   migrateDB();
   // Ensure theme setting exists (default to dark)
   if(!db.settings.theme){ db.settings.theme = 'dark'; }
+  // Auto-create today's daily note if it doesn't exist yet so the first
+  // render always shows the note editor rather than the "Create Daily" prompt.
+  const _todayKey = todayKey();
+  if (!db.notes.find(n => n.type === 'daily' && n.dateIndex === _todayKey && !n.deletedAt)) {
+    createDailyNoteFor(_todayKey);
+  }
   // Draw initial UI
   drawProjectsSidebar();
   applyTheme();
@@ -1401,6 +1424,13 @@ function renderToday(){
       return (priorities[b.priority] || 2) - (priorities[a.priority] || 2);
     });
   if(!daily){
+    // For today: silently auto-create so the user always lands directly in the editor.
+    // For past/future dates: still show the prompt so it's an explicit action.
+    if (key === todayKey()) {
+      createDailyNoteFor(key);
+      renderToday(); // re-enter now that the note exists
+      return;
+    }
     const tpl = db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n";
     content.innerHTML = `
       <div class='card'>
@@ -1708,6 +1738,7 @@ function renderToday(){
   function drawTasks(){
     const list = $("#taskList"); if(!list) return;
     const todayStr = todayKey();
+    // --- Main task list ---
     const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG' && !t.deletedAt)
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
     list.innerHTML = tasks.map(t=> {
@@ -1738,14 +1769,15 @@ function renderToday(){
     list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); drawBacklog(); });
     list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
     list.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{ openTaskModal(b.dataset.edit); });
-    // Due/overdue summary banner — lists task titles so user can locate them
+    // --- Overdue/due-today summary banner (informational) ---
+    // Tasks already appear in their normal lists (today, unfinished, projects) with
+    // OVERDUE pills and checkboxes. The banner is just a heads-up summary.
     const banner = document.getElementById('dueBanner');
     if(banner) {
       const allOpen = (db.tasks||[]).filter(t => t.status==='TODO' && !t.deletedAt && t.due);
       const overdueList  = allOpen.filter(t => t.due < todayStr);
       const dueTodayList = allOpen.filter(t => t.due === todayStr);
       if(overdueList.length || dueTodayList.length) {
-        // Helper: describe where a task lives
         const taskSource = t => {
           if(t.projectId){ const p = (db.projects||[]).find(p=>p.id===t.projectId); return p ? `project: ${htmlesc(p.name)}` : 'project'; }
           if(t.noteId){ const n = (db.notes||[]).find(n=>n.id===t.noteId); return n && n.dateIndex ? n.dateIndex : 'note'; }
@@ -1768,11 +1800,10 @@ function renderToday(){
         banner.innerHTML = '';
       }
     }
-    // Unfinished tasks from the previous 7 days (non-recurring daily tasks only)
+    // Unfinished tasks from ALL previous daily notes (non-recurring daily tasks only)
     const prevList = document.getElementById('prevTaskList');
     if(prevList) {
-      const cutoffStr = new Date(new Date(todayStr+'T00:00:00').getTime() - 7*86400000).toISOString().slice(0,10);
-      const prevDayIds = new Set((db.notes||[]).filter(n => n.type==='daily' && !n.deletedAt && n.dateIndex >= cutoffStr && n.dateIndex < todayStr).map(n => n.id));
+      const prevDayIds = new Set((db.notes||[]).filter(n => n.type==='daily' && !n.deletedAt && n.dateIndex < todayStr).map(n => n.id));
       const monthlyTitles = new Set((db.monthly||[]).filter(m => !m.deletedAt).map(m => m.title.toLowerCase()));
       const prevTasks = (db.tasks||[]).filter(t =>
         t.status==='TODO' && !t.deletedAt && !t.projectId &&
@@ -1785,12 +1816,14 @@ function renderToday(){
         const arrow = collapsed ? '▶' : '▼';
         const taskRows = collapsed ? '' : prevTasks.map(t => {
           const noteDate = (db.notes||[]).find(n => n.id === t.noteId)?.dateIndex || '';
+          const proj = t.projectId ? (db.projects||[]).find(p => p.id === t.projectId) : null;
+          const source = proj ? proj.name : noteDate;
           const ds = dueStatus(t.due);
           let dp = t.due ? (ds==='overdue' ? `<span class='pill' style='background:#ff4444;color:#fff;font-size:10px;'>OVERDUE</span>` : `<span class='pill' style='font-size:10px;'>${formatDateString(t.due)}</span>`) : '';
           return `<div class='row' style='justify-content:space-between;'>
             <label class='row' style='gap:8px;cursor:pointer;'>
               <input type='checkbox' data-pid='${t.id}'/>
-              <span style='font-size:13px;border-left:2px dashed var(--btn-border);padding-left:8px;'>${htmlesc(t.title)} ${dp}<span class='pill' style='font-size:10px;opacity:0.6;'>from ${noteDate}</span></span>
+              <span style='font-size:13px;border-left:2px dashed var(--btn-border);padding-left:8px;'>${htmlesc(t.title)} ${dp}${source ? `<span class='pill' style='font-size:10px;opacity:0.6;'>from ${htmlesc(source)}</span>` : ''}</span>
             </label>
             <button class='btn' data-pdel='${t.id}' style='font-size:11px;' title='Dismiss'>✕</button>
           </div>`;
@@ -4381,6 +4414,12 @@ function openNote(id){
       }))).then(newAtts => {
         if (!n.attachments) n.attachments = [];
         newAtts.forEach(att => n.attachments.push(att));
+        // Stamp updatedAt so the autosync / persistDB response merges correctly
+        // identify this local version as the newest and don't overwrite it.
+        n.updatedAt = nowISO();
+        // Mark that a local attachment save has occurred so the background-fetch
+        // does not overwrite these newly added attachments.
+        if (typeof window._notifyAttachmentSaved === 'function') window._notifyAttachmentSaved();
         save();
         renderAttachmentsList();
       });
@@ -4390,14 +4429,21 @@ function openNote(id){
   // Expose attachment renderer so other modals (e.g., voice, sketch) can refresh attachments
   window._renderAttachments = renderAttachmentsList;
 
+  // Flag set to true the moment any attachment is saved locally (file, sketch, voice).
+  // Used to prevent the background-fetch from clobbering a freshly-added attachment.
+  let localAttachmentsSaved = false;
+  window._notifyAttachmentSaved = () => { localAttachmentsSaved = true; };
+
   // Background-fetch the latest server state so changes saved on another device
   // (e.g. a voice note recorded on the phone) are visible immediately when this
   // note is opened on the PC.  We update only the attachments on the live `n`
   // object so the editor content is not disturbed.
+  // Skip the overwrite if the user has already saved attachments locally in this
+  // session to avoid a race that erases just-added sketches / files.
   (async () => {
     try {
       const fresh = await fetchDB();
-      if (fresh && Array.isArray(fresh.notes)) {
+      if (fresh && Array.isArray(fresh.notes) && !localAttachmentsSaved) {
         const freshNote = fresh.notes.find(x => x.id === id);
         if (freshNote && freshNote.attachments) {
           n.attachments = freshNote.attachments;
@@ -4668,6 +4714,10 @@ function openSketchModal(noteId) {
         if (!note.attachments) note.attachments = [];
         const sketchName = `Sketch ${note.attachments.length + 1}.png`;
         note.attachments.push({ id: uid(), name: sketchName, type: 'image/png', data: dataURL });
+        // Stamp updatedAt so merge logic knows local is newest, preventing overwrite.
+        note.updatedAt = nowISO();
+        // Notify openNote's background-fetch guard so it won't overwrite this new sketch.
+        if (typeof window._notifyAttachmentSaved === 'function') window._notifyAttachmentSaved();
         save();
         // Trigger global attachment re-renderer if available to ensure voice/sketch coexist
         if (typeof window._renderAttachments === 'function') {
@@ -4992,6 +5042,10 @@ function openVoiceModal(noteId) {
         if (note) {
           if (!note.attachments) note.attachments = [];
           note.attachments.push({ id: uid(), name, type: mimeType, data: dataUrl });
+          // Stamp updatedAt so merge logic knows local is newest, preventing overwrite.
+          note.updatedAt = nowISO();
+          // Notify openNote's background-fetch guard so it won't overwrite this new voice note.
+          if (typeof window._notifyAttachmentSaved === 'function') window._notifyAttachmentSaved();
           save();
         }
       }
@@ -5241,65 +5295,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ------------------------------------------------------------------
-// Background sync: periodically fetch latest DB from server
-// to reflect changes made from other devices or tabs. If the
-// remote DB differs from the current in-memory state, we update
-// our local DB, apply the theme, redraw sidebar and rerender the
-// current route. This runs every 10 seconds.
-setInterval(async () => {
-  try {
-    // If auto reload is disabled in settings, skip periodic sync entirely. This helps avoid
-    // interference while the user is actively editing notes or experiencing glitches.
-    if(db && db.settings && db.settings.autoReload === false) return;
-    const remote = await fetchDB().catch(() => null);
-    if (!remote) return;
-    // Deep equality check via JSON string
-    const localStr = JSON.stringify(db);
-    const remoteStr = JSON.stringify(remote);
-    if (localStr === remoteStr) return;
-    // Always load the remote snapshot
-    db = remote;
-    // Re-filter hard-deleted items that the remote snapshot may still carry
-    const _hd = window._hardDeletedIds || new Set();
-    if(_hd.size > 0){
-      db.tasks  = (db.tasks  || []).filter(t => !_hd.has(t.id));
-      db.notes  = (db.notes  || []).filter(n => !_hd.has(n.id));
-      db.notebooks = (db.notebooks || []).filter(nb => !_hd.has(nb.id));
-    }
-    // Ensure any missing collections are initialized
-    ['notes','tasks','projects','templates','settings','links','monthly'].forEach(k => {
-      if (!db[k]) db[k] = Array.isArray(seed[k]) ? [] : {};
-    });
-    if(!db.notebooks) db.notebooks = [];
-    // If a note is currently open, preserve its state on sync
-    if (window._openNoteId) {
-      // When the user has unsaved edits, merge them into the fresh DB snapshot before re‑rendering
-      if (window._editorDirty) {
-        const editingNote = db.notes.find(x => x.id === window._openNoteId);
-        const titleEl = document.getElementById('title');
-        const contentEl = document.getElementById('contentBox');
-        if (editingNote) {
-          if (titleEl) editingNote.title = titleEl.value;
-          if (contentEl) editingNote.content = contentEl.value;
-        }
-      }
-      // Reapply theme and sidebar updates
-      applyTheme();
-      drawProjectsSidebar();
-      // Re‑open the same note so the editor remains visible
-      openNote(window._openNoteId);
-    } else if (window._isTypingInForm) {
-      // User is actively typing in a form - skip re-rendering to avoid interruption
-      // Still update the data but preserve the UI state
-      applyTheme();
-      drawProjectsSidebar();
-    } else {
-      // For all other routes, simply re‑render
-      applyTheme();
-      drawProjectsSidebar();
-      render();
-    }
-  } catch (err) {
-    console.warn('Periodic sync failed', err);
-  }
-}, 10000);
+// Periodic sync is owned exclusively by autosync.js (startAutoSync), which
+// performs a content-aware merge that respects in-progress edits and never
+// wholesale-replaces the local db with stale server data.
+//
+// A second polling loop used to live here that did `db = remote` every 10s
+// — that was destructive: if the user had unsaved edits or persistDB() had
+// not yet flushed, the next tick would overwrite the in-memory db with
+// older server state, and then the next save would push that older state
+// back to the server, causing real data loss (see daily-notes bug 2026-05-18).
+// The loop has been intentionally removed. Do not re-add a second sync loop
+// here without coordinating with autosync.js — they will race.
+// ------------------------------------------------------------------

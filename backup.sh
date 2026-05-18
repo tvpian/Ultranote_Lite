@@ -8,11 +8,14 @@
 #        chmod +x backup.sh
 #   3. Add a cron job for daily midnight backup:
 #        crontab -e
-#        Add: 0 0 * * * /media/mbwh/pop/tvp_ws/note_taking_app/backup.sh >> /media/mbwh/pop/tvp_ws/note_taking_app/backup.log 2>&1
+#        Add: 0 0 * * * /media/mbwh/pop1/tvp_ws/note_taking_app/backup.sh >> /media/mbwh/pop1/tvp_ws/note_taking_app/backup.log 2>&1
 
 set -euo pipefail
 
-SOURCE="/media/mbwh/pop/tvp_ws/note_taking_app/data.json"
+# Resolve SOURCE relative to this script so the path keeps working if the
+# parent drive is renamed (e.g. /media/mbwh/pop -> /media/mbwh/pop1).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE="$SCRIPT_DIR/data.json"
 BACKUP_REPO="${HOME}/.local/share/ultranote-data"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 

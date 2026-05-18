@@ -8,6 +8,7 @@
     const tb = Date.parse(b?.updatedAt || b?.createdAt || 0);
     return tb > ta;
   }
+  function _contentLen(r){ return ((r.content||'')+(r.journal||'')+(r.description||'')).length; }
   function _mergeArrayById(localArr=[], remoteArr=[]){
     // Never re-add items that were hard-deleted this session
     const hardDeleted = (typeof window !== 'undefined' && window._hardDeletedIds) ? window._hardDeletedIds : new Set();
@@ -18,13 +19,15 @@
       const l = out.get(r.id);
       if(!l){ out.set(r.id,{...r}); return; }
       if(l.deletedAt || r.deletedAt){
-        // Pick the item that was modified more recently as the base, then force deletedAt so
-        // a deletion from either side always wins. _isNewer(l,r) returns true when remote (r)
-        // is newer, so we take r in that case.
         const newer = _isNewer(l,r) ? r : l;
         out.set(r.id,{...newer, deletedAt: l.deletedAt || r.deletedAt || new Date().toISOString()});
         return;
       }
+      // Prefer the version with more content when the other is template-only,
+      // regardless of timestamp — prevents auto-created stubs from overwriting real data.
+      const rl = _contentLen(r), ll = _contentLen(l);
+      if (rl > 100 && ll < rl && ll < 100) { out.set(r.id, {...l, ...r}); return; }
+      if (ll > 100 && rl < ll && rl < 100) { /* keep local */ return; }
       out.set(r.id, _isNewer(l,r) ? {...l, ...r} : {...r, ...l});
     });
     return Array.from(out.values());

@@ -13,3 +13,8 @@ data.json
 # Backup script log
 backup.log
 data.json.bak
+data.json.bak.*
+data.json.tmp.*
+.snapshots/
+.sessions/
+.session-secret
