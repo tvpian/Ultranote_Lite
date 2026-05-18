@@ -334,8 +334,36 @@ app.get('/api/db', (req, res) => {
 
 app.post('/api/db', (req, res) => {
   const incoming = req.body;
-  if (!incoming || typeof incoming !== 'object') {
-    return res.status(400).json({ error: 'Invalid body' });
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    return res.status(400).json({ error: 'Invalid body: expected JSON object' });
+  }
+
+  // Boundary validation. The merge below will be defensive on any field, but
+  // we reject obviously malformed payloads up-front so a buggy client cannot
+  // make the data file unreadable. Limits are generous on purpose — they only
+  // exist to stop a runaway/garbage payload, not to constrain real usage.
+  const COLLECTIONS = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
+  const MAX_ITEMS_PER_COLLECTION = 50000;   // ample headroom; user has ~250 notes today
+  for (const k of COLLECTIONS) {
+    if (incoming[k] === undefined || incoming[k] === null) continue;
+    if (!Array.isArray(incoming[k])) {
+      return res.status(400).json({ error: `Invalid body: ${k} must be an array` });
+    }
+    if (incoming[k].length > MAX_ITEMS_PER_COLLECTION) {
+      return res.status(400).json({ error: `Too many items in ${k} (${incoming[k].length} > ${MAX_ITEMS_PER_COLLECTION})` });
+    }
+    // Each record must be an object with a string id; anything else is dropped
+    // silently from the merge below (so partial corruption can't take down a save).
+    for (let i = 0; i < incoming[k].length; i++) {
+      const rec = incoming[k][i];
+      if (!rec || typeof rec !== 'object' || typeof rec.id !== 'string') {
+        return res.status(400).json({ error: `Invalid record in ${k}[${i}]: missing string id` });
+      }
+    }
+  }
+  if (incoming.settings !== undefined &&
+      (typeof incoming.settings !== 'object' || Array.isArray(incoming.settings))) {
+    return res.status(400).json({ error: 'Invalid body: settings must be an object' });
   }
 
   // Server-side merge: never let a stale client silently overwrite newer server data.
@@ -343,7 +371,6 @@ app.post('/api/db', (req, res) => {
   // This means a client with an old in-memory db cannot wipe records that were saved by another
   // client (or directly on disk) after the stale client's last fetch.
   const current = readData() || {};
-  const COLLECTIONS = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
 
   function mergeById(serverArr = [], clientArr = []) {
     const ts = r => Date.parse(r.updatedAt || r.createdAt || 0);

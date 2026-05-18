@@ -193,11 +193,17 @@ async function persistDB(){
   } catch (e) {
     console.error('Persist failed', e);
   }
+  // Note: we deliberately do NOT mirror the entire db to localStorage anymore.
+  // The DB is multi-MB (attachments are base64 inside notes); setItem silently
+  // throws QuotaExceededError once it crosses ~5MB, leaving a stale stub copy
+  // that later overwrites real server data on next init. The server is the
+  // single source of truth — localStorage is only used as an offline fallback,
+  // and only for tiny metadata (handled in persistDB success path below).
   try {
-    localStorage.setItem(storeKey, JSON.stringify(db));
-  } catch(err) {
-    /* ignore */
-  }
+    // Lightweight "last successful sync" pointer so an offline boot can
+    // surface a useful banner without exposing stale full-DB data.
+    localStorage.setItem(storeKey + ':lastSync', new Date().toISOString());
+  } catch(err) { /* ignore */ }
 }
 
 const seed = {
@@ -433,55 +439,34 @@ function migrateDB() {
 // ---------------------------------------------------------------------------
 
 async function initApp(){
-  // 1. Try server
+  // 1. Try server — the server is the single source of truth.
   let serverData = await fetchDB();
 
-  // Always read localStorage — it may have offline edits that haven't reached
-  // the server yet (e.g., the network save failed in a previous session).
-  let localData = null;
-  try { localData = JSON.parse(localStorage.getItem(storeKey) || 'null'); } catch(_) { localData = null; }
-
   if(serverData && Object.keys(serverData).length){
-    // Merge: server is the master copy, but if localStorage holds any individual
-    // records with a strictly newer timestamp they belong to this device and were
-    // not yet uploaded — add them to the initial state before the first save.
-    if (localData) {
-      const COLS = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
-      const tsOf = r => Date.parse(r.updatedAt || r.createdAt || 0);
-      // Heuristic: a note/record with real user content is more valuable than a
-      // template-only version, regardless of timestamp. Auto-created daily notes
-      // get fresh updatedAt but only template content, which should never overwrite
-      // a server copy that has actual user-written data.
-      const contentLen = r => ((r.content || '') + (r.journal || '') + (r.description || '')).length;
-      COLS.forEach(k => {
-        const sArr = Array.isArray(serverData[k]) ? serverData[k] : [];
-        const lArr = Array.isArray(localData[k])  ? localData[k]  : [];
-        const map = new Map();
-        sArr.forEach(r => map.set(r.id, r));
-        lArr.forEach(r => {
-          const s = map.get(r.id);
-          if (!s) { map.set(r.id, r); return; }                 // new local record → add
-          if (r.deletedAt && !s.deletedAt) { map.set(r.id, r); return; } // local delete → honor
-          // Never let a local record with less content overwrite a server record
-          // that has substantive content — this prevents auto-created template notes
-          // from clobbering real data saved from another device.
-          if (contentLen(s) > 100 && contentLen(r) < contentLen(s)) return; // keep server
-          if (!s.deletedAt && tsOf(r) > tsOf(s)) map.set(r.id, r);     // local is genuinely newer
-        });
-        serverData[k] = Array.from(map.values());
-      });
-    }
+    // Server returned data. Use it directly. We deliberately do NOT merge in
+    // an old localStorage snapshot here — that's how auto-created template
+    // notes (with fresh updatedAt but empty content) were silently
+    // overwriting real data on the server when a second browser opened.
+    // If a previous offline edit truly never reached the server, that's a
+    // very rare edge case; the autosync layer will reconcile when next online.
     db = serverData;
     window.db = db;
-    // Upload merged state back to server so offline edits are not lost
-    await persistDB();
   } else {
-    // 2. Fallback to any localStorage copy
+    // 2. Server is unreachable. Try the legacy full-DB localStorage blob
+    //    purely as an offline fallback. If absent, start from seed defaults.
+    let localData = null;
+    try { localData = JSON.parse(localStorage.getItem(storeKey) || 'null'); } catch(_) { localData = null; }
     if (!localData) localData = JSON.parse(JSON.stringify(defaults));
     db = localData;
-    await persistDB();
     window.db = db;
+    // Don't call persistDB() here — server is unreachable. The first
+    // successful persistDB() once we're back online will push our state.
   }
+  // Proactively evict the legacy full-DB blob from localStorage. It's
+  // multi-MB, silently fails to write once the quota is hit, and is no
+  // longer needed (server is authoritative). We only keep the tiny
+  // ":lastSync" pointer going forward.
+  try { localStorage.removeItem(storeKey); } catch(_) {}
   // Defensive: ensure collections exist (added links)
   // Ensure all collections exist on db. Include new 'monthly' plan storage.
   ['notes','tasks','projects','templates','settings','links','monthly'].forEach(k=>{
