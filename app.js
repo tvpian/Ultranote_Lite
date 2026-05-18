@@ -245,34 +245,34 @@ const THEMES = {
     '--bg': '#0b0f14',
     '--fg': '#e8eef7',
     '--muted': '#a9b6c6',
-    '--card': '#121924',
-    '--acc': '#4ea1ff'
+    '--card': '#161122',
+    '--acc': '#8b6dff'
     ,
-    '--border': '#1e2938',
-    '--btn-bg': '#122134',
-    '--btn-border': '#274768',
-    '--pill-border': '#334759',
-    '--header-bg': '#0e141d',
-    '--input-bg': '#0f1621',
-    '--input-border': '#203041'
-    , '--btn-active-bg': '#182330'
-    , '--kbd-border': '#3a4a60'
+    '--border': '#281f3e',
+    '--btn-bg': '#1c1430',
+    '--btn-border': '#3a2a5a',
+    '--pill-border': '#3a2e55',
+    '--header-bg': '#110d1c',
+    '--input-bg': '#14101f',
+    '--input-border': '#2a2245'
+    , '--btn-active-bg': '#181225'
+    , '--kbd-border': '#4a3e6e'
   },
   light: {
-    '--bg': '#f3f6fb',
+    '--bg': '#f6f3fc',
     '--fg': '#0f172a',
     '--muted': '#64748b',
     '--card': '#ffffff',
     '--acc': '#2563eb',
-    '--border': '#e2e8f0',
+    '--border': '#e2dafd',
     '--btn-bg': '#ffffff',
-    '--btn-border': '#d1d9e6',
-    '--pill-border': '#c7d2e2',
+    '--btn-border': '#d8d0f0',
+    '--pill-border': '#ccc4e2',
     '--header-bg': 'rgba(243,246,251,0.88)',
     '--input-bg': '#ffffff',
-    '--input-border': '#d1d9e6'
-    , '--btn-active-bg': '#eff3fb'
-    , '--kbd-border': '#c7d2e2'
+    '--input-border': '#d8d0f0'
+    , '--btn-active-bg': '#f3f0fd'
+    , '--kbd-border': '#ccc4e2'
   }
 };
 
@@ -1498,7 +1498,7 @@ function renderToday(){
         <div id="dueBanner"></div>
         <div id="taskList" class="list" style="margin-top:8px;"></div>
         <div id="prevTaskList" class="list"></div>
-        <div id="backlogList" class="list" style="margin-top:8px;display:none;border-top:1px solid #1e2938;padding-top:8px;"></div>
+        <div id="backlogList" class="list" style="margin-top:8px;display:none;border-top:1px solid #281f3e;padding-top:8px;"></div>
         <div id="projectTaskList" class="list" style="margin-top:8px;display:none;"></div>
       </div>
       <div class="card">
@@ -1733,7 +1733,7 @@ function renderToday(){
     const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG' && !t.deletedAt)
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
     list.innerHTML = tasks.map(t=> {
-      const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'};
+      const colors={high:'#ff6b6b',medium:'#8b6dff',low:'#64748b'};
       const ds = dueStatus(t.due);
       const borderColor = ds==='overdue'?'#ff4444':ds==='due-today'?'#f59e0b':ds==='due-soon'?'#ca8a04':colors[t.priority||'medium'];
       let duePill = '';
@@ -1886,7 +1886,7 @@ function renderToday(){
     list.innerHTML = tasks
       .map(t => {
         const proj = db.projects.find(p => p.id === t.projectId);
-        const colors = { high: '#ff6b6b', medium: '#4ea1ff', low: '#64748b' };
+        const colors = { high: '#ff6b6b', medium: '#8b6dff', low: '#64748b' };
         const ds = dueStatus(t.due);
         const borderColor = ds==='overdue'?'#ff4444':ds==='due-today'?'#f59e0b':ds==='due-soon'?'#ca8a04':colors[t.priority||'medium'];
         let duePill = '';
@@ -2174,7 +2174,7 @@ function renderProjects(){
     const tasks = getProjectTasks().sort((a,b)=>{ if(a.status !== b.status) return a.status==="DONE"?1:-1; const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); });
     const list = document.getElementById("taskList");
     list.innerHTML = tasks.map(t=>{
-      const colors={high:"#ff6b6b",medium:"#4ea1ff",low:"#64748b"};
+      const colors={high:"#ff6b6b",medium:"#8b6dff",low:"#64748b"};
       return `<div class="row" style="justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;">
         <label class="row" style="gap:8px;flex:1;min-width:0;">
           <input type="checkbox" ${t.status==="DONE"?"checked":''} data-id="${t.id}" style="flex-shrink:0;"/>
@@ -2333,7 +2333,7 @@ function renderReview(){
   const projCompletions = db.projects.map(p=>({ name: p.name, count: done.filter(t=>t.projectId===p.id).length })).filter(p=>p.count>0).sort((a,b)=>b.count-a.count);
   const topProject = projCompletions[0] || null;
   // Progress bar helper
-  const pbar = (val, max, color='#4ea1ff') => `<div style="background:var(--btn-bg);border-radius:4px;height:6px;flex:1;min-width:60px;"><div style="background:${color};width:${max?Math.round(val/max*100):0}%;height:100%;border-radius:4px;"></div></div>`;
+  const pbar = (val, max, color='#8b6dff') => `<div style="background:var(--btn-bg);border-radius:4px;height:6px;flex:1;min-width:60px;"><div style="background:${color};width:${max?Math.round(val/max*100):0}%;height:100%;border-radius:4px;"></div></div>`;
   const projectStats = db.projects.map(p=>{
     const tasks = db.tasks.filter(t=> t.projectId === p.id && !t.deletedAt);
     const completed = tasks.filter(t=> t.status === 'DONE').length;
@@ -2517,7 +2517,7 @@ function renderReview(){
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
             <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
-              <div style="font-size:20px;font-weight:700;color:#4ea1ff;">${completedToday}</div>
+              <div style="font-size:20px;font-weight:700;color:#8b6dff;">${completedToday}</div>
               <div style="font-size:11px;color:var(--muted);">done today</div>
             </div>
             <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
@@ -2541,7 +2541,7 @@ function renderReview(){
                 <span style="font-size:11px;color:#ff6b6b;width:32px;">High</span>${pbar(priHigh, priHigh+priMed+priLow||1,'#ff6b6b')}<span style="font-size:11px;">${priHigh}</span>
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;color:#4ea1ff;width:32px;">Med</span>${pbar(priMed, priHigh+priMed+priLow||1,'#4ea1ff')}<span style="font-size:11px;">${priMed}</span>
+                <span style="font-size:11px;color:#8b6dff;width:32px;">Med</span>${pbar(priMed, priHigh+priMed+priLow||1,'#8b6dff')}<span style="font-size:11px;">${priMed}</span>
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
                 <span style="font-size:11px;color:#64748b;width:32px;">Low</span>${pbar(priLow, priHigh+priMed+priLow||1,'#64748b')}<span style="font-size:11px;">${priLow}</span>
@@ -2581,7 +2581,7 @@ function renderReview(){
   ${upcoming.map(t=>{
           const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null;
           const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null;
-          const colors = { high: '#ff6b6b', medium: '#4ea1ff', low: '#64748b' };
+          const colors = { high: '#ff6b6b', medium: '#8b6dff', low: '#64748b' };
           const col = colors[t.priority || 'medium'];
           const dueStr = t.due ? formatDateString(t.due) : '';
           const ctx = proj ? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily' ? `<span class='pill'>${note.dateIndex}</span>` : '');
@@ -2602,7 +2602,7 @@ function renderReview(){
       <strong>🕒 Pending Tasks (${pendingAll.length})</strong>
       <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
         ${pendingAll.map(t=>{
-          const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'};
+          const colors={high:'#ff6b6b',medium:'#8b6dff',low:'#64748b'};
           const extraBtns = `<button class='btn' data-done='${t.id}' style='font-size:11px;'>✓ Done</button>`;
           return taskRow(t, extraBtns, `border-left:3px solid ${colors[t.priority||'medium']};`);
         }).join('') || '<div class="muted">No pending tasks</div>'}
@@ -2865,7 +2865,7 @@ function renderMap() {
   const notes = (db.notes || []).filter(n => !n.deletedAt && n.type !== 'page');
 
   // Project colour palette — cycled by project index
-  const PROJECT_COLORS = ['#4ea1ff','#6ecb6e','#f0a14e','#c97dd4','#f06e6e','#4ec9c0','#e8d96e'];
+  const PROJECT_COLORS = ['#8b6dff','#6ecb6e','#f0a14e','#c97dd4','#f06e6e','#4ec9c0','#e8d96e'];
   const projectColorMap = {};
   (db.projects || []).forEach((p, i) => { projectColorMap[p.id] = PROJECT_COLORS[i % PROJECT_COLORS.length]; });
 
@@ -3757,7 +3757,7 @@ function renderVault(){
       taskMatches = db.tasks.filter(t=> t.title.toLowerCase().includes(text)).slice(0,50); // cap to avoid huge lists
     }
   }
-  const highlight = (s)=>{ if(!text) return htmlesc(s); return htmlesc(s).replace(new RegExp(text.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'),'ig'), m=>`<mark style='background:#274768;color:inherit;'>${m}</mark>`); };
+  const highlight = (s)=>{ if(!text) return htmlesc(s); return htmlesc(s).replace(new RegExp(text.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'),'ig'), m=>`<mark style='background:#3a2a5a;color:inherit;'>${m}</mark>`); };
   content.innerHTML = `
     <div class='card'>
       <div class='row' style='justify-content:space-between;flex-wrap:wrap;gap:8px;'>

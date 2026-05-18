@@ -3,19 +3,19 @@
    Color variables and responsive rules have been preserved. */
 
 :root {
-  --bg: #0b0f14;
+  --bg: #0c0917;
   --fg: #e8eef7;
   --muted: #a9b6c6;
-  --card: #121924;
+  --card: #161122;
   --acc: #8b6dff;
   /* Additional semantic color variables for borders, buttons and inputs */
-  --border: #1e2938;
-  --btn-bg: #122134;
-  --btn-border: #274768;
-  --pill-border: #334759;
-  --header-bg: #0e141d;
-  --input-bg: #0f1621;
-  --input-border: #203041;
+  --border: #281f3e;
+  --btn-bg: #1c1430;
+  --btn-border: #3a2a5a;
+  --pill-border: #3a2e55;
+  --header-bg: #110d1c;
+  --input-bg: #14101f;
+  --input-border: #2a2245;
 }
 
 * {
@@ -1166,19 +1166,19 @@ details.map-orphans[open] summary::before { content: '\25BE  '; }
    Color variables and responsive rules have been preserved. */
 
 :root {
-  --bg: #0b0f14;
+  --bg: #0c0917;
   --fg: #e8eef7;
   --muted: #a9b6c6;
-  --card: #121924;
+  --card: #161122;
   --acc: #8b6dff;
   /* Additional semantic color variables for borders, buttons and inputs */
-  --border: #1e2938;
-  --btn-bg: #122134;
-  --btn-border: #274768;
-  --pill-border: #334759;
-  --header-bg: #0e141d;
-  --input-bg: #0f1621;
-  --input-border: #203041;
+  --border: #281f3e;
+  --btn-bg: #1c1430;
+  --btn-border: #3a2a5a;
+  --pill-border: #3a2e55;
+  --header-bg: #110d1c;
+  --input-bg: #14101f;
+  --input-border: #2a2245;
 }
 
 * {
@@ -2309,20 +2309,20 @@ button.btn.mood-btn--active {
 
 /* --- Updated colour palette --- */
 :root {
-  --bg: #080c11;
+  --bg: #0a0814;
   --fg: #dde6f0;
   --muted: #8fa3b8;
-  --card: #0f1620;
-  --card-hover: #141e2e;
+  --card: #14101f;
+  --card-hover: #1b1530;
   --acc: #8b6dff;
   --acc-dim: rgba(139,109,255,0.12);
-  --border: #1a2538;
-  --btn-bg: #0f1e30;
-  --btn-border: #1f3d5c;
-  --pill-border: #2a4060;
+  --border: #22193a;
+  --btn-bg: #1c1430;
+  --btn-border: #3a2a5a;
+  --pill-border: #3a2e55;
   --header-bg: rgba(8,12,17,0.85);
-  --input-bg: #090e17;
-  --input-border: #1a2e44;
+  --input-bg: #0e0a18;
+  --input-border: #2a2245;
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 18px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.3);
 }
@@ -2383,7 +2383,7 @@ nav button.active {
 }
 .card:hover {
   box-shadow: var(--shadow-md);
-  border-color: #1e3045;
+  border-color: #281f3e;
 }
 
 /* --- Buttons: transitions, lift on hover, accent gradient --- */
@@ -2394,7 +2394,7 @@ nav button.active {
 }
 .btn:hover {
   background: var(--card-hover) !important;
-  border-color: #2d5578 !important;
+  border-color: #3a2a5a !important;
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(0,0,0,0.4);
 }
@@ -2462,10 +2462,10 @@ textarea:focus {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #1e3550;
+  background: #322a52;
   border-radius: 3px;
 }
-::-webkit-scrollbar-thumb:hover { background: #2a4a6e; }
+::-webkit-scrollbar-thumb:hover { background: #4b3d80; }
 
 /* --- Select elements: match input theme --- */
 select {
@@ -2962,9 +2962,9 @@ input[type="checkbox"] {
   width: 16px;
   height: 16px;
   min-width: 16px;
-  border: 1.5px solid #2a4060;
+  border: 1.5px solid #3a2e55;
   border-radius: 5px;
-  background: #0a1220;
+  background: #10081c;
   cursor: pointer;
   position: relative;
   transition: background 0.15s ease, border-color 0.15s ease,

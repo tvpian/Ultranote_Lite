@@ -9,46 +9,46 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='ug' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%2393c5fd'/%3E%3Cstop offset='1' stop-color='%234ea1ff'/%3E%3C/linearGradient%3E%3ClinearGradient id='bg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23111827'/%3E%3Cstop offset='1' stop-color='%230b0f14'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23bg)'/%3E%3Cpath d='M7.5 5.5 L7.5 20.5 Q7.5 27 16 27 Q24.5 27 24.5 20.5 L24.5 5.5' stroke='url(%23ug)' stroke-width='5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E" />
   <!--
   <style>
-    :root { --bg:#0b0f14; --fg:#e8eef7; --muted:#a9b6c6; --card:#121924; --acc:#4ea1ff; }
+    :root { --bg:#0b0f14; --fg:#e8eef7; --muted:#a9b6c6; --card:#161122; --acc:#8b6dff; }
     *{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg);color:var(--fg)}
-    header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 16px;background:#0e141d;position:sticky;top:0;z-index:10;border-bottom:1px solid #1e2a3a}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 16px;background:#110d1c;position:sticky;top:0;z-index:10;border-bottom:1px solid #281f3e}
     .title{font-weight:700;letter-spacing:.3px}
     .search{flex:1;max-width:520px}
-    input[type="text"], textarea{width:100%;background:#0f1621;border:1px solid #203041;color:var(--fg);padding:10px;border-radius:10px;outline:none}
+    input[type="text"], textarea{width:100%;background:#14101f;border:1px solid #2a2245;color:var(--fg);padding:10px;border-radius:10px;outline:none}
     textarea{min-height:140px;resize:vertical}
     main{display:grid;grid-template-columns:280px 1fr;gap:16px;padding:16px}
-    aside{background:var(--card);border:1px solid #1e2938;border-radius:16px;padding:12px;height:calc(100dvh - 88px);position:sticky;top:88px;overflow:auto}
-    nav button{width:100%;text-align:left;background:#101827;border:1px solid #213145;color:var(--fg);padding:10px 12px;margin:6px 0;border-radius:10px;cursor:pointer}
+    aside{background:var(--card);border:1px solid #281f3e;border-radius:16px;padding:12px;height:calc(100dvh - 88px);position:sticky;top:88px;overflow:auto}
+    nav button{width:100%;text-align:left;background:#110d1c;border:1px solid #2a2245;color:var(--fg);padding:10px 12px;margin:6px 0;border-radius:10px;cursor:pointer}
     nav button.active{border-color:var(--acc);outline:2px solid color-mix(in oklab, var(--acc) 40%, transparent)}
-    .card{background:var(--card);border:1px solid #1e2938;border-radius:16px;padding:14px;margin-bottom:16px}
+    .card{background:var(--card);border:1px solid #281f3e;border-radius:16px;padding:14px;margin-bottom:16px}
     .row{display:flex;gap:10px;align-items:center}
-    .btn{background:#122134;border:1px solid #274768;color:var(--fg);padding:8px 12px;border-radius:10px;cursor:pointer}
+    .btn{background:#1c1430;border:1px solid #3a2a5a;color:var(--fg);padding:8px 12px;border-radius:10px;cursor:pointer}
     .btn.acc{border-color:var(--acc)}
-    .pill{display:inline-block;padding:2px 8px;border:1px solid #334759;border-radius:999px;font-size:12px;color:var(--muted);margin-right:6px}
+    .pill{display:inline-block;padding:2px 8px;border:1px solid #3a2e55;border-radius:999px;font-size:12px;color:var(--muted);margin-right:6px}
     .list{display:grid;gap:8px}
     .muted{color:var(--muted);font-size:12px}
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     footer{padding:16px;color:var(--muted);text-align:center}
     a{color:var(--acc)}
-    .tip{position:fixed;inset:auto 16px 16px 16px;background:#0e141d;border:1px solid #243246;border-radius:16px;padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+    .tip{position:fixed;inset:auto 16px 16px 16px;background:#110d1c;border:1px solid #243246;border-radius:16px;padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
     .tip h4{margin:0 0 6px 0}
-    .kbd{border:1px solid #3a4a60;border-radius:6px;padding:0 6px;margin:0 3px}
+    .kbd{border:1px solid #4a3e6e;border-radius:6px;padding:0 6px;margin:0 3px}
     .hidden{display:none}
     /* Project sidebar buttons */
-    .projBtn{width:100%;text-align:left;background:#101827;border:1px solid #213145;color:var(--fg);padding:8px 10px;margin:4px 0;border-radius:10px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+    .projBtn{width:100%;text-align:left;background:#110d1c;border:1px solid #2a2245;color:var(--fg);padding:8px 10px;margin:4px 0;border-radius:10px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
     .projBtn.active{border-color:var(--acc);outline:2px solid color-mix(in oklab, var(--acc) 40%, transparent)}
     .projBtn .projDel{font-size:12px;opacity:.55;padding:2px 6px;border-radius:6px;cursor:pointer;}
-    .projBtn .projDel:hover{opacity:1;background:#182330;color:#ff6b6b}
+    .projBtn .projDel:hover{opacity:1;background:#181225;color:#ff6b6b}
 
     /* Responsive enhancements */
     #menuToggle{display:none;margin-right:8px;}
     .hide-mobile{display:block;}
-    #mobileBar{position:fixed;bottom:0;left:0;right:0;background:#0e141d;border-top:1px solid #1e2a3a;display:none;z-index:120;padding:6px 8px;gap:6px;}
+    #mobileBar{position:fixed;bottom:0;left:0;right:0;background:#110d1c;border-top:1px solid #281f3e;display:none;z-index:120;padding:6px 8px;gap:6px;}
     #sketchModal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:300;padding:16px;}
     #sketchModal.show{display:flex;}
-    #sketchModal .sketchInner{background:#121924;border:1px solid #1e2938;border-radius:16px;padding:12px;max-width:100%;}
-    #sketchPad{background:#0f1621;border:1px solid #274768;border-radius:12px;touch-action:none;max-width:100%;height:auto;}
-    #mobileBar .btn.active{border-color:var(--acc);background:#182330;}
+    #sketchModal .sketchInner{background:#161122;border:1px solid #281f3e;border-radius:16px;padding:12px;max-width:100%;}
+    #sketchPad{background:#14101f;border:1px solid #3a2a5a;border-radius:12px;touch-action:none;max-width:100%;height:auto;}
+    #mobileBar .btn.active{border-color:var(--acc);background:#181225;}
     @media (max-width:900px){
       main{grid-template-columns:1fr;}
       aside{position:fixed;top:0;left:0;height:100dvh;transform:translateX(-100%);transition:transform .25s;background:var(--card);width:260px;z-index:200;box-shadow:0 0 30px rgba(0,0,0,.4);}
@@ -91,7 +91,7 @@
         <div class="muted">Today: <span id="todayStr"></span></div>
         <div class="row" id="dailyDateControls" style="margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap;">
           <button class="btn" id="prevDay" style="flex:0 0 auto;padding:4px 10px;font-size:14px;">◀</button>
-          <input id="dailyDateNav" type="date" style="flex:1;min-width:0;background:#0f1621;border:1px solid #203041;color:var(--fg);padding:6px 8px;border-radius:8px;" />
+          <input id="dailyDateNav" type="date" style="flex:1;min-width:0;background:#14101f;border:1px solid #2a2245;color:var(--fg);padding:6px 8px;border-radius:8px;" />
           <button class="btn" id="nextDay" style="flex:0 0 auto;padding:4px 10px;font-size:14px;">▶</button>
         </div>
         <button id="newDaily" class="btn" style="margin-top:8px;width:100%;">Open/Create Daily</button>
@@ -508,7 +508,7 @@ function renderToday(){
       <div style="margin-top:8px;"><textarea id="dailyContent">${htmlesc(daily.content)}</textarea></div>
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
         <button id="saveDaily" class="btn acc">Save</button>
-        <select id="templateSelect" style="padding:8px;background:#122134;border:1px solid #274768;color:var(--fg);border-radius:6px;">
+        <select id="templateSelect" style="padding:8px;background:#1c1430;border:1px solid #3a2a5a;color:var(--fg);border-radius:6px;">
           <option value="">Apply Template...</option>
           ${db.templates.map(t=>`<option value="${t.id}">${htmlesc(t.name)}</option>`).join("")}
         </select>
@@ -526,14 +526,14 @@ function renderToday(){
         </div>
         <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap;">
           <input id="taskTitle" type="text" placeholder="Quick task (Enter to add)" ${key!==todayKey()? 'disabled title="Add tasks only on current day"':''}/>
-          <select id="taskPriority" style="padding:8px;background:#122134;border:1px solid #274768;color:var(--fg);border-radius:6px;" ${key!==todayKey()? 'disabled':''}>
+          <select id="taskPriority" style="padding:8px;background:#1c1430;border:1px solid #3a2a5a;color:var(--fg);border-radius:6px;" ${key!==todayKey()? 'disabled':''}>
             <option value="low">Low</option>
             <option value="medium" selected>Medium</option>
             <option value="high">High</option>
           </select>
         </div>
         <div id="taskList" class="list" style="margin-top:8px;"></div>
-        <div id="backlogList" class="list" style="margin-top:8px;display:none;border-top:1px solid #1e2938;padding-top:8px;"></div>
+        <div id="backlogList" class="list" style="margin-top:8px;display:none;border-top:1px solid #281f3e;padding-top:8px;"></div>
         <div id="projectTaskList" class="list" style="margin-top:8px;display:none;"></div>
       </div>
       <div class="card">
@@ -559,7 +559,7 @@ function renderToday(){
     const list = $("#taskList"); if(!list) return;
     const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG')
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
-    list.innerHTML = tasks.map(t=> { const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;'>
+    list.innerHTML = tasks.map(t=> { const colors={high:'#ff6b6b',medium:'#8b6dff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
         <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
         <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;'>${htmlesc(t.title)}</span>
@@ -628,7 +628,7 @@ function renderToday(){
       });
     list.innerHTML = tasks.map(t => {
       const proj = db.projects.find(p => p.id === t.projectId);
-      const colors = { high: '#ff6b6b', medium: '#4ea1ff', low: '#64748b' };
+      const colors = { high: '#ff6b6b', medium: '#8b6dff', low: '#64748b' };
       return `<div class='row' style='justify-content:space-between;'>
       <label class='row' style='gap:8px;'>
         <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
@@ -685,7 +685,7 @@ function renderProjects(){
       </div>
       <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px;">
         <input id="noteTitle" type="text" placeholder="New note title for this project" />
-        <select id="noteTemplate" style="padding:8px;background:#122134;border:1px solid #274768;color:var(--fg);border-radius:6px;">
+        <select id="noteTemplate" style="padding:8px;background:#1c1430;border:1px solid #3a2a5a;color:var(--fg);border-radius:6px;">
           <option value="">Template...</option>
           ${db.templates.map(t=>`<option value="${t.id}">${htmlesc(t.name)}</option>`).join("")}
         </select>
@@ -700,7 +700,7 @@ function renderProjects(){
         </div>
         <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap;">
           <input id="taskTitle" type="text" placeholder="New project task"/>
-          <select id="taskPriority" style="padding:8px;background:#122134;border:1px solid #274768;color:var(--fg);border-radius:6px;">
+          <select id="taskPriority" style="padding:8px;background:#1c1430;border:1px solid #3a2a5a;color:var(--fg);border-radius:6px;">
             <option value="low">Low</option>
             <option value="medium" selected>Medium</option>
             <option value="high">High</option>
@@ -708,7 +708,7 @@ function renderProjects(){
           <button id="addTask" class="btn">Add Task</button>
         </div>
         <div id="taskList" class="list" style="margin-top:8px;"></div>
-        <div id="projBacklogList" class="list" style="margin-top:8px;border-top:1px solid #1e2938;padding-top:8px;"></div>
+        <div id="projBacklogList" class="list" style="margin-top:8px;border-top:1px solid #281f3e;padding-top:8px;"></div>
       </div>
       <div class="card">
         <div class="row" style="justify-content:space-between;">
@@ -765,7 +765,7 @@ function renderProjects(){
   document.getElementById("taskTitle").onkeydown = e=>{ if(e.key==="Enter") document.getElementById("addTask").click(); };
   document.getElementById("sortTitle").onclick = ()=>{ sortBy="title"; drawNotes(); };
   document.getElementById("sortDate").onclick = ()=>{ sortBy="date"; drawNotes(); };
-  function drawTasks(){ const tasks = getProjectTasks().sort((a,b)=>{ if(a.status !== b.status) return a.status==="DONE"?1:-1; const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); }); const list = document.getElementById("taskList"); list.innerHTML = tasks.map(t=>{ const colors={high:"#ff6b6b",medium:"#4ea1ff",low:"#64748b"}; return `<div class="row" style="justify-content:space-between;">
+  function drawTasks(){ const tasks = getProjectTasks().sort((a,b)=>{ if(a.status !== b.status) return a.status==="DONE"?1:-1; const priorities={high:3,medium:2,low:1}; return (priorities[b.priority]||2)-(priorities[a.priority]||2); }); const list = document.getElementById("taskList"); list.innerHTML = tasks.map(t=>{ const colors={high:"#ff6b6b",medium:"#8b6dff",low:"#64748b"}; return `<div class="row" style="justify-content:space-between;">
         <label class="row" style="gap:8px;">
           <input type="checkbox" ${t.status==="DONE"?"checked":''} data-id="${t.id}"/>
           <span class="${t.status==='DONE'?'muted':''}" style="border-left:3px solid ${colors[t.priority||'medium']};padding-left:8px;">${htmlesc(t.title)}</span>
@@ -865,7 +865,7 @@ function renderReview(){
     <div class="card">
       <strong>🕒 Pending Tasks (${pendingAll.length})</strong>
       <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
-        ${pendingAll.map(t=>{ const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null; const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null; const label = htmlesc(t.title); const ctx = proj? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily'? `<span class='pill'>${note.dateIndex}</span>` : ''); const colors={high:'#ff6b6b',medium:'#4ea1ff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;align-items:center;'>
+        ${pendingAll.map(t=>{ const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null; const note = t.noteId ? db.notes.find(n=>n.id===t.noteId) : null; const label = htmlesc(t.title); const ctx = proj? `<span class='pill'>${htmlesc(proj.name)}</span>` : (note && note.type==='daily'? `<span class='pill'>${note.dateIndex}</span>` : ''); const colors={high:'#ff6b6b',medium:'#8b6dff',low:'#64748b'}; return `<div class='row' style='justify-content:space-between;align-items:center;'>
           <span style='border-left:3px solid ${colors[t.priority||'medium']};padding-left:6px;'>${label} ${ctx}</span>
           <div class='row' style='gap:4px;'>
             ${note? `<button class='btn' data-open-note='${note.id}' style='font-size:11px;'>Open</button>`:''}
@@ -932,7 +932,7 @@ function renderVault(){
       taskMatches = db.tasks.filter(t=> t.title.toLowerCase().includes(text)).slice(0,50); // cap to avoid huge lists
     }
   }
-  const highlight = (s)=>{ if(!text) return htmlesc(s); return htmlesc(s).replace(new RegExp(text.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'),'ig'), m=>`<mark style='background:#274768;color:inherit;'>${m}</mark>`); };
+  const highlight = (s)=>{ if(!text) return htmlesc(s); return htmlesc(s).replace(new RegExp(text.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'),'ig'), m=>`<mark style='background:#3a2a5a;color:inherit;'>${m}</mark>`); };
   content.innerHTML = `
     <div class='card'>
       <div class='row' style='justify-content:space-between;flex-wrap:wrap;gap:8px;'>

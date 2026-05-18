@@ -145,12 +145,12 @@ app.get('/login', (req, res) => {
 <title>UltraNote – Login</title>
 <style>
 :root {
-  --bg1:#0e1117; --bg2:#151a23; --bg3:#1c2430;
+  --bg1:#0c0917; --bg2:#161122; --bg3:#1c1430;
   --card: rgba(30,34,45,.92);
   --fg:#f5f7fa; --muted:#97a5b8;
   --acc:#8b6dff;
-  --border:#2d3444;
-  --input-bg:#141a24; --input-border:#394259;
+  --border:#281f3e;
+  --input-bg:#14101f; --input-border:#3a2a5a;
   --btn-bg:#6b46e5; --btn-border:#5b3dd1;
 }
 *{ box-sizing:border-box; font-family:"Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
