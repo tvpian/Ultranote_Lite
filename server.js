@@ -148,10 +148,10 @@ app.get('/login', (req, res) => {
   --bg1:#0e1117; --bg2:#151a23; --bg3:#1c2430;
   --card: rgba(30,34,45,.92);
   --fg:#f5f7fa; --muted:#97a5b8;
-  --acc:#5073b8;
+  --acc:#8b6dff;
   --border:#2d3444;
   --input-bg:#141a24; --input-border:#394259;
-  --btn-bg:#5073b8; --btn-border:#394259;
+  --btn-bg:#6b46e5; --btn-border:#5b3dd1;
 }
 *{ box-sizing:border-box; font-family:"Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
 body{
@@ -171,7 +171,7 @@ body{
 }
 h1{
   margin:0 0 .5rem; font-size:1.9rem; font-weight:600; text-align:center;
-  background:linear-gradient(45deg, var(--acc), #6ea0e0);
+  background:linear-gradient(45deg, var(--acc), #a78bfa);
   -webkit-background-clip:text; -webkit-text-fill-color:transparent;
 }
 .subtitle{ text-align:center; color:var(--muted); font-size:.95rem; margin:0 0 1.75rem; }
@@ -182,13 +182,13 @@ input[type=password]{
   background:var(--input-bg); color:var(--fg); font-size:1rem; outline:none;
   transition:border-color .18s, box-shadow .18s;
 }
-input[type=password]:focus{ border-color:var(--acc); box-shadow:0 0 0 2px rgba(80,115,184,.35); }
+input[type=password]:focus{ border-color:var(--acc); box-shadow:0 0 0 2px rgba(139,109,255,.35); }
 button{
   padding:.8rem 1rem; border-radius:10px; border:1px solid var(--btn-border);
   background:var(--btn-bg); color:#fff; font-size:1rem; font-weight:600; cursor:pointer;
   transition:background .18s, transform .1s;
 }
-button:hover{ background:#6ea0e0; }
+button:hover{ background:#8b6dff; }
 button:active{ transform:translateY(1px); }
 .err{ color:#ff6b6b; font-size:.9rem; text-align:center; margin-top:.25rem; font-weight:600; }
 .note{ font-size:.82rem; color:var(--muted); text-align:center; margin-top:.75rem; font-style:italic; line-height:1.6;
@@ -207,7 +207,7 @@ footer{ margin-top:1.2rem; text-align:center; color:var(--muted); font-size:.75r
 <body>
   <div class="card"${errHtml ? ' aria-live="polite"' : ''}>
     <div class="icon">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6ea0e0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
         <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
       </svg>

@@ -3242,3 +3242,227 @@ textarea {
 @keyframes rec-blink {
   50% { opacity: 0.25; }
 }
+
+/* ==========================================================
+   VISUAL REFRESH — Phase 6: Violet/Indigo accent
+   Linear-inspired palette. Self-contained additive block.
+   To revert: delete everything from this comment to EOF.
+   ========================================================== */
+
+:root {
+  /* New accent system. --acc retains its variable name so all
+     cascading rules (focus rings, hover states, gradients that
+     reference var(--acc)) update automatically. */
+  --acc: #8b6dff;
+  --acc-2: #6b46e5;       /* deeper companion for gradients/active */
+  --acc-strong: #7c5cff;  /* solid mid-tone */
+  --acc-dim: rgba(139,109,255,0.14);
+  --acc-glow: rgba(139,109,255,0.30);
+}
+
+/* Brand title gradient: violet → indigo with a soft glow */
+.title {
+  background: linear-gradient(135deg, #a78bfa 0%, #8b6dff 45%, #6b46e5 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  text-shadow: none;
+  filter: drop-shadow(0 0 16px rgba(139,109,255,0.35));
+}
+
+/* Nav buttons: active state in violet */
+nav button.active,
+.projBtn.active {
+  background: rgba(139,109,255,0.12) !important;
+  border-color: rgba(139,109,255,0.40) !important;
+  color: #c4b3ff !important;
+}
+
+/* Cards: hover border picks up the accent */
+.card:hover {
+  border-color: rgba(139,109,255,0.25) !important;
+}
+
+/* Primary accent button: violet gradient */
+.btn.acc {
+  background: linear-gradient(135deg,
+    rgba(139,109,255,0.20) 0%,
+    rgba(107,70,229,0.10) 100%) !important;
+  border-color: rgba(139,109,255,0.60) !important;
+  color: #c4b3ff !important;
+}
+.btn.acc:hover {
+  background: linear-gradient(135deg,
+    rgba(139,109,255,0.32) 0%,
+    rgba(107,70,229,0.18) 100%) !important;
+  border-color: #8b6dff !important;
+  box-shadow: 0 2px 16px rgba(139,109,255,0.30) !important;
+}
+
+/* Inputs: violet focus ring */
+input[type="text"]:focus,
+input[type="date"]:focus,
+input[type="search"]:focus,
+textarea:focus,
+select:focus {
+  border-color: rgba(139,109,255,0.75) !important;
+  box-shadow: 0 0 0 3px rgba(139,109,255,0.16) !important;
+}
+
+/* Pills: violet-tinted */
+.pill {
+  background: rgba(139,109,255,0.08);
+  border-color: rgba(139,109,255,0.30) !important;
+  color: #b39dff !important;
+}
+
+/* Focus-visible (keyboard nav): violet ring */
+:focus-visible {
+  outline: 2px solid rgba(139,109,255,0.75) !important;
+  outline-offset: 2px !important;
+}
+
+/* Text selection: violet */
+::selection {
+  background: rgba(139,109,255,0.32);
+  color: #ffffff;
+}
+
+/* Checkboxes: violet when checked */
+input[type="checkbox"]:hover {
+  border-color: rgba(139,109,255,0.65);
+  box-shadow: 0 0 0 3px rgba(139,109,255,0.12);
+}
+input[type="checkbox"]:checked {
+  background: #7c5cff;
+  border-color: #7c5cff;
+  box-shadow: 0 0 0 2px rgba(139,109,255,0.22);
+}
+
+/* .kbd chip: violet */
+.kbd {
+  background: rgba(139,109,255,0.10);
+  border: 1px solid rgba(139,109,255,0.30);
+  border-bottom-width: 2px;
+  color: #b39dff;
+}
+
+/* Welcome / tip card border accent */
+.tip {
+  border: 1px solid rgba(139,109,255,0.20) !important;
+}
+
+/* Footer links */
+footer a:hover { color: #b39dff !important; }
+
+/* Scrollbar thumb tinted */
+::-webkit-scrollbar-thumb { background: #322a52; }
+::-webkit-scrollbar-thumb:hover { background: #4b3d80; }
+
+/* Markdown preview accents */
+.markdown-preview a { color: #b39dff !important; }
+.markdown-preview blockquote { border-left-color: #7c5cff !important; }
+
+/* ---- LIGHT MODE counterparts ---- */
+[data-theme="light"] {
+  --acc: #6b46e5;
+  --acc-2: #5b3dd1;
+  --acc-strong: #6b46e5;
+  --acc-dim: rgba(107,70,229,0.10);
+}
+[data-theme="light"] .title {
+  background: linear-gradient(135deg, #5b3dd1 0%, #6b46e5 50%, #8b6dff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+[data-theme="light"] nav button.active,
+[data-theme="light"] .projBtn.active {
+  background: rgba(107,70,229,0.09) !important;
+  border-color: transparent !important;
+  color: #5b3dd1 !important;
+  box-shadow: inset 3px 0 0 #6b46e5 !important;
+}
+[data-theme="light"] .card:hover {
+  border-color: rgba(107,70,229,0.20) !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08),
+              0 8px 24px rgba(107,70,229,0.10),
+              inset 0 1px 0 rgba(255,255,255,1) !important;
+}
+[data-theme="light"] .btn.acc {
+  background: linear-gradient(180deg, #8b6dff 0%, #6b46e5 100%) !important;
+  border-color: #5b3dd1 !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(107,70,229,0.25),
+              0 4px 12px rgba(107,70,229,0.22),
+              inset 0 1px 0 rgba(255,255,255,0.22) !important;
+}
+[data-theme="light"] .btn.acc:hover {
+  background: linear-gradient(180deg, #a78bfa 0%, #8b6dff 100%) !important;
+  border-color: #6b46e5 !important;
+  box-shadow: 0 2px 8px rgba(107,70,229,0.35),
+              0 6px 20px rgba(107,70,229,0.28),
+              inset 0 1px 0 rgba(255,255,255,0.28) !important;
+}
+[data-theme="light"] input[type="text"]:focus,
+[data-theme="light"] input[type="date"]:focus,
+[data-theme="light"] input[type="search"]:focus,
+[data-theme="light"] textarea:focus,
+[data-theme="light"] select:focus {
+  border-color: #8b6dff !important;
+  box-shadow: 0 0 0 3px rgba(139,109,255,0.16),
+              inset 0 1px 2px rgba(0,0,0,0.04) !important;
+}
+[data-theme="light"] .pill {
+  background: rgba(107,70,229,0.08);
+  border-color: rgba(107,70,229,0.25) !important;
+  color: #5b3dd1 !important;
+}
+[data-theme="light"] :focus-visible {
+  outline: 2px solid rgba(107,70,229,0.70) !important;
+}
+[data-theme="light"] ::selection {
+  background: rgba(107,70,229,0.22);
+  color: #1e1b4b;
+}
+[data-theme="light"] input[type="checkbox"]:hover {
+  border-color: #6b46e5;
+  box-shadow: 0 0 0 3px rgba(107,70,229,0.14);
+}
+[data-theme="light"] input[type="checkbox"]:checked {
+  background: #6b46e5;
+  border-color: #6b46e5;
+  box-shadow: 0 0 0 2px rgba(107,70,229,0.18);
+}
+[data-theme="light"] .kbd {
+  background: rgba(107,70,229,0.07);
+  border-color: rgba(107,70,229,0.28);
+  border-bottom-color: rgba(107,70,229,0.45);
+  color: #5b3dd1;
+}
+[data-theme="light"] .tip {
+  border: 1px solid rgba(107,70,229,0.16) !important;
+}
+[data-theme="light"] footer a { color: #6b46e5 !important; }
+[data-theme="light"] footer a:hover { color: #5b3dd1 !important; }
+[data-theme="light"] .markdown-preview a { color: #6b46e5 !important; }
+[data-theme="light"] .markdown-preview code {
+  background: #f4f0ff !important;
+  border-color: #e2dafd !important;
+  color: #5b3dd1 !important;
+}
+[data-theme="light"] .markdown-preview blockquote {
+  background: #f7f3ff !important;
+  border-left-color: #6b46e5 !important;
+}
+[data-theme="light"] .markdown-preview th {
+  background: #f4f0ff !important;
+  color: #5b3dd1 !important;
+}
+
+/* ---- Login page (server.js inline HTML) ---- */
+/* The login page has its own self-contained :root block and does NOT
+   include styles.css, so its violet accent is set directly in server.js
+   (search for "--acc:#8b6dff" in the GET /login handler). */
+
