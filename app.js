@@ -146,7 +146,13 @@ async function persistDB(){
     // intentionally deleted on this device.
     const resp = await fetch('/api/db', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Server-side CSRF gate: same-origin XHR is the only origin a browser
+        // will let set this custom header without a CORS preflight, so its
+        // presence proves the request originated from our own JS.
+        'X-Requested-With': 'XMLHttpRequest'
+      },
       body: JSON.stringify(db)
     });
     // Server now returns the merged result so this device immediately picks up any

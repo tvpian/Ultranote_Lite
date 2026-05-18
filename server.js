@@ -33,6 +33,22 @@ const SESSION_SECRET = process.env.SESSION_SECRET || (() => {
 // Whitelisted IPs (always allow loopback)
 const allowedIps = new Set(['127.0.0.1', '::1', '26.57.15.177']);
 
+// Per-IP failed-login tracking. The existing per-session lockout in POST /login
+// can be bypassed by clearing cookies. This adds a second gate keyed on source
+// IP so a teammate on the LAN can't brute-force by wiping cookies between tries.
+// Entries auto-expire LOCK_MS after the last failure.
+const ipLoginFails = new Map(); // ip -> { attempts, lockedUntil }
+function ipLockState(ip) {
+  const rec = ipLoginFails.get(ip);
+  if (!rec) return { attempts: 0, lockedUntil: 0 };
+  if (rec.lockedUntil && rec.lockedUntil < Date.now() - LOCK_MS) {
+    // Fully expired — reset so the user gets a fresh allowance.
+    ipLoginFails.delete(ip);
+    return { attempts: 0, lockedUntil: 0 };
+  }
+  return rec;
+}
+
 // Middlewares to parse JSON and URL‑encoded bodies
 // Large limit needed because attachments (audio, images) are stored as base64 inside data.json
 app.use(express.json({ limit: '100mb' }));
@@ -224,7 +240,14 @@ app.post('/login', async (req, res) => {
   const now = Date.now();
   if (!req.session.login) req.session.login = { attempts: 0, lockedUntil: 0 };
 
-  // lock active?
+  // Per-IP lockout check (survives cookie-clearing)
+  const ipState = ipLockState(ip);
+  if (ipState.lockedUntil && ipState.lockedUntil > now) {
+    const ms = ipState.lockedUntil - now;
+    return res.redirect(`/login?err=locked&ms=${ms}`);
+  }
+
+  // lock active? (per-session)
   if (req.session.login.lockedUntil && req.session.login.lockedUntil > now) {
     const ms = req.session.login.lockedUntil - now;
     return res.redirect(`/login?err=locked&ms=${ms}`);
@@ -236,24 +259,32 @@ app.post('/login', async (req, res) => {
   if (ok) {
     // success → clear counters, whitelist IP, mark session authorized
     req.session.login = { attempts: 0, lockedUntil: 0 };
+    ipLoginFails.delete(ip);
     allowedIps.add(ip);
     req.session.authorized = true;
     return res.redirect('/');
   }
 
-  // failure → increment attempts, maybe lock
+  // failure → increment attempts, maybe lock (both per-session and per-IP)
   req.session.login.attempts = (req.session.login.attempts || 0) + 1;
+  const ipRec = ipLoginFails.get(ip) || { attempts: 0, lockedUntil: 0 };
+  ipRec.attempts = (ipRec.attempts || 0) + 1;
+  ipLoginFails.set(ip, ipRec);
 
   if (req.session.login.attempts >= MAX_ATTEMPTS) {
     req.session.login.lockedUntil = now + LOCK_MS;
     return res.redirect(`/login?err=locked&ms=${LOCK_MS}`);
   }
+  if (ipRec.attempts >= MAX_ATTEMPTS) {
+    ipRec.lockedUntil = now + LOCK_MS;
+    return res.redirect(`/login?err=locked&ms=${LOCK_MS}`);
+  }
 
   // gentle delay (throttling): grows with attempts, capped
-  const delay = Math.min(200 * req.session.login.attempts, 1500);
+  const delay = Math.min(200 * Math.max(req.session.login.attempts, ipRec.attempts), 1500);
   await new Promise(r => setTimeout(r, delay));
 
-  const left = MAX_ATTEMPTS - req.session.login.attempts;
+  const left = MAX_ATTEMPTS - Math.max(req.session.login.attempts, ipRec.attempts);
   return res.redirect(`/login?err=bad&left=${left}`);
 });
 
@@ -325,6 +356,21 @@ function writeData(obj) {
     return false;
   }
 }
+
+// === CSRF guard for state-changing API calls ===
+// All /api/* POST requests must include `X-Requested-With: XMLHttpRequest`.
+// Browsers refuse to send custom headers on cross-origin form/img/script
+// submissions (those would require a CORS preflight, which we never approve),
+// so this header reliably proves the request came from our own JS. Combined
+// with `sameSite: 'lax'` on the session cookie, it blocks CSRF on the
+// state-changing endpoints without breaking same-origin app.js calls.
+function requireSameOrigin(req, res, next) {
+  if (req.method !== 'POST') return next();
+  const xrw = req.get('X-Requested-With');
+  if (xrw === 'XMLHttpRequest') return next();
+  return res.status(403).json({ error: 'Forbidden: missing X-Requested-With header' });
+}
+app.use('/api', requireSameOrigin);
 
 app.get('/api/db', (req, res) => {
   const data = readData();
