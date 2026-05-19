@@ -248,8 +248,10 @@
           <button class="shk-close" aria-label="Close">\u2715</button>
         </div>
         <div class="shk-grid">
-          <div class="shk-row"><kbd>${mod}</kbd><kbd>K</kbd><span>Command palette \u2014 jump anywhere</span></div>
+          <div class="shk-row"><kbd>${mod}</kbd><kbd>K</kbd><span>Command palette — jump anywhere</span></div>
           <div class="shk-row"><kbd>${mod}</kbd><kbd>S</kbd><span>Save current note</span></div>
+          <div class="shk-row"><kbd>${mod}</kbd><kbd>Shift</kbd><kbd>N</kbd><span>Quick add note</span></div>
+          <div class="shk-row"><kbd>${mod}</kbd><kbd>Shift</kbd><kbd>K</kbd><span>Quick add task (to today)</span></div>
           <div class="shk-row"><kbd>?</kbd><span>Show this help</span></div>
           <div class="shk-row"><kbd>Esc</kbd><span>Close overlays / dialogs</span></div>
           <div class="shk-row"><kbd>\u2191</kbd><kbd>\u2193</kbd><span>Navigate palette results</span></div>

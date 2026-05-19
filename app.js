@@ -5196,7 +5196,9 @@ document.getElementById("q").addEventListener("input", ()=> { if(route!=="vault"
 // Quick add
 document.addEventListener("keydown", (e)=>{
   (async ()=>{
-    if((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'k'){
+    // Quick-add note: Ctrl/Cmd + Shift + N
+    // (Ctrl+K is now reserved for the command palette in ui-extras.js)
+    if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'n'){
       e.preventDefault();
       const t = await showPrompt('Quick add note title', '', 'Create', 'Cancel');
       if(t){
