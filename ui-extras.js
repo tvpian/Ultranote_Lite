@@ -277,8 +277,10 @@
 
   // ---------- 3. Global key handler ----------
   document.addEventListener('keydown', (e) => {
-    // Ctrl/Cmd + K — command palette (works even from inside inputs).
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+    // Ctrl/Cmd + K — command palette. Explicitly exclude Shift so
+    // Ctrl+Shift+K (app.js quick-task) doesn't also open the palette.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey &&
+        (e.key === 'k' || e.key === 'K')) {
       e.preventDefault();
       if (paletteEl && paletteEl.classList.contains('is-open')) closePalette();
       else openPalette();
