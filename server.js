@@ -156,18 +156,29 @@ app.get('/login', (req, res) => {
 *{ box-sizing:border-box; font-family:"Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
 body{
   margin:0; min-height:100vh; color:var(--fg); display:flex; align-items:center; justify-content:center; padding:2rem;
+  font-feature-settings:"kern" 1,"liga" 1,"calt" 1;
+  -webkit-font-smoothing:antialiased;
   background:
-    radial-gradient(1000px 700px at 20% 20%, var(--bg3), transparent 60%),
-    radial-gradient(1000px 700px at 80% 80%, var(--bg2), transparent 60%),
-    linear-gradient(120deg, var(--bg1), var(--bg2));
-  background-size:200% 200%;
-  animation:bg-pan 28s ease-in-out infinite alternate;
+    radial-gradient(1100px 700px at 20% 15%, rgba(139,109,255,0.16), transparent 60%),
+    radial-gradient(900px 600px at 85% 80%, rgba(107,70,229,0.13), transparent 60%),
+    radial-gradient(700px 500px at 50% 50%, rgba(167,139,250,0.05), transparent 70%),
+    linear-gradient(160deg, var(--bg1) 0%, #060410 100%);
+  background-attachment:fixed;
 }
 @keyframes bg-pan{ 0%{background-position:0% 0%} 100%{background-position:100% 100%} }
 .card{
-  background:var(--card); border:1px solid var(--border); border-radius:16px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%),
+    rgba(20, 15, 36, 0.72);
+  border:1px solid rgba(255,255,255,0.08); border-radius:20px;
   padding:2.5rem 2rem; max-width:420px; width:100%;
-  box-shadow:0 20px 40px rgba(0,0,0,.4);
+  backdrop-filter:blur(24px) saturate(180%);
+  -webkit-backdrop-filter:blur(24px) saturate(180%);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 12px 32px rgba(0,0,0,0.55),
+    0 32px 80px rgba(0,0,0,0.45),
+    0 0 64px rgba(139,109,255,0.10);
 }
 h1{
   margin:0 0 .5rem; font-size:1.9rem; font-weight:600; text-align:center;
@@ -178,17 +189,40 @@ h1{
 form{ display:flex; flex-direction:column; gap:1.1rem; }
 label{ font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; font-weight:600; color:var(--muted); }
 input[type=password]{
-  width:100%; padding:.75rem 1rem; border-radius:10px; border:1px solid var(--input-border);
-  background:var(--input-bg); color:var(--fg); font-size:1rem; outline:none;
-  transition:border-color .18s, box-shadow .18s;
+  width:100%; padding:.85rem 1rem; border-radius:10px; border:1px solid rgba(255,255,255,0.10);
+  background:rgba(0,0,0,0.25); color:var(--fg); font-size:1rem; outline:none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.35) inset;
+  transition:border-color .18s, box-shadow .18s, background .18s;
 }
-input[type=password]:focus{ border-color:var(--acc); box-shadow:0 0 0 2px rgba(139,109,255,.35); }
+input[type=password]:hover{ border-color:rgba(139,109,255,0.30); }
+input[type=password]:focus{
+  border-color:rgba(139,109,255,0.65);
+  background:rgba(0,0,0,0.30);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.30) inset,
+    0 0 0 3px rgba(139,109,255,0.18),
+    0 0 24px rgba(139,109,255,0.12);
+}
 button{
-  padding:.8rem 1rem; border-radius:10px; border:1px solid var(--btn-border);
-  background:var(--btn-bg); color:#fff; font-size:1rem; font-weight:600; cursor:pointer;
-  transition:background .18s, transform .1s;
+  padding:.85rem 1rem; border-radius:10px; border:1px solid rgba(139,109,255,0.7);
+  background:linear-gradient(180deg, #9d83ff 0%, #7c5cff 100%); color:#fff;
+  font-size:1rem; font-weight:600; cursor:pointer;
+  text-shadow:0 1px 0 rgba(0,0,0,0.20);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.18) inset,
+    0 1px 3px rgba(107,70,229,0.30),
+    0 4px 12px rgba(107,70,229,0.25);
+  transition:background .18s, transform .12s cubic-bezier(0.34, 1.20, 0.36, 1), box-shadow .18s;
 }
-button:hover{ background:#8b6dff; }
+button:hover{
+  background:linear-gradient(180deg, #b09bff 0%, #8b6dff 100%);
+  transform:translateY(-1px);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.22) inset,
+    0 2px 8px rgba(107,70,229,0.45),
+    0 8px 24px rgba(107,70,229,0.35),
+    0 0 32px rgba(139,109,255,0.30);
+}
 button:active{ transform:translateY(1px); }
 .err{ color:#ff6b6b; font-size:.9rem; text-align:center; margin-top:.25rem; font-weight:600; }
 .note{ font-size:.82rem; color:var(--muted); text-align:center; margin-top:.75rem; font-style:italic; line-height:1.6;
