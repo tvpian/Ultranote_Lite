@@ -2522,11 +2522,14 @@ header {
   padding: 12px 18px !important;
 }
 
-/* --- Sidebar/aside: glass surface --- */
+/* --- Sidebar/aside: glass surface ---
+   Lowered blur 20→10 and dropped saturate(160%) — these run on every
+   paint and were causing perceptible lag on desktop. Modals (which only
+   show on demand) keep the heavier blur. */
 aside {
-  backdrop-filter: blur(20px) saturate(160%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(160%) !important;
-  background: rgba(10,17,30,0.75) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  background: rgba(10,17,30,0.80) !important;
   border: 1px solid rgba(255,255,255,0.055) !important;
   border-radius: 20px !important;
   box-shadow: 0 8px 32px rgba(0,0,0,0.45),
@@ -2586,7 +2589,7 @@ nav button:hover:not(.active) {
   border-color: rgba(255,255,255,0.1) !important;
   box-shadow: 0 1px 2px rgba(0,0,0,0.4),
               inset 0 1px 0 rgba(255,255,255,0.06) !important;
-  transition: all 0.15s ease !important;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease !important;
 }
 .btn:hover:not(:disabled) {
   background: linear-gradient(180deg,
@@ -2732,11 +2735,11 @@ select:focus {
   color: #0f172a;
 }
 
-/* --- Header: white frosted glass --- */
+/* --- Header: white frosted glass (light theme; cheaper blur, no saturate) --- */
 [data-theme="light"] header {
-  background: rgba(243,246,251,0.88) !important;
-  backdrop-filter: blur(14px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(180%) !important;
+  background: rgba(243,246,251,0.92) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
   border-bottom: 1px solid rgba(107,70,229,0.10) !important;
   box-shadow: 0 1px 0 rgba(0,0,0,0.06) !important;
 }
@@ -2750,11 +2753,11 @@ select:focus {
   filter: none;
 }
 
-/* --- Sidebar: white glass --- */
+/* --- Sidebar: white glass (light theme; cheaper) --- */
 [data-theme="light"] aside {
-  background: rgba(255,255,255,0.82) !important;
-  backdrop-filter: blur(20px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  background: rgba(255,255,255,0.88) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
   border: 1px solid rgba(0,0,0,0.08) !important;
   box-shadow: 0 8px 32px rgba(0,0,0,0.1),
               inset 0 1px 0 rgba(255,255,255,0.9) !important;

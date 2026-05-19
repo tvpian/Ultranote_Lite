@@ -37,8 +37,14 @@
         kids[i].style.setProperty('--i', 0);
       }
     };
-    tagChildren();
-    new MutationObserver(tagChildren).observe(content, { childList: true });
+    // PERF: only do the tagging work when a route change is actively in
+    // progress. Otherwise app.js rewrites #content on every keystroke-driven
+    // re-render (inline edit, task toggle, etc.) and we'd be doing N inline
+    // style writes for nothing — the entrance animation is gated on
+    // body.is-routing anyway, so the --i values would be unused.
+    new MutationObserver(() => {
+      if (document.body.classList.contains('is-routing')) tagChildren();
+    }).observe(content, { childList: true });
   }
 
   // Route-change gate: animate only when the user explicitly navigated.
