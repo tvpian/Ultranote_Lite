@@ -2485,8 +2485,8 @@ select:focus {
    All additive overrides via cascade — zero layout changes.
    ========================================================== */
 
-/* --- Plus Jakarta Sans + JetBrains Mono (Google Fonts CDN) --- */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+/* --- Plus Jakarta Sans + JetBrains Mono (bundled locally in /fonts) --- */
+@import url('fonts/fonts.css');
 
 /* --- Apply Plus Jakarta Sans everywhere --- */
 :root {
@@ -4056,4 +4056,347 @@ body.is-routing #content > * {
   .pill.pulse-once,
   .badge.pulse-once      { animation: none !important; }
   .skeleton::after       { animation: none !important; }
+}
+
+/* ============================================================
+   VISUAL REFRESH — Phase 9: Skeleton + Command Palette + Help
+   Pairs with ui-extras.js. Self-contained additive block.
+   ============================================================ */
+
+/* ---- A. Loading skeleton (initial #content placeholder) ---- */
+.skeleton-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  background: var(--surface-1, rgba(255,255,255,0.02));
+  border: 1px solid var(--divider, rgba(255,255,255,0.06));
+  border-radius: var(--r-md, 14px);
+}
+.skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+}
+/* (.skeleton base + shimmer already defined in Phase 8) */
+
+/* ---- B. Command palette (Ctrl/Cmd+K) ---- */
+.cmdk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 16px 16px;
+  background: rgba(8, 6, 18, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease-out;
+}
+.cmdk-overlay.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cmdk-panel {
+  width: min(640px, 100%);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%),
+    rgba(18, 14, 36, 0.96);
+  border: 1px solid rgba(139,109,255,0.30);
+  border-radius: var(--r-lg, 18px);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 24px 60px rgba(0,0,0,0.55),
+    0 0 60px rgba(139,109,255,0.18);
+  overflow: hidden;
+  transform: translateY(-8px) scale(0.98);
+  transition: transform 0.18s cubic-bezier(0.34, 1.20, 0.36, 1);
+}
+.cmdk-overlay.is-open .cmdk-panel {
+  transform: translateY(0) scale(1);
+}
+.cmdk-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  color: rgba(200,190,235,0.7);
+}
+.cmdk-input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: #f3eeff;
+  font-size: 15px;
+  font-family: inherit;
+  letter-spacing: -0.01em;
+  padding: 0;
+}
+.cmdk-input::placeholder { color: rgba(200,190,235,0.45); }
+.cmdk-hint {
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(200,190,235,0.7);
+}
+.cmdk-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139,109,255,0.30) transparent;
+}
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #e5dfff;
+  font-size: 13.5px;
+  line-height: 1.3;
+  transition: background 0.08s ease-out, color 0.08s ease-out;
+}
+.cmdk-item.is-active {
+  background: linear-gradient(90deg, rgba(139,109,255,0.18), rgba(139,109,255,0.08));
+  color: #ffffff;
+}
+.cmdk-type {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(139,109,255,0.14);
+  color: #c4b3ff;
+  min-width: 56px;
+  text-align: center;
+}
+.cmdk-type-page    { background: rgba(74,180,255,0.16); color: #9cd7ff; }
+.cmdk-type-note    { background: rgba(139,109,255,0.16); color: #c4b3ff; }
+.cmdk-type-project { background: rgba(255,170,80,0.16);  color: #ffd5a3; }
+.cmdk-type-task    { background: rgba(120,220,180,0.16); color: #b5f0d5; }
+.cmdk-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmdk-hint-text {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: rgba(200,190,235,0.55);
+}
+.cmdk-empty {
+  padding: 24px;
+  text-align: center;
+  color: rgba(200,190,235,0.55);
+  font-size: 13px;
+}
+.cmdk-footer {
+  display: flex;
+  gap: 16px;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.20);
+  font-size: 11px;
+  color: rgba(200,190,235,0.55);
+}
+.cmdk-footer kbd {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  padding: 1.5px 5px;
+  margin-right: 4px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+
+/* Light theme overrides for palette */
+[data-theme="light"] .cmdk-overlay { background: rgba(15, 12, 30, 0.35); }
+[data-theme="light"] .cmdk-panel {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(252,250,255,0.95) 100%);
+  border-color: rgba(107,70,229,0.30);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,1) inset,
+    0 24px 60px rgba(15,12,30,0.20),
+    0 0 60px rgba(107,70,229,0.12);
+}
+[data-theme="light"] .cmdk-search       { border-bottom-color: rgba(15,12,30,0.08); color: rgba(60,45,110,0.65); }
+[data-theme="light"] .cmdk-input        { color: #2a1f50; }
+[data-theme="light"] .cmdk-input::placeholder { color: rgba(60,45,110,0.45); }
+[data-theme="light"] .cmdk-item         { color: #2a1f50; }
+[data-theme="light"] .cmdk-item.is-active { color: #1a1040; background: linear-gradient(90deg, rgba(107,70,229,0.12), rgba(107,70,229,0.04)); }
+[data-theme="light"] .cmdk-hint-text    { color: rgba(60,45,110,0.55); }
+[data-theme="light"] .cmdk-footer       { background: rgba(15,12,30,0.03); border-top-color: rgba(15,12,30,0.08); color: rgba(60,45,110,0.6); }
+[data-theme="light"] .cmdk-hint,
+[data-theme="light"] .cmdk-footer kbd   { background: rgba(15,12,30,0.05); border-color: rgba(15,12,30,0.10); color: rgba(60,45,110,0.7); }
+
+/* ---- C. Keyboard shortcuts help overlay ---- */
+.shk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 6, 18, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease-out;
+  padding: 16px;
+}
+.shk-overlay.is-open { opacity: 1; pointer-events: auto; }
+.shk-panel {
+  width: min(480px, 100%);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%),
+    rgba(18, 14, 36, 0.96);
+  border: 1px solid rgba(139,109,255,0.30);
+  border-radius: var(--r-lg, 18px);
+  box-shadow:
+    0 24px 60px rgba(0,0,0,0.55),
+    0 0 60px rgba(139,109,255,0.18);
+  overflow: hidden;
+  transform: scale(0.96);
+  transition: transform 0.18s cubic-bezier(0.34, 1.20, 0.36, 1);
+}
+.shk-overlay.is-open .shk-panel { transform: scale(1); }
+.shk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.shk-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #f3eeff;
+}
+.shk-close {
+  background: transparent;
+  border: 0;
+  color: rgba(200,190,235,0.7);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+}
+.shk-close:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.shk-grid {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.shk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #e5dfff;
+}
+.shk-row span {
+  margin-left: 8px;
+  color: rgba(220,210,250,0.85);
+}
+.shk-row kbd,
+.shk-foot kbd {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.20);
+  color: #f3eeff;
+  min-width: 24px;
+  text-align: center;
+}
+.shk-foot {
+  padding: 10px 18px;
+  font-size: 11.5px;
+  color: rgba(200,190,235,0.55);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.20);
+}
+
+/* Light theme overrides for help */
+[data-theme="light"] .shk-overlay  { background: rgba(15, 12, 30, 0.35); }
+[data-theme="light"] .shk-panel    {
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(252,250,255,0.95));
+  border-color: rgba(107,70,229,0.30);
+  box-shadow: 0 24px 60px rgba(15,12,30,0.20), 0 0 60px rgba(107,70,229,0.12);
+}
+[data-theme="light"] .shk-head     { border-bottom-color: rgba(15,12,30,0.08); }
+[data-theme="light"] .shk-head h3  { color: #2a1f50; }
+[data-theme="light"] .shk-close    { color: rgba(60,45,110,0.7); }
+[data-theme="light"] .shk-close:hover { background: rgba(15,12,30,0.05); color: #2a1f50; }
+[data-theme="light"] .shk-row      { color: #2a1f50; }
+[data-theme="light"] .shk-row span { color: rgba(60,45,110,0.85); }
+[data-theme="light"] .shk-row kbd,
+[data-theme="light"] .shk-foot kbd { background: rgba(15,12,30,0.05); border-color: rgba(15,12,30,0.12); color: #2a1f50; box-shadow: 0 1px 0 rgba(15,12,30,0.06); }
+[data-theme="light"] .shk-foot     { background: rgba(15,12,30,0.03); border-top-color: rgba(15,12,30,0.08); color: rgba(60,45,110,0.6); }
+
+/* ---- D. Accessibility: visible keyboard focus rings ---- */
+:focus-visible {
+  outline: 2px solid rgba(139,109,255,0.85);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible {
+  outline: 2px solid rgba(139,109,255,0.85);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(139,109,255,0.18);
+}
+/* Don't double up rings when palette items already show is-active. */
+.cmdk-item:focus-visible { outline: none; box-shadow: none; }
+
+[data-theme="light"] :focus-visible,
+[data-theme="light"] button:focus-visible,
+[data-theme="light"] input:focus-visible,
+[data-theme="light"] textarea:focus-visible,
+[data-theme="light"] select:focus-visible,
+[data-theme="light"] [role="button"]:focus-visible,
+[data-theme="light"] a:focus-visible {
+  outline-color: rgba(107,70,229,0.90);
+  box-shadow: 0 0 0 4px rgba(107,70,229,0.18);
+}
+
+/* ---- E. Reduced-motion overrides for Phase 9 overlays ---- */
+@media (prefers-reduced-motion: reduce) {
+  .cmdk-overlay, .shk-overlay,
+  .cmdk-panel, .shk-panel { transition: none !important; transform: none !important; }
 }

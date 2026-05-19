@@ -78,21 +78,21 @@
       <label class="muted" style="margin-left:8px;"><input id="autoCarryTasks" type="checkbox"> Auto-carry project tasks</label>
       <!-- Auto reload toggle to allow disabling periodic sync -->
   <label class="muted" style="margin-left:8px;"><input id="autoReload" type="checkbox"> Auto-sync</label>
-  <button id="syncNowBtn" class="btn" title="Manually sync now" style="font-size:12px;">Sync Now</button>
-  <button id="themeToggle" class="btn" title="Toggle light/dark mode" style="margin-left:8px;">🌓</button>
+  <button id="syncNowBtn" class="btn" title="Manually sync now" aria-label="Sync now" style="font-size:12px;">Sync Now</button>
+  <button id="themeToggle" class="btn" title="Toggle light/dark mode" aria-label="Toggle light or dark theme" style="margin-left:8px;">🌓</button>
       <button id="logoutBtn" class="btn danger">Logout</button>
     </div>
   </header>
 
   <main>
     <aside>
-      <nav id="nav"></nav>
+      <nav id="nav" aria-label="Primary navigation"></nav>
       <div class="card">
         <div class="muted">Today: <span id="todayStr"></span></div>
         <div class="row" id="dailyDateControls" style="margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap;">
-          <button class="btn" id="prevDay" style="flex:0 0 auto;padding:4px 10px;font-size:14px;">◀</button>
-          <input id="dailyDateNav" type="date" style="flex:1;min-width:0;background:#14101f;border:1px solid #2a2245;color:var(--fg);padding:6px 8px;border-radius:8px;" />
-          <button class="btn" id="nextDay" style="flex:0 0 auto;padding:4px 10px;font-size:14px;">▶</button>
+          <button class="btn" id="prevDay" aria-label="Previous day" style="flex:0 0 auto;padding:4px 10px;font-size:14px;">◀</button>
+          <input id="dailyDateNav" type="date" aria-label="Daily note date" style="flex:1;min-width:0;background:#14101f;border:1px solid #2a2245;color:var(--fg);padding:6px 8px;border-radius:8px;" />
+          <button class="btn" id="nextDay" aria-label="Next day" style="flex:0 0 auto;padding:4px 10px;font-size:14px;">▶</button>
         </div>
         <button id="newDaily" class="btn" style="margin-top:8px;width:100%;">Open/Create Daily</button>
       </div>
@@ -109,7 +109,26 @@
       </div>
     </aside>
 
-    <section id="content"></section>
+    <section id="content" aria-live="polite" aria-busy="true">
+      <!-- Initial loading skeleton; replaced by app.js on first render() -->
+      <div class="skeleton-stack" aria-hidden="true">
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-line" style="width:42%;height:18px"></div>
+          <div class="skeleton skeleton-line" style="width:90%"></div>
+          <div class="skeleton skeleton-line" style="width:75%"></div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-line" style="width:30%;height:18px"></div>
+          <div class="skeleton skeleton-line" style="width:88%"></div>
+          <div class="skeleton skeleton-line" style="width:65%"></div>
+          <div class="skeleton skeleton-line" style="width:80%"></div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-line" style="width:36%;height:18px"></div>
+          <div class="skeleton skeleton-line" style="width:70%"></div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <div id="tip" class="tip" style="display:none;">
@@ -1284,5 +1303,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     <script src="app.js"></script>
     <!-- Cosmetic polish layer (Phase 8): page stagger, save toast, badge pulse -->
     <script src="ui-polish.js" defer></script>
+    <!-- Phase 9: command palette (Ctrl+K), shortcut help (?), skeleton -->
+    <script src="ui-extras.js" defer></script>
 </body>
 </html>
