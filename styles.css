@@ -3926,27 +3926,23 @@ body {
    ============================================================ */
 
 /* ---- 1. Stagger cascade for #content children ----
-   ui-polish.js sets --i (0..5) on each direct child of #content and adds
-   'is-routing' to <body> for ~600ms after a nav click. The entrance
-   animation is gated on that class so it ONLY fires on real route changes,
-   not on every in-place re-render (task toggle, inline edit, autosave).
-   Kept deliberately cheap: only opacity + transform (GPU-composited),
-   no blur/filter, short duration. */
+   DISABLED: this entrance animation was causing the page to read as
+   "refreshing twice" — the eye perceives the content appearing and then
+   the cascade completing as two separate updates. The other Phase 8/9
+   features (save toast, badge pulse, palette, shortcuts, skeleton) are
+   unaffected. To re-enable, restore this block and un-comment the
+   armRoutingFlag click listener in ui-polish.js.
+
 body.is-routing #content > * {
   animation: contentEnter 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both;
   animation-delay: calc(var(--i, 0) * 24ms);
   will-change: opacity, transform;
 }
 @keyframes contentEnter {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 6px, 0);
-  }
-  to {
-    opacity: 1;
-    transform: translate3d(0, 0, 0);
-  }
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
 }
+*/
 
 /* ---- 2. Save toast (bottom-right confirm chip) ---- */
 .save-toast {

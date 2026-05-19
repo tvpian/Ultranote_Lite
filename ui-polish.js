@@ -10,60 +10,26 @@
   'use strict';
 
   // ---------- 1. Stagger child cascade on #content re-renders ----------
-  // Whenever the main content area gets new direct children (i.e. the user
-  // navigates between Today / Tasks / Projects / Notes / etc.), tag each
-  // child with a CSS custom property --i so the stylesheet can offset the
-  // fade-in animation. Children appear in a smooth cascade instead of all
-  // at once. Pure decoration — no DOM structure changes.
+  // DISABLED: this entrance animation was perceived as the page "refreshing
+  // twice" on every nav (eye sees content appear, then cascade complete).
+  // The save toast, badge pulse, and other polish features below are
+  // unaffected. To re-enable, uncomment the block below and the matching
+  // CSS in styles.css (search for 'contentEnter').
   //
-  // IMPORTANT: app.js calls content.innerHTML = ... on *every* render,
-  // including in-place updates (task toggle, inline edit, project rename).
-  // If we animated on every mutation, every keystroke-triggered save would
-  // re-fire the entrance animation and the UI would feel "jumpy" on desktop
-  // (mobile masks it because input events are slower).
-  //
-  // Solution: only animate on real route changes. We detect those by listening
-  // for clicks on nav buttons (which carry data-route). Click → set body class
-  // 'is-routing' briefly → CSS-gated entrance animation runs → class removed.
-  const content = document.getElementById('content');
-  if (content) {
-    const tagChildren = () => {
-      const kids = content.children;
-      const limit = Math.min(kids.length, 6);
-      for (let i = 0; i < limit; i++) {
-        kids[i].style.setProperty('--i', i);
-      }
-      for (let i = limit; i < kids.length; i++) {
-        kids[i].style.setProperty('--i', 0);
-      }
-    };
-    // PERF: only do the tagging work when a route change is actively in
-    // progress. Otherwise app.js rewrites #content on every keystroke-driven
-    // re-render (inline edit, task toggle, etc.) and we'd be doing N inline
-    // style writes for nothing — the entrance animation is gated on
-    // body.is-routing anyway, so the --i values would be unused.
-    new MutationObserver(() => {
-      if (document.body.classList.contains('is-routing')) tagChildren();
-    }).observe(content, { childList: true });
-  }
-
-  // Route-change gate: animate only when the user explicitly navigated.
-  let routingTimer = null;
-  const armRoutingFlag = () => {
-    document.body.classList.add('is-routing');
-    clearTimeout(routingTimer);
-    // Give the entrance keyframe (~0.22s) + max stagger (6 × 24ms = ~0.14s)
-    // a bit of headroom, then disarm so subsequent in-place edits don't animate.
-    routingTimer = setTimeout(() => {
-      document.body.classList.remove('is-routing');
-    }, 600);
-  };
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest && e.target.closest('[data-route]');
-    if (btn) armRoutingFlag();
-  }, true);
-  // Also arm on initial page load so the very first render animates.
-  armRoutingFlag();
+  // const content = document.getElementById('content');
+  // if (content) {
+  //   const tagChildren = () => { ... };
+  //   new MutationObserver(() => {
+  //     if (document.body.classList.contains('is-routing')) tagChildren();
+  //   }).observe(content, { childList: true });
+  // }
+  // let routingTimer = null;
+  // const armRoutingFlag = () => { ... };
+  // document.addEventListener('click', (e) => {
+  //   const btn = e.target.closest && e.target.closest('[data-route]');
+  //   if (btn) armRoutingFlag();
+  // }, true);
+  // armRoutingFlag();
 
   // ---------- 2. Save toast ----------
   // Wrap window.persistDB so every successful save flashes a small confirm
