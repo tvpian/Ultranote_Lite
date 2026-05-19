@@ -3923,11 +3923,13 @@ body {
    ============================================================ */
 
 /* ---- 1. Stagger cascade for #content children ----
-   ui-polish.js sets --i (0, 1, 2, ...) on each direct child of #content
-   on every navigation. We use that to offset the entrance animation.
+   ui-polish.js sets --i (0..5) on each direct child of #content and adds
+   'is-routing' to <body> for ~600ms after a nav click. The entrance
+   animation is gated on that class so it ONLY fires on real route changes,
+   not on every in-place re-render (task toggle, inline edit, autosave).
    Kept deliberately cheap: only opacity + transform (GPU-composited),
-   no blur/filter, short duration, will-change hint. */
-#content > * {
+   no blur/filter, short duration. */
+body.is-routing #content > * {
   animation: contentEnter 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both;
   animation-delay: calc(var(--i, 0) * 24ms);
   will-change: opacity, transform;

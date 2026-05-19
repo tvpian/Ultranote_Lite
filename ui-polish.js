@@ -15,24 +15,49 @@
   // child with a CSS custom property --i so the stylesheet can offset the
   // fade-in animation. Children appear in a smooth cascade instead of all
   // at once. Pure decoration — no DOM structure changes.
+  //
+  // IMPORTANT: app.js calls content.innerHTML = ... on *every* render,
+  // including in-place updates (task toggle, inline edit, project rename).
+  // If we animated on every mutation, every keystroke-triggered save would
+  // re-fire the entrance animation and the UI would feel "jumpy" on desktop
+  // (mobile masks it because input events are slower).
+  //
+  // Solution: only animate on real route changes. We detect those by listening
+  // for clicks on nav buttons (which carry data-route). Click → set body class
+  // 'is-routing' briefly → CSS-gated entrance animation runs → class removed.
   const content = document.getElementById('content');
   if (content) {
     const tagChildren = () => {
       const kids = content.children;
-      // Cap at 6: stagger past the fold is invisible & costs perf on long lists.
       const limit = Math.min(kids.length, 6);
       for (let i = 0; i < limit; i++) {
         kids[i].style.setProperty('--i', i);
       }
-      // Children beyond the cap get --i = 0 (no delay) so they don't queue up.
       for (let i = limit; i < kids.length; i++) {
         kids[i].style.setProperty('--i', 0);
       }
     };
-    // Initial tag, then re-tag on every mutation. childList covers innerHTML swaps.
     tagChildren();
     new MutationObserver(tagChildren).observe(content, { childList: true });
   }
+
+  // Route-change gate: animate only when the user explicitly navigated.
+  let routingTimer = null;
+  const armRoutingFlag = () => {
+    document.body.classList.add('is-routing');
+    clearTimeout(routingTimer);
+    // Give the entrance keyframe (~0.22s) + max stagger (6 × 24ms = ~0.14s)
+    // a bit of headroom, then disarm so subsequent in-place edits don't animate.
+    routingTimer = setTimeout(() => {
+      document.body.classList.remove('is-routing');
+    }, 600);
+  };
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('[data-route]');
+    if (btn) armRoutingFlag();
+  }, true);
+  // Also arm on initial page load so the very first render animates.
+  armRoutingFlag();
 
   // ---------- 2. Save toast ----------
   // Wrap window.persistDB so every successful save flashes a small confirm

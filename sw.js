@@ -1,4 +1,4 @@
-const CACHE = 'ultranote-lite-v17-perf';
+const CACHE = 'ultranote-lite-v18-routegate';
 const ASSETS = ['/', '/index.html', '/manifest.json', '/styles.css', '/app.js', '/autosync.js'];
 self.addEventListener('install', e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
