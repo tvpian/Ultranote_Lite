@@ -3914,3 +3914,152 @@ body {
   border: 2px solid transparent;
 }
 
+
+/* ============================================================
+   VISUAL REFRESH — Phase 8: Motion & micro-interactions
+   Self-contained additive block. Pairs with ui-polish.js.
+   To revert: delete from this comment to EOF + remove
+   <script src="ui-polish.js"> from index.html.
+   ============================================================ */
+
+/* ---- 1. Stagger cascade for #content children ----
+   ui-polish.js sets --i (0, 1, 2, ...) on each direct child of #content
+   on every navigation. We use that to offset the entrance animation. */
+#content > * {
+  animation: contentEnter 0.32s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+@keyframes contentEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+/* Subtle route-change body tint pulse so the eye notices the transition */
+#content {
+  animation: routeTint 0.5s ease-out;
+}
+@keyframes routeTint {
+  0%   { background-color: rgba(139,109,255,0.018); }
+  100% { background-color: transparent; }
+}
+
+/* ---- 2. Save toast (bottom-right confirm chip) ---- */
+.save-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 9999;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px 9px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%),
+    rgba(15, 12, 30, 0.92);
+  border: 1px solid rgba(139,109,255,0.45);
+  border-radius: 999px;
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 8px 24px rgba(0,0,0,0.45),
+    0 0 24px rgba(139,109,255,0.20);
+  /* Hidden by default; .save-toast--visible reveals it */
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+  pointer-events: none;
+  transition:
+    opacity 0.22s cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 0.22s cubic-bezier(0.34, 1.20, 0.36, 1);
+}
+.save-toast--visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.save-toast svg {
+  color: #c4b3ff;
+  flex-shrink: 0;
+}
+[data-theme="light"] .save-toast {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.95) 100%);
+  border-color: rgba(107,70,229,0.40);
+  color: #2a1f50;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,1) inset,
+    0 8px 24px rgba(15, 12, 30, 0.12),
+    0 0 24px rgba(107,70,229,0.15);
+}
+[data-theme="light"] .save-toast svg { color: #6b46e5; }
+
+/* ---- 3. Nav badge pulse-once ----
+   ui-polish.js adds .pulse-once when a pill's text changes (task count etc.).
+   Class auto-removes via animationend so it can re-fire. */
+@keyframes pillPulse {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(139,109,255,0.50); }
+  35%  { transform: scale(1.18); box-shadow: 0 0 0 6px rgba(139,109,255,0.00); }
+  100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(139,109,255,0.00); }
+}
+.pill.pulse-once,
+.badge.pulse-once {
+  animation: pillPulse 0.55s cubic-bezier(0.34, 1.20, 0.36, 1);
+}
+/* CSS handles the auto-cleanup: the class can be removed by JS on animationend,
+   but visually the animation naturally ends — leaving the class on doesn't
+   hurt because it won't replay until removed-and-re-added. */
+
+/* ---- 4. Skeleton shimmer (utility class for future use) ----
+   Add class="skeleton" to any element to show a shimmering placeholder.
+   Currently unused; ready for whoever wires up a loading state. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,255,255,0.04);
+  border-radius: var(--r-sm, 10px);
+  color: transparent !important;
+  min-height: 1em;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(139,109,255,0.08) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: skeletonShimmer 1.4s ease-in-out infinite;
+}
+@keyframes skeletonShimmer {
+  to { transform: translateX(100%); }
+}
+[data-theme="light"] .skeleton { background: rgba(15,12,30,0.05); }
+[data-theme="light"] .skeleton::after {
+  background: linear-gradient(
+    90deg, transparent 0%, rgba(107,70,229,0.10) 50%, transparent 100%
+  );
+}
+
+/* ---- 5. Honor reduced-motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  #content > *           { animation: none !important; }
+  #content               { animation: none !important; }
+  .save-toast            { transition: opacity 0.001ms !important; transform: none !important; }
+  .pill.pulse-once,
+  .badge.pulse-once      { animation: none !important; }
+  .skeleton::after       { animation: none !important; }
+}
