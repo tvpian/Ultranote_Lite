@@ -3924,31 +3924,23 @@ body {
 
 /* ---- 1. Stagger cascade for #content children ----
    ui-polish.js sets --i (0, 1, 2, ...) on each direct child of #content
-   on every navigation. We use that to offset the entrance animation. */
+   on every navigation. We use that to offset the entrance animation.
+   Kept deliberately cheap: only opacity + transform (GPU-composited),
+   no blur/filter, short duration, will-change hint. */
 #content > * {
-  animation: contentEnter 0.32s cubic-bezier(0.22, 0.61, 0.36, 1) both;
-  animation-delay: calc(var(--i, 0) * 35ms);
+  animation: contentEnter 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 24ms);
+  will-change: opacity, transform;
 }
 @keyframes contentEnter {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.985);
-    filter: blur(2px);
+    transform: translate3d(0, 6px, 0);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: blur(0);
+    transform: translate3d(0, 0, 0);
   }
-}
-
-/* Subtle route-change body tint pulse so the eye notices the transition */
-#content {
-  animation: routeTint 0.5s ease-out;
-}
-@keyframes routeTint {
-  0%   { background-color: rgba(139,109,255,0.018); }
-  100% { background-color: transparent; }
 }
 
 /* ---- 2. Save toast (bottom-right confirm chip) ---- */
@@ -3970,8 +3962,8 @@ body {
     rgba(15, 12, 30, 0.92);
   border: 1px solid rgba(139,109,255,0.45);
   border-radius: 999px;
-  backdrop-filter: blur(14px) saturate(180%);
-  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   box-shadow:
     0 1px 0 rgba(255,255,255,0.06) inset,
     0 8px 24px rgba(0,0,0,0.45),

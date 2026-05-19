@@ -19,9 +19,14 @@
   if (content) {
     const tagChildren = () => {
       const kids = content.children;
-      const limit = Math.min(kids.length, 12); // cap so deep lists don't pause forever
+      // Cap at 6: stagger past the fold is invisible & costs perf on long lists.
+      const limit = Math.min(kids.length, 6);
       for (let i = 0; i < limit; i++) {
         kids[i].style.setProperty('--i', i);
+      }
+      // Children beyond the cap get --i = 0 (no delay) so they don't queue up.
+      for (let i = limit; i < kids.length; i++) {
+        kids[i].style.setProperty('--i', 0);
       }
     };
     // Initial tag, then re-tag on every mutation. childList covers innerHTML swaps.
