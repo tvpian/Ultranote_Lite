@@ -1,4 +1,5 @@
 const express  = require('express');
+const compression = require('compression');
 const fs       = require('fs');
 const path     = require('path');
 const session  = require('express-session');
@@ -51,6 +52,22 @@ function ipLockState(ip) {
 
 // Middlewares to parse JSON and URL‑encoded bodies
 // Large limit needed because attachments (audio, images) are stored as base64 inside data.json
+// Gzip compression. We compress HTML/CSS/JS (small, highly compressible —
+// pure win) but explicitly skip JSON. /api/db is mostly base64-encoded
+// attachments (audio/images) that barely compress (~32%), and gzipping the
+// 8.5 MB payload costs ~700ms of CPU per request — on localhost/LAN that's
+// a net slowdown. A future improvement would be to factor attachments out of
+// data.json entirely; until then, JSON stays uncompressed.
+app.use(compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    const type = res.getHeader('Content-Type') || '';
+    // Skip JSON (the big offender); compress everything textual otherwise.
+    if (/\bjson\b/i.test(type)) return false;
+    return compression.filter(req, res);
+  },
+}));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
