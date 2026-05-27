@@ -9,6 +9,8 @@ const app      = express();
 const PORT     = process.env.PORT || 3366;
 const DATA_FILE = path.join(__dirname, 'data.json');
 const SESSIONS_DIR = path.join(__dirname, '.sessions');
+const ATTACHMENTS_DIR = path.join(__dirname, 'attachments');
+try { fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true }); } catch (_) {}
 
 const MAX_ATTEMPTS = 5;          // tries before temporary lockout
 const LOCK_MS = 2 * 60 * 1000;   // 2 minutes lock
@@ -52,19 +54,16 @@ function ipLockState(ip) {
 
 // Middlewares to parse JSON and URL‑encoded bodies
 // Large limit needed because attachments (audio, images) are stored as base64 inside data.json
-// Gzip compression. We compress HTML/CSS/JS (small, highly compressible —
-// pure win) but explicitly skip JSON. /api/db is mostly base64-encoded
-// attachments (audio/images) that barely compress (~32%), and gzipping the
-// 8.5 MB payload costs ~700ms of CPU per request — on localhost/LAN that's
-// a net slowdown. A future improvement would be to factor attachments out of
-// data.json entirely; until then, JSON stays uncompressed.
+// Gzip compression. We now compress everything textual, including JSON. The
+// previous skip was justified when data.json was multi-MB and dominated by
+// poorly-compressible base64 attachments — attachments now live out-of-band
+// (see /api/attachments), and the residual JSON (~1 MB) compresses ~5x for
+// negligible CPU. Binary attachment responses are already excluded by the
+// default compression filter.
 app.use(compression({
   threshold: 1024,
   filter: (req, res) => {
     if (req.headers['x-no-compression']) return false;
-    const type = res.getHeader('Content-Type') || '';
-    // Skip JSON (the big offender); compress everything textual otherwise.
-    if (/\bjson\b/i.test(type)) return false;
     return compression.filter(req, res);
   },
 }));
@@ -510,8 +509,13 @@ app.post('/api/db', (req, res) => {
   merged.version = Math.max(current.version || 1, incoming.version || 1);
 
   if (!writeData(merged)) return res.status(500).json({ error: 'Persist failed' });
-  // Return the merged state so the posting client can immediately update its own
-  // in-memory db and pick up any records that other clients added since its last sync.
+  // The merged db is normally echoed so the posting client can pick up any
+  // records other clients added since its last sync. With a multi-MB db that
+  // doubles every save's payload. Clients can opt out via ?noEcho=1 and rely
+  // on the autosync layer for cross-device pickup instead.
+  if (req.query.noEcho === '1') {
+    return res.json({ ok: true });
+  }
   res.json({ ok: true, db: merged });
 });
 
@@ -704,6 +708,127 @@ app.post('/api/activity', (req, res) => {
   res.json({ ok: true, entry });
 });
 // ── End agent endpoints ─────────────────────────────────────────────────────
+
+// ── Attachments out-of-band store ───────────────────────────────────────────
+// Attachments (images, audio, video, files) used to live as base64 inside
+// data.json, which made the DB multi-MB and dominated every save/load. They
+// now live on disk under ./attachments/<id>.bin and are referenced by id in
+// data.json. Records keep { id, name, type, size, createdAt } only.
+function attachmentPath(id){
+  // Allow only alphanumerics + a few safe chars to prevent path traversal.
+  if (!/^[A-Za-z0-9_-]{4,64}$/.test(String(id || ''))) return null;
+  return path.join(ATTACHMENTS_DIR, `${id}.bin`);
+}
+function parseDataUrl(dataUrl){
+  // "data:image/png;base64,iVBORw0K..." → { mime, buffer }
+  const m = /^data:([^;,]+);base64,(.+)$/.exec(String(dataUrl || ''));
+  if (!m) return null;
+  try { return { mime: m[1], buffer: Buffer.from(m[2], 'base64') }; }
+  catch (_) { return null; }
+}
+
+// POST /api/attachments  body: { id?, name, type, data: "data:...;base64,..." }
+// Decodes the base64 payload, writes attachments/<id>.bin, returns { id, name, type, size }.
+app.post('/api/attachments', (req, res) => {
+  const { id, name, type, data } = req.body || {};
+  const safeId = id && /^[A-Za-z0-9_-]{4,64}$/.test(id)
+    ? id
+    : require('crypto').randomBytes(9).toString('base64url').replace(/[^A-Za-z0-9_-]/g,'').slice(0,16);
+  const parsed = parseDataUrl(data);
+  if (!parsed) return res.status(400).json({ error: 'Invalid data url' });
+  const target = attachmentPath(safeId);
+  if (!target) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    fs.writeFileSync(target, parsed.buffer);
+  } catch (e) {
+    console.error('attachment write failed', e);
+    return res.status(500).json({ error: 'Write failed' });
+  }
+  res.json({
+    ok: true,
+    id: safeId,
+    name: String(name || 'attachment'),
+    type: String(type || parsed.mime || 'application/octet-stream'),
+    size: parsed.buffer.length
+  });
+});
+
+// GET /api/attachments/:id  — streams the binary with Content-Type from the
+// note's attachment record (looked up in data.json). Cacheable: the binary
+// for a given id is immutable.
+app.get('/api/attachments/:id', (req, res) => {
+  const p = attachmentPath(req.params.id);
+  if (!p) return res.status(400).json({ error: 'Invalid id' });
+  if (!fs.existsSync(p)) return res.status(404).json({ error: 'Not found' });
+  // Look up MIME from data.json so we serve with the right Content-Type.
+  let mime = 'application/octet-stream';
+  let name = '';
+  try {
+    const d = readData();
+    outer: for (const n of (d && d.notes) || []) {
+      for (const a of (n.attachments || [])) {
+        if (a.id === req.params.id) { mime = a.type || mime; name = a.name || ''; break outer; }
+      }
+    }
+  } catch (_) {}
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+  if (name) res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(name)}"`);
+  fs.createReadStream(p).pipe(res);
+});
+
+// DELETE /api/attachments/:id  — remove the binary. Caller is responsible for
+// removing the metadata entry from data.json via the usual /api/db save.
+app.delete('/api/attachments/:id', (req, res) => {
+  const p = attachmentPath(req.params.id);
+  if (!p) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('attachment delete failed', e);
+    res.status(500).json({ error: 'Delete failed' });
+  }
+});
+
+// One-time migration on boot: any attachment record that still has an inline
+// `data` field gets written to disk and the inline data is stripped. Safe to
+// run repeatedly — only acts on records that still have a `data` field.
+function migrateAttachmentsToDisk(){
+  try {
+    const d = readData();
+    if (!d || !Array.isArray(d.notes)) return;
+    let migrated = 0, failed = 0;
+    for (const n of d.notes) {
+      if (!Array.isArray(n.attachments)) continue;
+      for (const a of n.attachments) {
+        if (!a || !a.data) continue;
+        const target = attachmentPath(a.id);
+        if (!target) { failed++; continue; }
+        const parsed = parseDataUrl(a.data);
+        if (!parsed) { failed++; continue; }
+        try {
+          // Only strip the inline data after the file write succeeds.
+          if (!fs.existsSync(target)) fs.writeFileSync(target, parsed.buffer);
+          a.size = parsed.buffer.length;
+          delete a.data;
+          migrated++;
+        } catch (e) {
+          console.error('attachment migration failed for', a.id, e.message);
+          failed++;
+        }
+      }
+    }
+    if (migrated) {
+      writeData(d);
+      console.log(`📎 migrateAttachmentsToDisk: moved ${migrated} attachment(s) out of data.json` + (failed ? `, ${failed} failed` : ''));
+    }
+  } catch (e) {
+    console.error('migrateAttachmentsToDisk error', e);
+  }
+}
+migrateAttachmentsToDisk();
+// ── End attachments store ───────────────────────────────────────────────────
 
 // Serve static files after the auth middleware so unauthorized users cannot fetch them
 app.use(express.static(__dirname));
