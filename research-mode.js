@@ -608,6 +608,9 @@ Things outside UltraNote that compound. Adopt one at a time.
 
   function renderResearch(){
     if (researchView === 'triage') return renderTriage();
+    if (researchView === 'manage-topics')    return renderManage('topics');
+    if (researchView === 'manage-papers')    return renderManage('papers');
+    if (researchView === 'manage-synthesis') return renderManage('synthesis');
     return renderDashboard();
   }
 
@@ -719,16 +722,19 @@ Things outside UltraNote that compound. Adopt one at a time.
             topicMaps.length
               ? `<div class="research-pill-scroll"><div class="research-pill-row">${topicMaps.map(p => `<button class="research-link" data-open-id="${p.id}" title="${esc(p.title)}">${esc(p.title.replace('🗺️ Topic Map — ',''))}</button>`).join('')}</div></div>`
               : `<div class="research-empty">No topic maps yet. Spin one up with <strong>Alt+M</strong> when a thread shows up in your inbox a 3rd time.</div>`,
-            linkBtn(topicIdx, 'How topic maps work →')
+            `${topicMaps.length ? `<button class="research-link" data-action="manage-topics">Manage all →</button>` : ''}
+             ${linkBtn(topicIdx, 'How topic maps work →')}`
           )}
 
           ${card(`📄 Paper notes<span class="research-count">${papers.length}</span>`,
-            scrollList(papers, 'No paper notes yet. Press <strong>Alt+P</strong> during Friday triage to promote inbox items.')
+            scrollList(papers, 'No paper notes yet. Press <strong>Alt+P</strong> during Friday triage to promote inbox items.'),
+            `${papers.length ? `<button class="research-link" data-action="manage-papers">Manage all →</button>` : ''}`
           )}
 
           ${card(`📊 Monthly synthesis<span class="research-count">${synths.length}</span>`,
             scrollList(synths, 'No synthesis notes yet. One will be auto-suggested on the 1st of each month.'),
-            linkBtn(synthTmpl, 'Open template →')
+            `${synths.length ? `<button class="research-link" data-action="manage-synthesis">Manage all →</button>` : ''}
+             ${linkBtn(synthTmpl, 'Open template →')}`
           )}
 
           ${card('🔁 Rituals & how-to',
@@ -756,6 +762,9 @@ Things outside UltraNote that compound. Adopt one at a time.
         else if (a === 'paper') newPaperNote();
         else if (a === 'topic') newOrOpenTopicMap();
         else if (a === 'triage') { researchView = 'triage'; renderTriage(); }
+        else if (a === 'manage-topics')    { researchView = 'manage-topics';    renderManage('topics'); }
+        else if (a === 'manage-papers')    { researchView = 'manage-papers';    renderManage('papers'); }
+        else if (a === 'manage-synthesis') { researchView = 'manage-synthesis'; renderManage('synthesis'); }
       };
     });
     content.querySelectorAll('[data-open-id]').forEach(el => {
@@ -873,6 +882,144 @@ Things outside UltraNote that compound. Adopt one at a time.
       });
       textEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); textEl.blur(); }
+      });
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Manage view — one row per topic map / paper / synthesis note
+  // ------------------------------------------------------------------
+  const MANAGE_KINDS = {
+    topics: {
+      label: '🗺️ Topic Maps',
+      empty: 'No topic maps yet. Create one with <strong>Alt+M</strong> or the button above.',
+      titlePrefix: '🗺️ Topic Map — ',
+      newAction: () => newOrOpenTopicMap(),
+      filter: (p) => p.title.startsWith('🗺️ Topic Map — ') && p.title !== '🗺️ Topic Maps — Index',
+    },
+    papers: {
+      label: '📄 Paper notes',
+      empty: 'No paper notes yet. Create one with <strong>Alt+P</strong> or the button above.',
+      titlePrefix: '',
+      newAction: () => newPaperNote(),
+      filter: (p) => (p.tags || []).includes('paper'),
+    },
+    synthesis: {
+      label: '📊 Monthly synthesis',
+      empty: 'No synthesis notes yet. One is auto-suggested on the 1st of each month.',
+      titlePrefix: '',
+      newAction: null,
+      filter: (p) => (p.tags || []).includes('synthesis') && !(p.tags || []).includes('template'),
+    },
+  };
+
+  function renderManage(kind){
+    const cfg = MANAGE_KINDS[kind];
+    if (!cfg) { researchView = 'dashboard'; return renderDashboard(); }
+    const content = document.getElementById('content');
+    if (!content) return;
+    const db = window.db;
+    const nb = (db.notebooks || []).find(x => x.title === '🔬 Research');
+    if (!nb) { researchView = 'dashboard'; return renderDashboard(); }
+
+    const items = (db.notes || [])
+      .filter(n => n.notebookId === nb.id && !n.deletedAt && n.type === 'page' && cfg.filter(n))
+      .sort((a,b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+
+    const stripPrefix = (t) => cfg.titlePrefix && t.startsWith(cfg.titlePrefix) ? t.slice(cfg.titlePrefix.length) : t;
+
+    const rows = items.map(p => `
+      <div class="triage-row" data-id="${p.id}">
+        <div class="triage-meta">${esc(relTime(p.updatedAt))}</div>
+        <div class="triage-text" contenteditable="true" spellcheck="false">${esc(stripPrefix(p.title))}</div>
+        <div class="triage-actions">
+          <button data-act="open" title="Open this note">📂</button>
+          <button data-act="delete" title="Delete this note">🗑️</button>
+        </div>
+      </div>`).join('');
+
+    content.innerHTML = `
+      <style>
+        .triage-wrap{padding:18px 22px 60px;max-width:980px;margin:0 auto;}
+        .triage-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;}
+        .triage-head h1{margin:0;font-size:20px;}
+        .triage-head p{margin:2px 0 0;color:var(--muted);font-size:12px;}
+        .triage-head .triage-back{background:transparent;color:var(--text,inherit);border:1px solid var(--border,#444);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;}
+        .triage-head .triage-capture{background:var(--accent,#4a90e2);color:#fff;border:none;padding:7px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600;}
+        .triage-empty{padding:40px 20px;text-align:center;color:var(--muted);background:rgba(127,127,127,0.06);border-radius:12px;}
+        .triage-list{display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 180px);overflow-y:auto;border:1px solid var(--border,#333);border-radius:12px;padding:8px;background:rgba(127,127,127,0.04);}
+        .triage-row{display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center;padding:8px 10px;background:var(--card,transparent);border:1px solid var(--border,transparent);border-radius:8px;min-width:0;}
+        .triage-row:hover{border-color:var(--accent,#4a90e2);}
+        .triage-meta{font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .triage-text{font-size:13px;outline:none;padding:4px 6px;border-radius:4px;min-width:0;word-break:break-word;}
+        .triage-text:focus{background:rgba(127,127,127,0.10);}
+        .triage-actions{display:flex;gap:4px;}
+        .triage-actions button{background:transparent;color:var(--text,inherit);border:1px solid var(--border,#444);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px;padding:0;}
+        .triage-actions button:hover{background:rgba(127,127,127,0.18);}
+        .triage-actions button[data-act="delete"]:hover{background:rgba(239,68,68,0.20);border-color:#ef4444;}
+        .triage-actions button[data-act="open"]:hover{background:rgba(74,144,226,0.22);border-color:var(--accent,#4a90e2);}
+      </style>
+      <div class="triage-wrap">
+        <div class="triage-head">
+          <div>
+            <h1>${cfg.label} <span style="opacity:.6;font-weight:500;">(${items.length})</span></h1>
+            <p>Click a title to rename inline. Use 📂 to open, 🗑️ to delete.</p>
+          </div>
+          <div style="display:flex;gap:6px;">
+            ${cfg.newAction ? `<button class="triage-capture" data-act="new">＋ New</button>` : ''}
+            <button class="triage-back" data-act="back">← Back to dashboard</button>
+          </div>
+        </div>
+        ${items.length
+          ? `<div class="triage-list">${rows}</div>`
+          : `<div class="triage-empty">${cfg.empty}</div>`}
+      </div>`;
+
+    content.querySelector('[data-act="back"]').onclick = () => {
+      researchView = 'dashboard';
+      renderDashboard();
+    };
+    const newBtn = content.querySelector('[data-act="new"]');
+    if (newBtn && cfg.newAction) {
+      newBtn.onclick = async () => { await cfg.newAction(); renderManage(kind); };
+    }
+
+    content.querySelectorAll('.triage-row').forEach(row => {
+      const id = row.dataset.id;
+      const note = items.find(p => p.id === id);
+      if (!note) return;
+      row.querySelectorAll('.triage-actions button').forEach(btn => {
+        btn.onclick = () => {
+          const act = btn.dataset.act;
+          if (act === 'open') {
+            if (typeof window.openNote === 'function') window.openNote(id);
+          } else if (act === 'delete') {
+            if (!confirm(`Delete "${stripPrefix(note.title)}"? You can recover it from the trash.`)) return;
+            note.deletedAt = nowISO();
+            if (typeof window.save === 'function') window.save();
+            renderManage(kind);
+            toast('Deleted — recover from trash if needed');
+          }
+        };
+      });
+      const textEl = row.querySelector('.triage-text');
+      textEl.addEventListener('blur', () => {
+        const newName = textEl.textContent.trim();
+        if (!newName) {
+          textEl.textContent = stripPrefix(note.title);
+          return;
+        }
+        const fullTitle = cfg.titlePrefix + newName;
+        if (fullTitle !== note.title) {
+          note.title = fullTitle;
+          note.updatedAt = nowISO();
+          if (typeof window.save === 'function') window.save();
+          renderManage(kind);
+        }
+      });
+      textEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); textEl.blur(); }
+        if (e.key === 'Escape') { textEl.textContent = stripPrefix(note.title); textEl.blur(); }
       });
     });
   }
