@@ -1097,6 +1097,57 @@ function savePageReorder(notebookId, orderedIds){
   });
   save();
 }
+// Inline TOC rename. Replaces a .nb-toc-title span with an input; Enter
+// commits, Esc cancels. Persists via updateNote so wiki-link backlinks and
+// search stay consistent. Does not re-render the notebook (avoids losing
+// the page editor's caret/scroll position).
+function _startInlineRename(itemEl, titleSpan, nbId){
+  const pageId = itemEl.dataset.pageId;
+  const note = db.notes.find(x=>x.id===pageId);
+  if(!note) return;
+  const original = note.title || '';
+  // Disable drag while editing so the input behaves like a real textfield.
+  const wasDraggable = itemEl.getAttribute('draggable');
+  itemEl.setAttribute('draggable','false');
+  const input = document.createElement('input');
+  input.type='text';
+  input.value=original;
+  input.style.cssText='width:100%;font-size:13px;padding:2px 4px;box-sizing:border-box;';
+  titleSpan.replaceWith(input);
+  input.focus();
+  input.select();
+  const restoreSpan = (text)=>{
+    const span = document.createElement('span');
+    span.className='nb-toc-title';
+    span.style.cssText='display:inline-block;width:100%;';
+    span.textContent = text || 'Untitled';
+    input.replaceWith(span);
+    span.addEventListener('dblclick', e=>{
+      e.preventDefault(); e.stopPropagation();
+      _startInlineRename(itemEl, span, nbId);
+    });
+    if(wasDraggable!==null) itemEl.setAttribute('draggable', wasDraggable);
+  };
+  const commit = ()=>{
+    const next = input.value.trim() || 'Untitled';
+    if(next !== original){
+      updateNote(pageId, { title: next });
+      itemEl.dataset.pageTitle = next;
+      // If the renamed page is currently open, sync the editor's title field.
+      if(currentPageId === pageId){
+        const t=document.getElementById('pgTitle');
+        if(t && t.value !== next) t.value = next;
+      }
+    }
+    restoreSpan(next);
+  };
+  const cancel = ()=> restoreSpan(original);
+  input.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){ e.preventDefault(); commit(); }
+    else if(e.key==='Escape'){ e.preventDefault(); cancel(); }
+  });
+  input.addEventListener('blur', commit);
+}
 
 // --- UI helpers ---
 const $ = sel => document.querySelector(sel);
@@ -4439,14 +4490,17 @@ function renderNotebookDetail(nbId){
         <button id='newPage' class='btn acc' style='font-size:12px;width:100%;'>+ New Page</button>
         <button id='nbExportMd' class='btn' style='font-size:11px;width:100%;'
                 title='Download every page in this notebook as one Markdown file'>⬇ Export .md</button>
+        <input id='nbTocFilter' type='text' placeholder='Filter pages…' autocomplete='off'
+               style='width:100%;font-size:12px;padding:5px 7px;margin-top:2px;box-sizing:border-box;' />
         <div id='tocList' style='display:flex;flex-direction:column;gap:3px;margin-top:4px;'>
           ${pages.map(p=>`
-            <div class='nb-toc-item' draggable='true' data-page-id='${p.id}'
+            <div class='nb-toc-item' draggable='true' data-page-id='${p.id}' data-page-title='${htmlesc(p.title||'')}'
+                 title='Double-click to rename'
                  style='padding:7px 9px;border-radius:5px;cursor:pointer;font-size:13px;word-break:break-word;
                         border:1px solid ${currentPageId===p.id?'var(--acc)':'var(--btn-border)'};
                         background:${currentPageId===p.id?'var(--acc)':'var(--card-bg)'};
                         color:${currentPageId===p.id?'#fff':'var(--fg)'};'>
-              ${htmlesc(p.title)}
+              <span class='nb-toc-title' style='display:inline-block;width:100%;'>${htmlesc(p.title||'Untitled')}</span>
             </div>`).join('')}
           ${pages.length===0?`<div class='muted' style='font-size:12px;text-align:center;margin-top:16px;'>No pages yet</div>`:''}
         </div>
@@ -4459,14 +4513,46 @@ function renderNotebookDetail(nbId){
       </div>
     </div>`;
 
-  document.getElementById('backToNbs').onclick=()=>_navPop();
-  document.getElementById('newPage').onclick=async()=>{
-    const title=await showPrompt('Page title:','New Page');
-    if(!title||!title.trim()) return;
-    const p=createPage({title:title.trim(), notebookId:nbId});
+  document.getElementById('backToNbs').onclick=()=>{
+    if(typeof window._pgFlush === 'function'){ try { window._pgFlush(); } catch(_) {} window._pgFlush=null; }
+    _navPop();
+  };
+  document.getElementById('newPage').onclick=()=>{
+    // Frictionless: create an Untitled page instantly and focus its title.
+    // No modal — user just starts typing.
+    const p=createPage({title:'Untitled', notebookId:nbId});
     currentPageId=p.id;
     renderNotebookDetail(nbId);
+    // Defer focus until the page editor has been stamped into the DOM.
+    setTimeout(()=>{
+      const t=document.getElementById('pgTitle');
+      if(t){ t.focus(); t.select(); }
+    }, 0);
   };
+
+  // --- TOC filter (purely client-side, doesn't persist) ---
+  const filterEl=document.getElementById('nbTocFilter');
+  if(filterEl){
+    filterEl.addEventListener('input', ()=>{
+      const q=filterEl.value.trim().toLowerCase();
+      content.querySelectorAll('.nb-toc-item').forEach(el=>{
+        const title=(el.dataset.pageTitle||'').toLowerCase();
+        el.style.display = (!q || title.includes(q)) ? '' : 'none';
+      });
+    });
+  }
+
+  // --- Inline rename on double-click ---
+  // Replaces the title span with an input. Enter commits, Esc cancels.
+  // Drag is temporarily disabled while editing so the textfield is selectable.
+  content.querySelectorAll('.nb-toc-item').forEach(item=>{
+    const titleSpan=item.querySelector('.nb-toc-title');
+    if(!titleSpan) return;
+    titleSpan.addEventListener('dblclick', e=>{
+      e.preventDefault(); e.stopPropagation();
+      _startInlineRename(item, titleSpan, nbId);
+    });
+  });
 
   const exportMdBtn = document.getElementById('nbExportMd');
   if (exportMdBtn) {
@@ -4531,6 +4617,13 @@ function renderNotebookDetail(nbId){
 }
 
 function openPageInNotebook(pageId, nbId){
+  // Flush any pending autosave from the previously-open page before swapping
+  // editors out — this guarantees no debounced keystrokes are lost when the
+  // user clicks another TOC entry.
+  if(typeof window._pgFlush === 'function'){
+    try { window._pgFlush(); } catch(_) {}
+    window._pgFlush = null;
+  }
   const p=db.notes.find(x=>x.id===pageId && !x.deletedAt);
   if(!p){ currentPageId=null; renderNotebookDetail(nbId); return; }
   const editor=document.getElementById('nbPageEditor');
@@ -4565,10 +4658,28 @@ function openPageInNotebook(pageId, nbId){
 
   const titleEl=document.getElementById('pgTitle');
   const contentEl=document.getElementById('pgContent');
+  const tagsEl=document.getElementById('pgTags');
   const statusEl=()=>document.getElementById('pgSaveStatus');
 
-  [titleEl,contentEl].forEach(el=>{
-    el.addEventListener('input',()=>{ const s=statusEl(); if(s) s.textContent='Unsaved changes'; });
+  // --- Autosave: debounced (~500ms after last keystroke) so the user never
+  // loses work by switching pages or clicking "← All". Ctrl+S / the Save
+  // button still work and flush immediately. Both paths go through the same
+  // doSavePage() so behaviour is identical.
+  let _autosaveTimer = null;
+  let _statusClearTimer = null;
+  const setStatus = (msg, fade=false) => {
+    const s=statusEl(); if(!s) return;
+    s.textContent = msg;
+    if(_statusClearTimer){ clearTimeout(_statusClearTimer); _statusClearTimer=null; }
+    if(fade) _statusClearTimer = setTimeout(()=>{ const ss=statusEl(); if(ss && ss.textContent===msg) ss.textContent=''; }, 1800);
+  };
+  const markDirty = () => {
+    setStatus('Saving\u2026');
+    if(_autosaveTimer) clearTimeout(_autosaveTimer);
+    _autosaveTimer = setTimeout(()=>{ _autosaveTimer=null; doSavePage(/*fromAutosave*/true); }, 500);
+  };
+  [titleEl, contentEl, tagsEl].forEach(el=>{
+    if(el) el.addEventListener('input', markDirty);
   });
 
   // Bind markdown toolbar AFTER HTML is stamped into the DOM
@@ -4580,18 +4691,25 @@ function openPageInNotebook(pageId, nbId){
     document.removeEventListener('keydown', window._pgKeyHandler, true);
     document.removeEventListener('keydown', window._pgKeyHandler);
   }
-  const doSavePage = () => {
+  const doSavePage = (fromAutosave=false) => {
+    if(_autosaveTimer){ clearTimeout(_autosaveTimer); _autosaveTimer=null; }
     const tags=(document.getElementById('pgTags').value||'')
       .split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean);
+    const nextTitle = titleEl.value.trim()||'Untitled';
     updateNote(p.id,{
-      title: titleEl.value.trim()||'Untitled',
+      title: nextTitle,
       content: contentEl.value,
       tags
     });
+    // Keep the TOC item label in sync without re-rendering the whole detail
     content.querySelectorAll('.nb-toc-item').forEach(el=>{
-      if(el.dataset.pageId===p.id) el.textContent=titleEl.value.trim()||'Untitled';
+      if(el.dataset.pageId===p.id){
+        el.dataset.pageTitle = nextTitle;
+        const span = el.querySelector('.nb-toc-title');
+        if(span) span.textContent = nextTitle;
+      }
     });
-    const s=statusEl(); if(s){ s.textContent='Saved \u2713'; setTimeout(()=>{ const ss=statusEl(); if(ss) ss.textContent=''; },2000); }
+    setStatus(fromAutosave ? 'Saved \u2713' : 'Saved \u2713', /*fade*/true);
   };
   const pgKeyHandler=e=>{
     if((e.ctrlKey||e.metaKey) && e.key==='s'){
@@ -4602,12 +4720,18 @@ function openPageInNotebook(pageId, nbId){
   };
   document.addEventListener('keydown', pgKeyHandler, true);
   window._pgKeyHandler = pgKeyHandler;
+  // Expose a flusher so other navigation (page switch, back, delete) can
+  // force any pending debounced save through before tearing down the editor.
+  window._pgFlush = () => { if(_autosaveTimer) doSavePage(true); };
 
   document.getElementById('pgSave').onclick = doSavePage;
 
   document.getElementById('pgDelete').onclick=async()=>{
     const ok=await showConfirm(`Delete page "${p.title}"? It can be restored from Review.`,'Delete','Cancel');
     if(!ok) return;
+    // Cancel any pending autosave so it doesn't resurrect the row we just nuked.
+    if(_autosaveTimer){ clearTimeout(_autosaveTimer); _autosaveTimer=null; }
+    window._pgFlush = null;
     document.removeEventListener('keydown', window._pgKeyHandler, true);
     document.removeEventListener('keydown', window._pgKeyHandler);
     window._pgKeyHandler = null;
