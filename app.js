@@ -1304,6 +1304,23 @@ function markdownToHtml(md){
           if(typeof markedGfmHeadingId !== 'undefined' && markedGfmHeadingId.gfmHeadingId){
             marked.use(markedGfmHeadingId.gfmHeadingId());
           }
+          // KaTeX: $inline$ and $$block$$ math. Throws on bad syntax are
+          // swallowed so a malformed expression doesn't blank the preview.
+          if(typeof markedKatex !== 'undefined'){
+            marked.use(markedKatex({ throwOnError: false, output: 'html' }));
+          }
+          // Mermaid: intercept ```mermaid blocks BEFORE highlight.js sees
+          // them and emit a marker div the post-processor picks up. Lazy
+          // loader fetches mermaid.js the first time one of these appears.
+          marked.use({ extensions: [{
+            name: 'mermaid', level: 'block',
+            start(src){ const m = src.match(/```mermaid/); return m ? m.index : -1; },
+            tokenizer(src){
+              const m = /^```mermaid\s*\n([\s\S]*?)\n```/.exec(src);
+              if(m) return { type: 'mermaid', raw: m[0], code: m[1] };
+            },
+            renderer(t){ return `<div class="mermaid" data-mermaid-src="${htmlesc(t.code)}">${htmlesc(t.code)}</div>`; }
+          }]});
         } catch(extErr){ console.warn('marked extensions setup skipped:', extErr); }
       }
       // Configure marked for safe rendering
@@ -1316,9 +1333,11 @@ function markdownToHtml(md){
       });
       const raw = marked.parse(stripped);
       // DOMPurify removes <script>, on* handlers, javascript: urls, etc. Keep
-      // id/class so heading anchors and hljs color classes survive.
+      // id/class so heading anchors and hljs color classes survive. data-mermaid-src
+      // is preserved so the lazy renderer can recover the original source even
+      // after mermaid has replaced the div with rendered SVG.
       const safe = (typeof DOMPurify !== 'undefined')
-        ? DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, ADD_ATTR: ['target','rel'] })
+        ? DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, ADD_ATTR: ['target','rel','data-mermaid-src'] })
         : raw;
       return _injectWikiLinks(safe, tokens);
     } catch(error) {
@@ -1358,6 +1377,47 @@ function markdownToHtml(md){
   html = html.replace(/\n{2,}/g, '<br><br>');
   html = html.replace(/\n/g, '<br>');
   return _injectWikiLinks(html, tokens);
+}
+
+// Lazy mermaid loader + post-processor. Call after setting innerHTML on any
+// element that contains <div class="mermaid"> blocks. Fetches mermaid.js on
+// the FIRST detection so users who never write diagrams pay zero bytes.
+let _mermaidLoadPromise = null;
+function _ensureMermaid(){
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if (typeof window.mermaid !== 'undefined') return Promise.resolve(window.mermaid);
+  if (_mermaidLoadPromise) return _mermaidLoadPromise;
+  _mermaidLoadPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js';
+    s.async = true;
+    s.onload = () => {
+      try {
+        window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+        resolve(window.mermaid);
+      } catch (e) { reject(e); }
+    };
+    s.onerror = () => reject(new Error('Failed to load mermaid'));
+    document.head.appendChild(s);
+  });
+  return _mermaidLoadPromise;
+}
+function _processMermaid(root){
+  if (!root) return;
+  const nodes = root.querySelectorAll('.mermaid:not([data-rendered])');
+  if (!nodes.length) return;
+  // Restore each node's text from data-mermaid-src in case a prior render
+  // replaced its content with an SVG and we're re-rendering on edit.
+  nodes.forEach(n => {
+    const src = n.getAttribute('data-mermaid-src');
+    if (src) n.textContent = src;
+  });
+  _ensureMermaid().then(m => {
+    if (!m) return;
+    try { m.run({ nodes: Array.from(nodes) }); }
+    catch(e) { console.warn('mermaid render failed:', e); }
+    nodes.forEach(n => n.setAttribute('data-rendered', '1'));
+  }).catch(err => console.warn('mermaid load failed:', err));
 }
 
 // ------------------------------------------------------------------
@@ -4972,6 +5032,8 @@ function openNote(id){
     const sH = previewEl.scrollHeight || 1;
     const ratio = previewEl.scrollTop / sH;
     previewEl.innerHTML = markdownToHtml(contentBoxEl.value);
+    // Render any ```mermaid blocks (lazy-loads mermaid.js on first sight).
+    if (typeof _processMermaid === 'function') _processMermaid(previewEl);
     const newH = previewEl.scrollHeight || 1;
     previewEl.scrollTop = ratio * newH;
   }

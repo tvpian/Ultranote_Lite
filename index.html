@@ -73,6 +73,8 @@
   <link rel="stylesheet" href="styles.css" />
   <!-- highlight.js theme (GitHub Dark) for fenced code-block syntax colors -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css" />
+  <!-- KaTeX styles for $math$ and $$block$$ rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
 </head>
 <body>
   <header>
@@ -1312,6 +1314,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
     <script src="https://cdn.jsdelivr.net/npm/marked-highlight@2.1.1/lib/index.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked-gfm-heading-id@3.1.2/lib/index.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
+    <!-- KaTeX renderer + marked extension (Mermaid is lazy-loaded on first use) -->
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.1/lib/index.umd.min.js"></script>
     <!-- Auto-sync system for real-time cross-session updates -->
     <script src="autosync.js"></script>
     <!-- Externalized JavaScript logic -->
