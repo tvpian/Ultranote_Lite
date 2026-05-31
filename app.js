@@ -519,6 +519,65 @@ function migrateDB() {
     if (cleaned) console.info('[migrate] moved', cleaned, 'empty Untitled note(s) to Trash');
   }
 
+  // ── v81 one-time: dedupe + clean empty notebooks ─────────────────────────
+  // research-mode's ensureResearchScaffold seeds a "🔬 Research" notebook by
+  // title; if the user had already created one, the seed could end up as a
+  // second empty duplicate. Also, the "+ New Notebook" flow + abandoned
+  // creations left behind "New Notebook" rows with 0 pages. Both are noise
+  // the user can't easily clean up. Notebooks are NOT soft-deletable, so we
+  // only remove duplicates / empty unnamed ones — never anything with pages.
+  if (!db._cleanedDupNotebooks) {
+    db.notebooks = db.notebooks || [];
+    const pagesOf = nbId => (db.notes || []).filter(n => n.notebookId === nbId && !n.deletedAt).length;
+    // 1) dedupe by title — keep the one with the most live pages
+    const byTitle = new Map();
+    (db.notebooks || []).forEach(nb => {
+      const key = (nb.title || '').trim();
+      if (!key) return;
+      if (!byTitle.has(key)) byTitle.set(key, []);
+      byTitle.get(key).push(nb);
+    });
+    let removedDup = 0, mergedSystem = 0;
+    const toRemove = new Set();
+    byTitle.forEach(group => {
+      if (group.length < 2) return;
+      group.sort((a, b) => pagesOf(b.id) - pagesOf(a.id)
+        || (a.createdAt || '').localeCompare(b.createdAt || ''));
+      const keeper = group[0];
+      const dropped = group.slice(1);
+      // Survivor inherits system flag if any dup had it (so future scaffold runs match it).
+      if (!keeper.system && dropped.some(d => d.system)) { keeper.system = true; mergedSystem++; }
+      dropped.forEach(d => {
+        // Re-parent any orphan pages on the dup to the keeper (defensive — should be 0).
+        (db.notes || []).forEach(n => { if (n.notebookId === d.id) n.notebookId = keeper.id; });
+        toRemove.add(d.id);
+        removedDup++;
+      });
+    });
+    // 2) remove empty unnamed notebooks (no pages, no description, not system).
+    const emptyTitles = new Set(['', 'untitled', 'new notebook']);
+    let removedEmpty = 0;
+    (db.notebooks || []).forEach(nb => {
+      if (toRemove.has(nb.id)) return;
+      if (nb.system) return;
+      const title = (nb.title || '').trim().toLowerCase();
+      if (!emptyTitles.has(title)) return;
+      if ((nb.description || '').trim()) return;
+      if (pagesOf(nb.id) > 0) return;
+      toRemove.add(nb.id);
+      removedEmpty++;
+    });
+    if (toRemove.size) {
+      db.notebooks = db.notebooks.filter(nb => !toRemove.has(nb.id));
+    }
+    db._cleanedDupNotebooks = true;
+    dirty = true;
+    if (removedDup || removedEmpty || mergedSystem) {
+      console.info('[migrate] notebooks: removed', removedDup, 'dup +', removedEmpty,
+        'empty,', mergedSystem, 'system flag(s) merged onto survivor');
+    }
+  }
+
   // ── one-time: un-rollover stuck tasks (v67 → v68) ────────────────────────
   // Earlier behavior auto-MOVED yesterday's incomplete tasks onto today's
   // daily note, which hid them from the 'Unfinished from previous days'
