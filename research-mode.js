@@ -646,7 +646,7 @@ Things outside UltraNote that compound. Adopt one at a time.
 
     const card = (title, body, footer='') => `
       <div class="research-card">
-        <div class="research-card-title">${esc(title)}</div>
+        <div class="research-card-title">${title}</div>
         <div class="research-card-body">${body}</div>
         ${footer ? `<div class="research-card-footer">${footer}</div>` : ''}
       </div>`;
