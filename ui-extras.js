@@ -200,9 +200,18 @@
     if (btn) btn.click();
   }
 
+  // Cached item list — invalidated when the palette is opened (so each open
+  // sees fresh data) but reused across keystrokes within a single open session.
+  let _itemsCache = null;
+  function gatherItemsCached(){
+    if (_itemsCache) return _itemsCache;
+    _itemsCache = gatherItems();
+    return _itemsCache;
+  }
+
   function refreshPalette() {
     const q = paletteInput.value.trim();
-    const all = gatherItems();
+    const all = gatherItemsCached();
     let ranked;
     if (!q) {
       // No query: show pages first, then a sample of each type.
@@ -267,6 +276,7 @@
 
   function openPalette() {
     buildPalette();
+    _itemsCache = null; // fresh snapshot on each open
     paletteEl.classList.add('is-open');
     paletteInput.value = '';
     refreshPalette();

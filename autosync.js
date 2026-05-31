@@ -3,6 +3,8 @@
 // Requires that app.js defines: db, fetchDB(), render() (or a lightweight redraw), and the "Auto-sync updates" checkbox exists in the header.
 
 (function(){
+  // Gate chatty per-tick logs. Set localStorage.debugAutoSync = '1' to re-enable.
+  function _dbg(){ try { if (localStorage.getItem('debugAutoSync') === '1') console.log.apply(console, arguments); } catch(_){} }
   function _isNewer(a,b){
     const ta = Date.parse(a?.updatedAt || a?.createdAt || 0);
     const tb = Date.parse(b?.updatedAt || b?.createdAt || 0);
@@ -34,7 +36,7 @@
   }
   function _mergeInbound(remote){
     if(!remote || typeof remote!=='object' || !window.db){
-      console.log('⚠️ Auto-sync: Invalid remote data or no local db');
+      console.warn('⚠️ Auto-sync: Invalid remote data or no local db');
       return false;
     }
     const ARR = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
@@ -66,24 +68,24 @@
       db.settings.autoReload = prevAuto; // force preserve local preference
     }
     Object.keys(remote).forEach(k=>{ if(!(k in db)) db[k]=remote[k]; });
-    if(!changed) console.log('✅ Auto-sync: No changes to merge');
+    if(!changed) _dbg('✅ Auto-sync: No changes to merge');
     return changed;
   }
   async function _runOnce(opts={}){
     const { bypassTyping=false } = opts;
     try{
-      console.log('🔄 Auto-sync: Checking for remote changes...');
+      _dbg('🔄 Auto-sync: Checking for remote changes...');
       const remote = await (typeof fetchDB==='function'? fetchDB(): null);
-      if(!remote){ console.log('📭 Auto-sync: No remote data received'); return; }
+      if(!remote){ _dbg('📭 Auto-sync: No remote data received'); return; }
       if(!bypassTyping){
         const active = document.activeElement;
         const typing = (window.__typingUntil && Date.now() < window.__typingUntil) || (active && (active.tagName==='TEXTAREA' || (active.tagName==='INPUT' && /text|search|date|number|email|url|password/.test(active.type)) || active.isContentEditable)) || window._isTypingInForm;
         if(typing){
-          console.log('⏳ Auto-sync: Deferred (user typing)');
+          _dbg('⏳ Auto-sync: Deferred (user typing)');
           return;
         }
       }
-      console.log('📥 Auto-sync: Merging remote changes...');
+      _dbg('📥 Auto-sync: Merging remote changes...');
       const hadChanges = _mergeInbound(remote);
       if(hadChanges){
         if(typeof save==='function'){
