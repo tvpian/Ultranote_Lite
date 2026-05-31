@@ -84,9 +84,12 @@ function createDailyNoteFor(dateKey, contentOverride){
       const projectPool = db.tasks.filter(t=> t.projectId && !t.noteId && t.status==='TODO')
         .sort((a,b)=>(priorities[b.priority]||2)-(priorities[a.priority]||2))
         .slice(0,5);
-      // Move existing project tasks to the new daily note rather than cloning them
+      // Move existing project tasks to the new daily note rather than cloning them.
+      // carriedToNoteId lets the daily filter let these through even though they
+      // still have a projectId (the leak guard otherwise hides any project task).
       projectPool.forEach(t=>{
         t.noteId = daily.id;
+        t.carriedToNoteId = daily.id;
         t.updatedAt = nowISO();
       });
       if(projectPool.length) save();
@@ -309,8 +312,44 @@ window._hardDeletedIds = new Set();
 window._isTypingInForm = false;
 let _typingTimer = null;
 function uid(){ return Math.random().toString(36).slice(2,10); }
-// Debounced save – reduces write frequency
-let _saveTimer; function save(){ clearTimeout(_saveTimer); _saveTimer = setTimeout(()=>persistDB(), 400); }
+// Debounced save – reduces write frequency. Also live-refreshes the
+// due-banner so any code path that mutates t.due / t.status is reflected
+// immediately without needing a full render() call.
+let _saveTimer; function save(){
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(()=>persistDB(), 400);
+  try { if (typeof refreshDueBanner === 'function') refreshDueBanner(); } catch(_){ }
+}
+
+// Rebuilds the #dueBanner element from current db.tasks. Safe to call from
+// anywhere — no-ops if the element isn't in the DOM (e.g., not on Today).
+function refreshDueBanner(){
+  const banner = document.getElementById('dueBanner');
+  if(!banner) return;
+  const todayStr = todayKey();
+  const allOpen = (db.tasks||[]).filter(t => t.status==='TODO' && !t.deletedAt && t.due);
+  const overdueList  = allOpen.filter(t => t.due < todayStr);
+  const dueTodayList = allOpen.filter(t => t.due === todayStr);
+  if(!overdueList.length && !dueTodayList.length){ banner.innerHTML = ''; return; }
+  const taskSource = t => {
+    if(t.projectId){ const p = (db.projects||[]).find(p=>p.id===t.projectId); return p ? `project: ${htmlesc(p.name)}` : 'project'; }
+    if(t.noteId){ const n = (db.notes||[]).find(n=>n.id===t.noteId); return n && n.dateIndex ? n.dateIndex : 'note'; }
+    return 'no note';
+  };
+  const makeRows = (list, color) => list.map(t =>
+    `<div style='margin-top:3px;display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;'>
+      <span style='color:${color};font-weight:600;font-size:11px;'>●</span>
+      <span style='flex:1;min-width:0;word-break:break-word;'>${htmlesc(t.title)}</span>
+      <span class='banner-source' style='font-size:10px;color:var(--muted);white-space:nowrap;'>${taskSource(t)}</span>
+      <span style='font-size:10px;color:var(--muted);white-space:nowrap;'>${formatDateString(t.due)}</span>
+    </div>`
+  ).join('');
+  let html = `<div style='padding:6px 10px;margin-bottom:4px;background:rgba(255,68,68,0.1);border:1px solid rgba(255,68,68,0.35);border-radius:6px;font-size:12px;'>`;
+  if(overdueList.length)  html += `<div>⚠️ <strong style='color:#ff6666;'>${overdueList.length} overdue</strong></div>${makeRows(overdueList,'#ff6666')}`;
+  if(dueTodayList.length) html += `<div style='margin-top:${overdueList.length?'6px':'0'};'>🔔 <strong style='color:#fbbf24;'>${dueTodayList.length} due today</strong></div>${makeRows(dueTodayList,'#fbbf24')}`;
+  html += `</div>`;
+  banner.innerHTML = html;
+}
 
 // Show inline "Saved ✓" next to the save button — pass the span id explicitly.
 function showSavedToast(spanId) {
@@ -1904,7 +1943,10 @@ function renderToday(){
     // --- Main task list ---
     // Exclude anything with a projectId — those belong to the project page,
     // never the daily task list, even if they also carry a noteId.
-    const tasks = db.tasks.filter(t=> t.noteId===daily.id && !t.projectId && t.status!=='BACKLOG' && !t.deletedAt && !isUndivergedRecurring(t))
+    // Exception: tasks intentionally auto-carried into this daily note
+    // (carriedToNoteId === daily.id) are allowed through so the auto-carry
+    // feature actually surfaces them here while preserving the project link.
+    const tasks = db.tasks.filter(t=> t.noteId===daily.id && (!t.projectId || t.carriedToNoteId===daily.id) && t.status!=='BACKLOG' && !t.deletedAt && !isUndivergedRecurring(t))
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
     // Virtual recurring rows for the displayed date.
     const recurring = getRecurringForDate(key);
@@ -1976,36 +2018,9 @@ function renderToday(){
     list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
     list.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{ openTaskModal(b.dataset.edit); });
     // --- Overdue/due-today summary banner (informational) ---
-    // Tasks already appear in their normal lists (today, unfinished, projects) with
-    // OVERDUE pills and checkboxes. The banner is just a heads-up summary.
-    const banner = document.getElementById('dueBanner');
-    if(banner) {
-      const allOpen = (db.tasks||[]).filter(t => t.status==='TODO' && !t.deletedAt && t.due);
-      const overdueList  = allOpen.filter(t => t.due < todayStr);
-      const dueTodayList = allOpen.filter(t => t.due === todayStr);
-      if(overdueList.length || dueTodayList.length) {
-        const taskSource = t => {
-          if(t.projectId){ const p = (db.projects||[]).find(p=>p.id===t.projectId); return p ? `project: ${htmlesc(p.name)}` : 'project'; }
-          if(t.noteId){ const n = (db.notes||[]).find(n=>n.id===t.noteId); return n && n.dateIndex ? n.dateIndex : 'note'; }
-          return 'no note';
-        };
-        const makeRows = (list, color) => list.map(t =>
-          `<div style='margin-top:3px;display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;'>
-            <span style='color:${color};font-weight:600;font-size:11px;'>●</span>
-            <span style='flex:1;min-width:0;word-break:break-word;'>${htmlesc(t.title)}</span>
-            <span class='banner-source' style='font-size:10px;color:var(--muted);white-space:nowrap;'>${taskSource(t)}</span>
-            <span style='font-size:10px;color:var(--muted);white-space:nowrap;'>${formatDateString(t.due)}</span>
-          </div>`
-        ).join('');
-        let html = `<div style='padding:6px 10px;margin-bottom:4px;background:rgba(255,68,68,0.1);border:1px solid rgba(255,68,68,0.35);border-radius:6px;font-size:12px;'>`;
-        if(overdueList.length)  html += `<div>⚠️ <strong style='color:#ff6666;'>${overdueList.length} overdue</strong></div>${makeRows(overdueList,'#ff6666')}`;
-        if(dueTodayList.length) html += `<div style='margin-top:${overdueList.length?'6px':'0'};'>🔔 <strong style='color:#fbbf24;'>${dueTodayList.length} due today</strong></div>${makeRows(dueTodayList,'#fbbf24')}`;
-        html += `</div>`;
-        banner.innerHTML = html;
-      } else {
-        banner.innerHTML = '';
-      }
-    }
+    // Delegated to the module-level refreshDueBanner() so any save() call
+    // can refresh it directly without going through a full render().
+    refreshDueBanner();
     // Unfinished tasks from ALL previous daily notes (non-recurring daily tasks only)
     const prevList = document.getElementById('prevTaskList');
     if(prevList) {
@@ -2061,7 +2076,7 @@ function renderToday(){
   function drawBacklog(){
     const list = $("#backlogList");
     if(!list || list.style.display==='none') return;
-    const tasks = db.tasks.filter(t=> t.noteId===daily.id && !t.projectId && t.status==='BACKLOG' && !t.deletedAt);
+    const tasks = db.tasks.filter(t=> t.noteId===daily.id && (!t.projectId || t.carriedToNoteId===daily.id) && t.status==='BACKLOG' && !t.deletedAt);
     // Compose a header showing backlog count styled like the project page
     let html = `<div class='muted' style='font-size:12px;margin-bottom:4px;'>Backlog (${tasks.length})</div>`;
     if (tasks.length) {
