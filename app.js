@@ -1205,7 +1205,7 @@ function statusBadge(status){
 // Pre-process [[Title]] tokens out of markdown source so marked.js doesn't mangle
 // them, and stitch them back in as <a class='wikilink'> after rendering. Missing
 // notes get class 'missing' so they appear visually distinct.
-function _wikiPlaceholderFor(i){ return `\u0000WIKI${i}\u0000`; }
+function _wikiPlaceholderFor(i){ return `xWiKiLiNk${i}WiKiLiNkx`; }
 function _extractWikiLinks(md){
   const tokens = [];
   // Supports both [[Title]] and [[Title|alias text]]
@@ -1243,7 +1243,7 @@ function _resolveWikiTitle(title){
   return best;
 }
 function _injectWikiLinks(html, tokens){
-  return html.replace(/\u0000WIKI(\d+)\u0000/g, (m, i) => {
+  return html.replace(/xWiKiLiNk(\d+)WiKiLiNkx/g, (m, i) => {
     const tok = tokens[+i] || { title: '', alias: null };
     const display = tok.alias || tok.title;
     const resolved = _resolveWikiTitle(tok.title);
