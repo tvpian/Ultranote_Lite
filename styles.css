@@ -4734,3 +4734,33 @@ body.focus-mode #pgContent {
 .status-pill[data-s="followup"]  { background: rgba(255,107,107,0.18); color: #ff9090; }
 .status-pill[data-s="inbox"]     { background: rgba(160,160,160,0.18); color: #c0c0c0; }
 .status-pill[data-s="archive"]   { background: rgba(120,120,120,0.18); color: #909090; font-style: italic; }
+
+/* ── Editor pane wrapper (Edit / Split / Preview cycle) ──────────────────── */
+.editor-pane-wrap {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.editor-pane-wrap > #contentBox,
+.editor-pane-wrap > #markdownPreview {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.editor-pane-wrap[data-mode="edit"]    > #markdownPreview { display: none; }
+.editor-pane-wrap[data-mode="preview"] > #contentBox      { display: none; }
+.editor-pane-wrap[data-mode="split"]   > #contentBox,
+.editor-pane-wrap[data-mode="split"]   > #markdownPreview { display: block; }
+@media (max-width: 720px) {
+  /* On narrow screens split would be cramped → collapse to preview only */
+  .editor-pane-wrap[data-mode="split"] > #contentBox { display: none; }
+}
+
+/* Focus-mode: give the preview the same generous canvas the textarea gets,
+   so toggling Edit/Split/Preview in focus mode keeps the same visual size. */
+body.focus-mode .editor-pane-wrap > #markdownPreview {
+  min-height: 82vh !important;
+  max-height: none !important;
+  font-size: 17px;
+  line-height: 1.75;
+  width: 100% !important;
+}

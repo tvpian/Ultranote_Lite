@@ -4643,13 +4643,15 @@ function openNote(id){
         </select>
       </div>
       <div class="row" style="margin-top:8px; gap:8px; align-items:center;">
-        <button id="toggleModeBtn" class="btn acc" style="font-size:12px;">Edit</button>
-        <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+V to toggle | Ctrl+S to save</span>
+        <button id="toggleModeBtn" class="btn acc" style="font-size:12px;" title="Cycle Edit → Split → Preview">Split</button>
+        <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+V cycles view | Ctrl+S to save</span>
       </div>
       <div style="margin-top:8px;">
         ${markdownToolbarHtml('contentBox')}
-        <textarea id="contentBox" style="min-height:300px;">${htmlesc(n.content||'')}</textarea>
-        <div id="markdownPreview" class="markdown-preview" style="min-height:300px; display:none;"></div>
+        <div id="editorPaneWrap" class="editor-pane-wrap" data-mode="edit">
+          <textarea id="contentBox" style="min-height:300px;">${htmlesc(n.content||'')}</textarea>
+          <div id="markdownPreview" class="markdown-preview" style="min-height:300px;"></div>
+        </div>
       </div>
       <div id="attachments" class="list" style="margin-top:8px;"></div>
       <!-- Linked notes section -->
@@ -4914,40 +4916,81 @@ function openNote(id){
     };
   }
 
-  // Initialize markdown preview toggle functionality
-  // This provides a clean edit/preview mode toggle with single button
-  const previewEl = document.getElementById('markdownPreview');
+  // Initialize markdown view-mode cycle (edit → split → preview → edit).
+  // Persists the chosen mode in db.settings.noteViewMode so every note opens
+  // the way you left it. Live re-renders the preview as you type in split or
+  // preview modes (debounced ~150ms) so Ctrl+Shift+V no longer has to be
+  // pressed to refresh.
+  const previewEl    = document.getElementById('markdownPreview');
   const contentBoxEl = document.getElementById('contentBox');
   const toggleModeBtn = document.getElementById('toggleModeBtn');
-  
-  let isPreviewMode = false;
-  
-  const toggleMode = () => {
-    if (isPreviewMode) {
-      // Switch to edit mode
-      isPreviewMode = false;
-      contentBoxEl.style.display = 'block';
-      previewEl.style.display = 'none';
-      toggleModeBtn.classList.add('acc');
-      toggleModeBtn.textContent = 'Edit';
-      // Focus the content box for immediate editing
-      contentBoxEl.focus();
-    } else {
-      // Switch to preview mode
-      isPreviewMode = true;
-      previewEl.innerHTML = markdownToHtml(contentBoxEl.value);
-      contentBoxEl.style.display = 'none';
-      previewEl.style.display = 'block';
-      toggleModeBtn.classList.remove('acc');
-      toggleModeBtn.textContent = 'Preview';
-      // Make preview focusable and focus it so shortcuts work
-      previewEl.setAttribute('tabindex', '0');
-      previewEl.focus();
+  const paneWrap     = document.getElementById('editorPaneWrap');
+
+  const MODES = ['edit', 'split', 'preview'];
+  // Label = the action the button performs (the NEXT mode in the cycle).
+  const NEXT_LABEL = { edit: 'Split', split: 'Preview', preview: 'Edit' };
+
+  // Honor saved preference; fall back to edit. On narrow screens, demote
+  // 'split' to 'edit' since side-by-side panes are not useful below ~720px.
+  const narrow = () => (window.innerWidth || document.documentElement.clientWidth) < 720;
+  let currentMode = (db.settings && MODES.includes(db.settings.noteViewMode))
+    ? db.settings.noteViewMode : 'edit';
+  if (currentMode === 'split' && narrow()) currentMode = 'edit';
+
+  let _previewRaf = 0;
+  function renderPreview() {
+    if (!previewEl) return;
+    // Preserve scroll proportion so live edits don't jump the preview.
+    const sH = previewEl.scrollHeight || 1;
+    const ratio = previewEl.scrollTop / sH;
+    previewEl.innerHTML = markdownToHtml(contentBoxEl.value);
+    const newH = previewEl.scrollHeight || 1;
+    previewEl.scrollTop = ratio * newH;
+  }
+  function schedulePreview() {
+    if (currentMode === 'edit') return;
+    if (_previewRaf) cancelAnimationFrame(_previewRaf);
+    _previewRaf = requestAnimationFrame(() => { _previewRaf = 0; renderPreview(); });
+  }
+
+  function applyMode(mode) {
+    if (!MODES.includes(mode)) mode = 'edit';
+    if (mode === 'split' && narrow()) mode = 'preview';
+    currentMode = mode;
+    if (paneWrap) paneWrap.setAttribute('data-mode', mode);
+    if (toggleModeBtn) toggleModeBtn.textContent = NEXT_LABEL[mode];
+    if (mode !== 'edit') renderPreview();
+    if (mode === 'edit') contentBoxEl.focus();
+    else if (mode === 'preview') previewEl.focus();
+    // Persist preference (debounced via save()).
+    if (db && db.settings) {
+      db.settings.noteViewMode = mode;
+      save();
     }
-  };
-  
-  // Button event listener
-  if(toggleModeBtn) toggleModeBtn.onclick = toggleMode;
+  }
+  function cycleMode() {
+    const i = MODES.indexOf(currentMode);
+    const next = MODES[(i + 1) % MODES.length];
+    applyMode(next);
+  }
+  applyMode(currentMode);
+
+  // Live preview while typing.
+  if (contentBoxEl) contentBoxEl.addEventListener('input', schedulePreview);
+
+  // Proportional scroll-sync in split mode: editor drives the preview.
+  if (contentBoxEl && previewEl) {
+    contentBoxEl.addEventListener('scroll', () => {
+      if (currentMode !== 'split') return;
+      const sh = contentBoxEl.scrollHeight - contentBoxEl.clientHeight;
+      if (sh <= 0) return;
+      const r = contentBoxEl.scrollTop / sh;
+      const psh = previewEl.scrollHeight - previewEl.clientHeight;
+      previewEl.scrollTop = r * psh;
+    });
+  }
+
+  if (toggleModeBtn) toggleModeBtn.onclick = cycleMode;
 
   // Ctrl+S handler — bound directly to the editable elements so it fires
   // before any browser-level "Save Page" interception, regardless of focus.
@@ -4959,11 +5002,11 @@ function openNote(id){
       saveBtn.click();
     }
   };
-  // Ctrl+Shift+V toggle handler (kept separate for clarity)
+  // Ctrl+Shift+V cycles Edit → Split → Preview
   const onCtrlShiftV = (e) => {
     if(e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v' || e.code === 'KeyV')) {
       e.preventDefault();
-      toggleMode();
+      cycleMode();
     }
   };
   // Bind to the actual input elements — most reliable: fires before browser shortcuts
@@ -4980,13 +5023,6 @@ function openNote(id){
   document.addEventListener('keydown', onCtrlS, { capture: true, passive: false });
   window.addEventListener('keydown', onCtrlS,   { capture: true, passive: false });
   window._noteKeyHandler = onCtrlS;
-
-  // Start in edit mode
-  isPreviewMode = false;
-  contentBoxEl.style.display = 'block';
-  previewEl.style.display = 'none';
-  toggleModeBtn.classList.add('acc');
-  toggleModeBtn.textContent = 'Edit';
 }
 
 // --- Sketch modal functionality ---
