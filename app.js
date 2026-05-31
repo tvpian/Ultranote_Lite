@@ -3123,6 +3123,94 @@ function renderReview(){
   }
   const habitGridHtml = buildHabitGrid();
 
+  // --- Research pulse, Notebook activity, Stale notes ---
+  const _weekAgoMs = weekAgo.getTime();
+  const _30dAgoMs  = Date.now() - 30 * 86400000;
+  const _researchNb = (db.notebooks||[]).find(n => !n.deletedAt && n.system && n.title === '🔬 Research');
+  let researchHtml = '<div class="muted" style="font-size:12px;">Research module not initialized.</div>';
+  if(_researchNb){
+    const _rPages = (db.notes||[]).filter(n => n.notebookId === _researchNb.id && !n.deletedAt && n.type === 'page');
+    const _inbox  = _rPages.find(p => p.title === '📥 Inbox');
+    const _inboxLines = _inbox ? (_inbox.content||'').split('\n').filter(l => /^\s*-\s+\S/.test(l)).length : 0;
+    const _papers = _rPages.filter(p => (p.tags||[]).includes('paper')).length;
+    const _topicMaps = _rPages.filter(p => p.title.startsWith('🗺️ Topic Map — ') && p.title !== '🗺️ Topic Maps — Index').length;
+    const _synths = _rPages.filter(p => (p.tags||[]).includes('synthesis') && !(p.tags||[]).includes('template'))
+                          .sort((a,b)=> (b.updatedAt||'').localeCompare(a.updatedAt||''));
+    const _lastSynth = _synths[0];
+    const _daysSinceSynth = _lastSynth ? Math.floor((Date.now() - new Date(_lastSynth.updatedAt||_lastSynth.createdAt).getTime())/86400000) : null;
+    const _synthColor = _daysSinceSynth == null ? '#64748b' : _daysSinceSynth > 35 ? '#ff6b6b' : _daysSinceSynth > 21 ? '#f0c040' : '#4caf9e';
+    const _synthLabel = _daysSinceSynth == null ? 'no synthesis yet' : `${_daysSinceSynth}d since last synthesis`;
+    researchHtml = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
+        <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
+          <div style="font-size:20px;font-weight:700;color:#8b6dff;">${_inboxLines}</div>
+          <div style="font-size:11px;color:var(--muted);">📥 inbox items</div>
+        </div>
+        <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
+          <div style="font-size:20px;font-weight:700;color:#4caf9e;">${_papers}</div>
+          <div style="font-size:11px;color:var(--muted);">📄 paper notes</div>
+        </div>
+        <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
+          <div style="font-size:20px;font-weight:700;color:#f0c040;">${_topicMaps}</div>
+          <div style="font-size:11px;color:var(--muted);">🗺️ topic maps</div>
+        </div>
+        <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
+          <div style="font-size:20px;font-weight:700;color:${_synthColor};">${_synths.length}</div>
+          <div style="font-size:11px;color:var(--muted);">📊 ${_synthLabel}</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;"><button class="btn" data-goto-research="1" style="font-size:11px;width:100%;">Open Research dashboard →</button></div>`;
+  }
+
+  const _aliveNbs = (db.notebooks||[]).filter(n => !n.deletedAt && !n.system);
+  const _nbStats = _aliveNbs.map(nb => {
+    const pgs = (db.notes||[]).filter(n => n.notebookId === nb.id && !n.deletedAt);
+    const recent = pgs.filter(n => n.updatedAt && new Date(n.updatedAt).getTime() > _weekAgoMs).length;
+    const lastTouched = pgs.reduce((max, n) => {
+      const t = n.updatedAt ? new Date(n.updatedAt).getTime() : 0;
+      return t > max ? t : max;
+    }, 0);
+    return { nb, total: pgs.length, recent, lastTouched };
+  }).sort((a,b) => b.recent - a.recent || b.lastTouched - a.lastTouched);
+  const _maxNbCount = Math.max(1, ..._nbStats.map(s => s.total));
+  const notebookHtml = _nbStats.length ? `
+    <div class="list" style="margin-top:10px;">
+      ${_nbStats.map(s => {
+        const ageDays = s.lastTouched ? Math.floor((Date.now() - s.lastTouched)/86400000) : null;
+        const ageStr = ageDays == null ? 'never edited' : ageDays === 0 ? 'today' : ageDays === 1 ? 'yesterday' : `${ageDays}d ago`;
+        const recentBadge = s.recent > 0 ? `<span class="pill" style="background:#4caf9e;color:#fff;font-size:10px;">+${s.recent} this week</span>` : '';
+        return `<div class='row' style='justify-content:space-between;align-items:center;gap:8px;'>
+          <span style='flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;' title='${htmlesc(s.nb.title)}'>${htmlesc(s.nb.title)} ${recentBadge}</span>
+          <div class='row' style='gap:6px;align-items:center;flex-shrink:0;'>
+            ${pbar(s.total, _maxNbCount, '#8b6dff')}
+            <span class='muted' style='font-size:11px;min-width:80px;text-align:right;'>${s.total}p · ${ageStr}</span>
+            <button class='btn' data-open-nb='${s.nb.id}' style='font-size:11px;'>Open →</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>` : '<div class="muted" style="font-size:12px;margin-top:8px;">No notebooks yet.</div>';
+
+  const _staleNotes = (db.notes||[])
+    .filter(n => !n.deletedAt && n.type !== 'daily' && n.updatedAt && new Date(n.updatedAt).getTime() < _30dAgoMs)
+    .sort((a,b) => new Date(a.updatedAt) - new Date(b.updatedAt));
+  const _staleTop = _staleNotes.slice(0, 5);
+  const staleHtml = _staleTop.length ? `
+    <div class="list" style="margin-top:10px;">
+      ${_staleTop.map(n => {
+        const days = Math.floor((Date.now() - new Date(n.updatedAt).getTime())/86400000);
+        const nb = n.notebookId ? (db.notebooks||[]).find(x => x.id === n.notebookId) : null;
+        const ctx = nb ? `<span class='pill'>${htmlesc(nb.title)}</span>` : '';
+        return `<div class='row' style='justify-content:space-between;align-items:center;gap:8px;'>
+          <span style='flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;' title='${htmlesc(n.title||'Untitled')}'>${htmlesc(n.title||'Untitled')} ${ctx}</span>
+          <div class='row' style='gap:6px;align-items:center;flex-shrink:0;'>
+            <span class='muted' style='font-size:11px;'>${days}d cold</span>
+            <button class='btn' data-open='${n.id}' style='font-size:11px;'>Open →</button>
+          </div>
+        </div>`;
+      }).join('')}
+      ${_staleNotes.length > 5 ? `<div class='muted' style='font-size:11px;text-align:center;margin-top:4px;'>…and ${_staleNotes.length - 5} more</div>` : ''}
+    </div>` : '<div class="muted" style="font-size:12px;margin-top:8px;">Nothing stale ✔ All notes touched in the last 30 days.</div>';
+
   // --- Duplicate tasks computation ---
   const dupGroups = findDuplicateTaskGroups(0.75);
   function buildDupGroupHtml(groups){
@@ -3214,6 +3302,18 @@ function renderReview(){
         </div>
       </div>
     </div>
+    <details class="card" open>
+      <summary style="cursor:pointer;list-style:none;"><strong>🔬 Research Pulse</strong></summary>
+      ${researchHtml}
+    </details>
+    <details class="card" open>
+      <summary style="cursor:pointer;list-style:none;"><strong>📓 Notebook Activity (${_aliveNbs.length})</strong></summary>
+      ${notebookHtml}
+    </details>
+    <details class="card">
+      <summary style="cursor:pointer;list-style:none;"><strong>🧊 Stale Notes (${_staleNotes.length} cold &gt;30d)</strong></summary>
+      ${staleHtml}
+    </details>
     <div class="card">
       <strong>🔥 Habit Streaks — ${new Date(_hYear, _hMonth).toLocaleString('default',{month:'long'})} ${_hYear}</strong>
       ${habitGridHtml}
@@ -3305,6 +3405,8 @@ function renderReview(){
   content.querySelectorAll('[data-view-task]').forEach(b=> b.onclick=()=> openTaskModal(b.dataset.viewTask));
   content.querySelectorAll('[data-open-task]').forEach(b=> b.onclick=()=> openTaskContext(b.dataset.openTask));
   content.querySelectorAll('[data-open-project]').forEach(b=> b.onclick=()=> openProjectContext(b.dataset.openProject));
+  content.querySelectorAll('[data-goto-research]').forEach(b=> b.onclick=()=>{ route='research'; render(); });
+  content.querySelectorAll('[data-open-nb]').forEach(b=> b.onclick=()=>{ currentNotebookId = b.dataset.openNb; currentPageId = null; route='notebooks'; render(); });
   content.querySelectorAll('[data-done]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.done,'DONE'); renderReview(); });
   // Virtual recurring undo (Option 2 trial)
   content.querySelectorAll('[data-rec-uncomplete]').forEach(b=> b.onclick=()=>{
@@ -4631,15 +4733,20 @@ function renderNotebookDetail(nbId){
         <input id='nbTocFilter' type='text' placeholder='Filter pages…' autocomplete='off'
                style='width:100%;font-size:12px;padding:5px 7px;margin-top:2px;box-sizing:border-box;' />
         <div id='tocList' style='display:flex;flex-direction:column;gap:3px;margin-top:4px;'>
-          ${pages.map(p=>`
+          ${pages.map(p=>{
+            const _raw = (p.content||'').replace(/^---[\s\S]*?---\s*/, '').replace(/`{1,3}[^`]*`{1,3}/g,' ').replace(/[#>*_~`\-]+/g,' ').replace(/!?\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/\s+/g,' ').trim();
+            const _snippet = _raw ? _raw.slice(0, 220) + (_raw.length > 220 ? '…' : '') : '(empty page)';
+            const _tip = `${(p.title||'Untitled')}\n\n${_snippet}\n\nDouble-click to rename`;
+            return `
             <div class='nb-toc-item' draggable='true' data-page-id='${p.id}' data-page-title='${htmlesc(p.title||'')}'
-                 title='Double-click to rename'
+                 title='${htmlesc(_tip)}'
                  style='padding:7px 9px;border-radius:5px;cursor:pointer;font-size:13px;word-break:break-word;
                         border:1px solid ${currentPageId===p.id?'var(--acc)':'var(--btn-border)'};
                         background:${currentPageId===p.id?'var(--acc)':'var(--card-bg)'};
                         color:${currentPageId===p.id?'#fff':'var(--fg)'};'>
               <span class='nb-toc-title' style='display:inline-block;width:100%;'>${htmlesc(p.title||'Untitled')}</span>
-            </div>`).join('')}
+            </div>`;
+          }).join('')}
           ${pages.length===0?`<div class='muted' style='font-size:12px;text-align:center;margin-top:16px;'>No pages yet</div>`:''}
         </div>
       </div>
