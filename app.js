@@ -3215,8 +3215,8 @@ function renderReview(){
   content.innerHTML = `
     <div class="review">
     <div class="grid-2">
-      <div class="card">
-        <strong>📊 Analytics</strong>
+      <details class="card" open>
+        <summary style="cursor:pointer;list-style:none;"><strong>📊 Analytics</strong></summary>
         <div style="margin-top:10px;display:flex;flex-direction:column;gap:10px;">
 
           <div style="display:flex;align-items:center;gap:10px;">
@@ -3262,9 +3262,9 @@ function renderReview(){
           ${bestDay ? `<div style="font-size:12px;color:var(--muted);">📅 Most productive: <strong>${bestDay}</strong></div>` : ''}
           <div style="font-size:12px;color:var(--muted);">📝 Notes this week: ${weekNotes.length}</div>
         </div>
-      </div>
-      <div class="card">
-        <strong>🎯 Project Progress</strong>
+      </details>
+      <details class="card" open>
+        <summary style="cursor:pointer;list-style:none;"><strong>🎯 Project Progress</strong></summary>
         <div class="list" style="margin-top:8px;">
           ${projectStats.map(s=>`<div class='row' style='justify-content:space-between;align-items:center;'>
             <span>${htmlesc(s.project.name)}</span>
@@ -3274,12 +3274,12 @@ function renderReview(){
             </div>
           </div>`).join('') || '<div class="muted">No project tasks yet</div>'}
         </div>
-      </div>
+      </details>
     </div>
-    <div class="card">
-      <strong>🔥 Habit Streaks — ${new Date(_hYear, _hMonth).toLocaleString('default',{month:'long'})} ${_hYear}</strong>
+    <details class="card" open>
+      <summary style="cursor:pointer;list-style:none;"><strong>🔥 Habit Streaks — ${new Date(_hYear, _hMonth).toLocaleString('default',{month:'long'})} ${_hYear}</strong></summary>
       ${habitGridHtml}
-    </div>
+    </details>
     <details class="card" open>
       <summary style="cursor:pointer;list-style:none;"><strong>🔬 Research Pulse</strong></summary>
       ${researchHtml}
@@ -3288,8 +3288,8 @@ function renderReview(){
       <summary style="cursor:pointer;list-style:none;"><strong>📓 Notebook Activity (${_aliveNbs.length})</strong></summary>
       ${notebookHtml}
     </details>
-    <div class="card">
-      <strong>📅 Upcoming Tasks (${upcoming.length})</strong>
+    <details class="card" open>
+      <summary style="cursor:pointer;list-style:none;"><strong>📅 Upcoming Tasks (${upcoming.length})</strong></summary>
       <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
   ${upcoming.map(t=>{
           const proj = t.projectId ? db.projects.find(p=>p.id===t.projectId) : null;
@@ -3310,9 +3310,9 @@ function renderReview(){
           </div>`;
         }).join('') || '<div class="muted">No upcoming tasks</div>'}
       </div>
-    </div>
-    <div class="card">
-      <strong>🕒 Pending Tasks (${pendingAll.length})</strong>
+    </details>
+    <details class="card" open>
+      <summary style="cursor:pointer;list-style:none;"><strong>🕒 Pending Tasks (${pendingAll.length})</strong></summary>
       <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
         ${pendingAll.map(t=>{
           const colors={high:'#ff6b6b',medium:'#8b6dff',low:'#64748b'};
@@ -3320,16 +3320,16 @@ function renderReview(){
           return taskRow(t, extraBtns, `border-left:3px solid ${colors[t.priority||'medium']};`);
         }).join('') || '<div class="muted">No pending tasks</div>'}
       </div>
-    </div>
-    <div class="card">
-      <strong>📦 Backlog Tasks (${backlogAll.length})</strong>
+    </details>
+    <details class="card" open>
+      <summary style="cursor:pointer;list-style:none;"><strong>📦 Backlog Tasks (${backlogAll.length})</strong></summary>
       <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
         ${backlogAll.map(t=>{
           const extraBtns = `<button class='btn' data-restore='${t.id}' style='font-size:11px;'>Restore</button>`;
           return taskRow(t, extraBtns, 'color:var(--muted);');
         }).join('') || '<div class="muted">No backlog tasks</div>'}
       </div>
-    </div>
+    </details>
     <details class="card">
       <summary style="cursor:pointer;list-style:none;"><strong>🔍 Duplicate Tasks (${dupGroups.length} group${dupGroups.length!==1?'s':''})</strong></summary>
       <div style="margin-top:8px;">${dupHtml}</div>
@@ -3346,19 +3346,19 @@ function renderReview(){
         ${completedHtml}
       </div>
     </details>
-    <div class="card">
-      <strong>📅 Recent Daily Logs</strong>
+    <details class="card" open>
+      <summary style="cursor:pointer;list-style:none;"><strong>📅 Recent Daily Logs</strong></summary>
       <div class="list" style="margin-top:8px;">${db.notes.filter(n=>n.type==='daily' && !n.deletedAt).slice(-7).reverse().map(n=> `<div class='row' style='justify-content:space-between;'><span>${htmlesc(n.title)}</span><button class='btn' data-open='${n.id}' style='font-size:11px;'>View →</button></div>`).join('')}</div>
-    </div>
-    <div class="card">
-      <strong>🏷️ Tag Cloud</strong>
+    </details>
+    <details class="card" open>
+      <summary style="cursor:pointer;list-style:none;"><strong>🏷️ Tag Cloud</strong></summary>
   <div style="margin-top:8px;">${getAllTags().map(tag=>{
         const noteCount = db.notes.filter(n=> (n.tags||[]).includes(tag)).length;
         const linkCount = db.links ? db.links.filter(l=> (l.tags||[]).includes(tag)).length : 0;
         const count = noteCount + linkCount;
         return `<button class='pill' data-tag='${tag}' style='cursor:pointer;margin:2px;'>#${htmlesc(tag)} (${count})</button>`;
       }).join('') || '<div class="muted">No tags yet</div>'}</div>
-    </div>
+    </details>
     <!-- Trash section — pinned to the very bottom -->
     <details class="card">
       <summary style="cursor:pointer;list-style:none;">
