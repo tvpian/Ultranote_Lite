@@ -1307,8 +1307,11 @@ function _renderBlockMath(html, blocks){
   return html.replace(/xKaTeXBlocK(\d+)KaTeXBlocKx/g, (_m, i) => {
     const expr = blocks[+i] || '';
     if(typeof katex === 'undefined') return `<pre><code>${htmlesc('$$\n'+expr+'\n$$')}</code></pre>`;
-    try { return katex.renderToString(expr, { displayMode: true, throwOnError: false, output: 'html' }); }
-    catch(e){ return `<span class="katex-error" style="color:#f55">${htmlesc(String(e.message||e))}</span>`; }
+    try { return katex.renderToString(expr, { displayMode: true, throwOnError: true, output: 'html' }); }
+    catch(e){
+      const msg = String(e && e.message || e);
+      return `<div class="katex-error" style="border:1px solid #f55;background:rgba(255,85,85,.08);color:#f88;padding:.5em .75em;border-radius:4px;font-family:monospace;white-space:pre-wrap"><strong style="color:#f55">KaTeX error:</strong> ${htmlesc(msg)}\n${htmlesc('$$\n'+expr+'\n$$')}</div>`;
+    }
   });
 }
 
