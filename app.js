@@ -5218,16 +5218,19 @@ function render(){
   }
   if(!db.settings.seenTip){ const t = document.getElementById("tip"); t.style.display="block"; document.getElementById("closeTip").onclick = ()=>{ db.settings.seenTip=true; save(); t.style.display="none"; }; }
 
-  // Auto-focus the search box after every navigation render so the user can
-  // start searching immediately without clicking. Only focus if nothing else
-  // (e.g. an editor field) has already claimed focus.
-  requestAnimationFrame(() => {
-    const active = document.activeElement;
-    if (!active || active === document.body || active === document.documentElement) {
-      const q = document.getElementById('q');
-      if (q) q.focus();
-    }
-  });
+  // Only auto-focus the search box on the Vault page, where typing-into-search
+  // is the primary action. On every other route this stole focus from the
+  // body and blocked all keyboard shortcuts (Alt+I, Alt+P, Alt+N, etc.) until
+  // the user clicked into the canvas. Press `/` from anywhere to grab search.
+  if (route === 'vault') {
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body || active === document.documentElement) {
+        const q = document.getElementById('q');
+        if (q) q.focus();
+      }
+    });
+  }
 }
 document.getElementById("addProject").onclick = ()=> { const name = document.getElementById("newProjectName").value.trim(); if(!name) return; const p = createProject(name); document.getElementById("newProjectName").value=""; currentProjectId = p.id; route='projects'; render(); drawProjectsSidebar(); };
 // Allow pressing Enter in the New Project input to trigger Add
@@ -5567,6 +5570,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Search
 document.getElementById("q").addEventListener("input", ()=> { if(route!=="vault"){ route="vault"; render(); } else renderVault(); });
+
+// Press `/` from anywhere (when not already in an input) to focus search.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  const tag = (t && t.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || (t && t.isContentEditable)) return;
+  e.preventDefault();
+  const q = document.getElementById('q');
+  if (q) { q.focus(); q.select(); }
+});
 
 // Quick add
 document.addEventListener("keydown", (e)=>{

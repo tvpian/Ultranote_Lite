@@ -32,6 +32,18 @@
     bindShortcuts();
     // Expose dashboard renderer so app.js render() can dispatch to it.
     window.renderResearch = renderResearch;
+    // Reset to dashboard whenever we navigate to the route fresh (so back/forward
+    // doesn't strand the user in a stale triage view).
+    const _origRender = window.render;
+    if (_origRender && !_origRender.__researchWrapped) {
+      window.render = function(){
+        if (window.route !== 'research') researchView = 'dashboard';
+        return _origRender.apply(this, arguments);
+      };
+      window.render.__researchWrapped = true;
+    }
+    // Handle ?capture=... from bookmarklet
+    try { handleUrlCapture(); } catch(e){ console.error('[research-mode] urlCapture', e); }
     // If we're already sitting on the route (e.g. SW reload), repaint now.
     if (window.route === 'research' && typeof window.render === 'function') {
       try { window.render(); } catch(_){}
@@ -191,32 +203,123 @@
     });
   }
 
-  function openInboxCapture(){
-    const text = prompt('📥 Research inbox — paste a link, title, or idea:');
-    if (!text || !text.trim()) return;
+  // ------------------------------------------------------------------
+  // Inline capture / paper / topic-map modal
+  // ------------------------------------------------------------------
+  //
+  // One reusable overlay replaces the three native prompt() dialogs.
+  // Sleek, theme-aware, multi-line, ESC-to-close, Enter-to-submit
+  // (Shift+Enter = newline), and remembers focus so you can fire it
+  // again immediately.
+
+  function showInputModal({ title, placeholder, multiline = false, initial = '', confirmLabel = 'Save' }){
+    return new Promise((resolve) => {
+      let overlay = document.getElementById('research-modal');
+      if (overlay) overlay.remove();
+      overlay = document.createElement('div');
+      overlay.id = 'research-modal';
+      overlay.innerHTML = `
+        <style>
+          #research-modal{position:fixed;inset:0;z-index:99998;display:flex;align-items:flex-start;justify-content:center;
+            padding-top:14vh;background:rgba(0,0,0,0.42);backdrop-filter:blur(2px);animation:rmfade .12s ease-out;}
+          @keyframes rmfade{from{opacity:0}to{opacity:1}}
+          #research-modal .rm-box{background:var(--card,#1a1a1a);color:var(--text,inherit);border:1px solid var(--border,#333);
+            border-radius:14px;padding:18px 20px;min-width:min(560px, 92vw);max-width:92vw;box-shadow:0 18px 60px rgba(0,0,0,0.55);}
+          #research-modal .rm-title{font-weight:700;font-size:15px;margin-bottom:10px;}
+          #research-modal .rm-input, #research-modal .rm-textarea{width:100%;box-sizing:border-box;background:rgba(127,127,127,0.10);
+            color:var(--text,inherit);border:1px solid var(--border,#333);border-radius:8px;padding:10px 12px;font-size:14px;
+            font-family:inherit;outline:none;}
+          #research-modal .rm-input:focus, #research-modal .rm-textarea:focus{border-color:var(--accent,#4a90e2);}
+          #research-modal .rm-textarea{min-height:110px;resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:13px;}
+          #research-modal .rm-hint{font-size:11px;color:var(--muted,#999);margin-top:8px;display:flex;justify-content:space-between;gap:8px;}
+          #research-modal .rm-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;}
+          #research-modal .rm-actions button{padding:8px 14px;border-radius:8px;border:1px solid var(--border,#333);
+            background:transparent;color:var(--text,inherit);font-size:13px;cursor:pointer;}
+          #research-modal .rm-actions .rm-primary{background:var(--accent,#4a90e2);color:#fff;border-color:var(--accent,#4a90e2);font-weight:600;}
+          #research-modal .rm-actions button:hover{filter:brightness(1.1);}
+        </style>
+        <div class="rm-box" role="dialog" aria-modal="true">
+          <div class="rm-title">${esc(title)}</div>
+          ${multiline
+            ? `<textarea class="rm-textarea" placeholder="${esc(placeholder||'')}">${esc(initial||'')}</textarea>`
+            : `<input class="rm-input" type="text" placeholder="${esc(placeholder||'')}" value="${esc(initial||'')}" />`}
+          <div class="rm-hint">
+            <span>${multiline ? 'Enter to save · Shift+Enter for newline · Esc to cancel' : 'Enter to save · Esc to cancel'}</span>
+            <span class="rm-counter"></span>
+          </div>
+          <div class="rm-actions">
+            <button class="rm-cancel">Cancel</button>
+            <button class="rm-primary">${esc(confirmLabel)}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const box = overlay.querySelector('.rm-box');
+      const field = overlay.querySelector(multiline ? '.rm-textarea' : '.rm-input');
+      const counter = overlay.querySelector('.rm-counter');
+      const updateCounter = () => { counter.textContent = field.value ? `${field.value.length}` : ''; };
+      field.addEventListener('input', updateCounter);
+      const done = (val) => { overlay.remove(); resolve(val); };
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) done(null); });
+      overlay.querySelector('.rm-cancel').onclick = () => done(null);
+      overlay.querySelector('.rm-primary').onclick = () => {
+        const v = (field.value || '').trim();
+        done(v || null);
+      };
+      field.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); done(null); }
+        else if (e.key === 'Enter' && !e.shiftKey && (!multiline || !e.altKey)) {
+          if (multiline && !e.metaKey && !e.ctrlKey) {
+            // In multiline, plain Enter still submits (matches the hint above).
+          }
+          e.preventDefault();
+          const v = (field.value || '').trim();
+          done(v || null);
+        }
+      });
+      setTimeout(() => { field.focus(); field.select(); updateCounter(); }, 10);
+    });
+  }
+
+  async function openInboxCapture(initialText = ''){
+    const text = await showInputModal({
+      title: '📥 Capture to research inbox',
+      placeholder: 'Paste a link, paper title, or 1-line idea…  (you can paste multiple lines)',
+      multiline: true,
+      initial: initialText,
+      confirmLabel: 'Capture',
+    });
+    if (!text) return;
     const inbox = findNote(n => n.title === '📥 Inbox');
-    if (!inbox) { alert('Research inbox not found. Open Notebooks → 🔬 Research.'); return; }
+    if (!inbox) { toast('Inbox missing — reload page'); return; }
     const stamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
-    const line = `- [ ] [${stamp}] ${text.trim()}\n`;
+    // Each non-empty line becomes its own captured row.
+    const newLines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+      .map(line => `- [ ] [${stamp}] ${line}`).join('\n') + '\n';
     if (inbox.content.includes('## Captures')) {
-      inbox.content = inbox.content.replace('## Captures\n', '## Captures\n' + line);
+      inbox.content = inbox.content.replace('## Captures\n', '## Captures\n' + newLines);
     } else {
-      inbox.content += (inbox.content.endsWith('\n') ? '' : '\n') + line;
+      inbox.content += (inbox.content.endsWith('\n') ? '' : '\n') + newLines;
     }
     inbox.updatedAt = nowISO();
     window.save();
     toast('Captured to 📥 Inbox');
+    if (window.route === 'research' && typeof window.render === 'function') window.render();
   }
 
-  function newPaperNote(){
-    const title = prompt('Paper title:');
-    if (!title || !title.trim()) return;
+  async function newPaperNote(prefill = ''){
+    const title = await showInputModal({
+      title: '📄 New paper note',
+      placeholder: 'Paper title (or paste a citation — we keep just the title)',
+      initial: prefill,
+      confirmLabel: 'Create note',
+    });
+    if (!title) return;
     const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research');
-    if (!nb) { alert('🔬 Research notebook not found.'); return; }
+    if (!nb) { toast('🔬 Research notebook missing'); return; }
     const p = ensurePage({
-      title: title.trim(),
+      title,
       notebookId: nb.id,
-      content: PAPER_TEMPLATE.replace('{TITLE}', title.trim()).replace('{DATE}', todayStr()),
+      content: PAPER_TEMPLATE.replace('{TITLE}', title).replace('{DATE}', todayStr()),
       tags: ['paper', 'research']
     });
     window.save();
@@ -225,12 +328,16 @@
     toast('New paper note: ' + p.title);
   }
 
-  function newOrOpenTopicMap(){
-    const topic = prompt('Topic name (e.g. "shared autonomy", "social robot trust", "diffusion policies"):');
-    if (!topic || !topic.trim()) return;
-    const name = topic.trim();
+  async function newOrOpenTopicMap(prefill = ''){
+    const name = await showInputModal({
+      title: '🗺️ New / open topic map',
+      placeholder: 'e.g. shared autonomy · diffusion policies · social robot trust',
+      initial: prefill,
+      confirmLabel: 'Open map',
+    });
+    if (!name) return;
     const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research');
-    if (!nb) { alert('🔬 Research notebook not found.'); return; }
+    if (!nb) { toast('🔬 Research notebook missing'); return; }
     const title = `🗺️ Topic Map — ${name}`;
     const existed = !!findNote(n => n.notebookId === nb.id && n.title === title);
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -495,7 +602,16 @@ Things outside UltraNote that compound. Adopt one at a time.
   // ------------------------------------------------------------------
   // Dashboard renderer (called by app.js render() when route==='research')
   // ------------------------------------------------------------------
+  // Internal sub-view state for the Research route: 'dashboard' (default)
+  // or 'triage' (the structured per-line inbox triage workspace).
+  let researchView = 'dashboard';
+
   function renderResearch(){
+    if (researchView === 'triage') return renderTriage();
+    return renderDashboard();
+  }
+
+  function renderDashboard(){
     const content = document.getElementById('content');
     if (!content) return;
     const db = window.db;
@@ -519,17 +635,14 @@ Things outside UltraNote that compound. Adopt one at a time.
       .sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
     const papers = pages
       .filter(p => (p.tags||[]).includes('paper'))
-      .sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''))
-      .slice(0, 12);
+      .sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
     const synths = pages
       .filter(p => (p.tags||[]).includes('synthesis') && !(p.tags||[]).includes('template'))
-      .sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''))
-      .slice(0, 6);
+      .sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
 
-    // Inbox preview — first 5 capture lines.
-    const captureLines = (inbox?.content || '').split('\n')
-      .filter(l => /^\s*-\s*\[/.test(l))
-      .slice(0, 5);
+    const allInboxLines = parseInboxLines(inbox);
+    const totalInbox = allInboxLines.length;
+    const previewLines = allInboxLines.slice(0, 5);
 
     const card = (title, body, footer='') => `
       <div class="research-card">
@@ -540,9 +653,12 @@ Things outside UltraNote that compound. Adopt one at a time.
     const linkBtn = (note, label) => note
       ? `<button class="research-link" data-open-id="${note.id}">${esc(label || note.title)}</button>`
       : `<span style="color:var(--muted)">missing</span>`;
-    const list = (items, empty) => items.length
-      ? `<ul class="research-list">${items.map(p => `<li><button class="research-link" data-open-id="${p.id}">${esc(p.title)}</button> <span class="research-meta">${relTime(p.updatedAt)}</span></li>`).join('')}</ul>`
+    const scrollList = (items, empty) => items.length
+      ? `<div class="research-scrollbox"><ul class="research-list">${items.map(p => `<li><button class="research-link" data-open-id="${p.id}">${esc(p.title)}</button> <span class="research-meta">${relTime(p.updatedAt)}</span></li>`).join('')}</ul></div>`
       : `<div class="research-empty">${empty}</div>`;
+
+    const origin = location.origin;
+    const bookmarklet = `javascript:(function(){var u=encodeURIComponent((document.getSelection().toString()||document.title)+' — '+location.href);window.open('${origin}/?capture='+u,'_blank','noopener');})();`;
 
     content.innerHTML = `
       <style>
@@ -554,21 +670,27 @@ Things outside UltraNote that compound. Adopt one at a time.
         .research-actions button{background:var(--accent,#4a90e2);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;}
         .research-actions button:hover{filter:brightness(1.1);}
         .research-actions .kbd{opacity:.85;font-weight:400;margin-left:6px;font-size:11px;}
-        .research-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;}
-        .research-card{background:var(--card,#fff);border:1px solid var(--border,#e3e3e3);border-radius:12px;padding:14px 16px;}
-        .research-card-title{font-weight:700;margin-bottom:8px;font-size:14px;}
-        .research-card-body{font-size:13px;}
-        .research-card-footer{margin-top:10px;font-size:12px;color:var(--muted);}
-        .research-link{background:transparent;border:none;color:var(--link,#3b82f6);cursor:pointer;padding:2px 0;text-align:left;font:inherit;}
+        .research-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start;}
+        .research-card{background:var(--card,#fff);border:1px solid var(--border,#e3e3e3);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;min-width:0;}
+        .research-card-title{font-weight:700;margin-bottom:8px;font-size:14px;display:flex;justify-content:space-between;align-items:center;gap:8px;}
+        .research-card-title .research-count{font-size:11px;font-weight:500;color:var(--muted);background:rgba(127,127,127,0.12);border-radius:10px;padding:1px 8px;}
+        .research-card-body{font-size:13px;min-width:0;}
+        .research-card-footer{margin-top:10px;font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+        .research-link{background:transparent;border:none;color:var(--link,#3b82f6);cursor:pointer;padding:2px 0;text-align:left;font:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
         .research-link:hover{text-decoration:underline;}
         .research-list{list-style:none;padding:0;margin:0;}
-        .research-list li{padding:3px 0;display:flex;justify-content:space-between;gap:8px;align-items:baseline;}
-        .research-meta{font-size:11px;color:var(--muted);white-space:nowrap;}
+        .research-list li{padding:3px 0;display:flex;justify-content:space-between;gap:8px;align-items:baseline;min-width:0;}
+        .research-list li .research-link{flex:1 1 auto;min-width:0;}
+        .research-meta{font-size:11px;color:var(--muted);white-space:nowrap;flex:0 0 auto;}
         .research-empty{color:var(--muted);font-size:12px;font-style:italic;}
-        .research-inbox-preview{font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap;background:rgba(127,127,127,0.10);color:var(--text,inherit);padding:10px;border-radius:6px;max-height:140px;overflow:auto;border:1px solid var(--border,transparent);}
-        .research-pill-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
-        .research-pill-row .research-link{background:rgba(127,127,127,0.12);color:var(--text,inherit);padding:4px 10px;border-radius:14px;font-size:12px;border:1px solid var(--border,transparent);}
+        .research-scrollbox{max-height:260px;overflow-y:auto;border:1px solid var(--border,transparent);border-radius:8px;padding:6px 10px;background:rgba(127,127,127,0.04);}
+        .research-inbox-preview{font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap;background:rgba(127,127,127,0.10);color:var(--text,inherit);padding:10px;border-radius:6px;max-height:160px;overflow:auto;border:1px solid var(--border,transparent);}
+        .research-pill-scroll{max-height:180px;overflow-y:auto;padding:2px;}
+        .research-pill-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;}
+        .research-pill-row .research-link{background:rgba(127,127,127,0.12);color:var(--text,inherit);padding:4px 10px;border-radius:14px;font-size:12px;border:1px solid var(--border,transparent);white-space:nowrap;}
         .research-pill-row .research-link:hover{background:rgba(127,127,127,0.22);text-decoration:none;}
+        .research-bookmarklet{display:inline-block;background:rgba(127,127,127,0.14);border:1px dashed var(--border,#888);color:var(--text,inherit);padding:6px 12px;border-radius:8px;text-decoration:none;font-size:12px;font-weight:600;cursor:grab;}
+        .research-bookmarklet:hover{background:rgba(127,127,127,0.22);}
       </style>
       <div class="research-wrap">
         <div class="research-hero">
@@ -580,30 +702,32 @@ Things outside UltraNote that compound. Adopt one at a time.
             <button data-action="capture">📥 Capture <span class="kbd">Alt+I</span></button>
             <button data-action="paper">📄 New paper <span class="kbd">Alt+P</span></button>
             <button data-action="topic">🗺️ New topic map <span class="kbd">Alt+M</span></button>
+            <button data-action="triage" style="background:transparent;color:var(--text,inherit);border:1px solid var(--border,#444);">🔁 Triage inbox${totalInbox?` (${totalInbox})`:''}</button>
           </div>
         </div>
 
         <div class="research-grid">
-          ${card('📥 Inbox',
-            captureLines.length
-              ? `<div class="research-inbox-preview">${captureLines.map(esc).join('\n')}</div>`
+          ${card(`📥 Inbox<span class="research-count">${totalInbox}</span>`,
+            totalInbox
+              ? `<div class="research-inbox-preview">${previewLines.map(l => esc(l.raw)).join('\n')}</div>`
               : `<div class="research-empty">Nothing captured yet. Press <strong>Alt+I</strong> from anywhere to drop a paper/link/idea here.</div>`,
-            inbox ? linkBtn(inbox, 'Open full inbox →') : ''
+            `${totalInbox ? `<button class="research-link" data-action="triage">Open triage view →</button>` : ''}
+             ${inbox ? linkBtn(inbox, 'Edit raw note') : ''}`
           )}
 
-          ${card('🗺️ Topic Maps',
+          ${card(`🗺️ Topic Maps<span class="research-count">${topicMaps.length}</span>`,
             topicMaps.length
-              ? `<div class="research-pill-row">${topicMaps.map(p => `<button class="research-link" data-open-id="${p.id}">${esc(p.title.replace('🗺️ Topic Map — ',''))}</button>`).join('')}</div>`
+              ? `<div class="research-pill-scroll"><div class="research-pill-row">${topicMaps.map(p => `<button class="research-link" data-open-id="${p.id}" title="${esc(p.title)}">${esc(p.title.replace('🗺️ Topic Map — ',''))}</button>`).join('')}</div></div>`
               : `<div class="research-empty">No topic maps yet. Spin one up with <strong>Alt+M</strong> when a thread shows up in your inbox a 3rd time.</div>`,
             linkBtn(topicIdx, 'How topic maps work →')
           )}
 
-          ${card('📄 Recent paper notes',
-            list(papers, 'No paper notes yet. Press <strong>Alt+P</strong> during Friday triage to promote inbox items.')
+          ${card(`📄 Paper notes<span class="research-count">${papers.length}</span>`,
+            scrollList(papers, 'No paper notes yet. Press <strong>Alt+P</strong> during Friday triage to promote inbox items.')
           )}
 
-          ${card('📊 Monthly synthesis',
-            list(synths, 'No synthesis notes yet. One will be auto-suggested on the 1st of each month.'),
+          ${card(`📊 Monthly synthesis<span class="research-count">${synths.length}</span>`,
+            scrollList(synths, 'No synthesis notes yet. One will be auto-suggested on the 1st of each month.'),
             linkBtn(synthTmpl, 'Open template →')
           )}
 
@@ -613,18 +737,25 @@ Things outside UltraNote that compound. Adopt one at a time.
               ${linkBtn(sources, '📚 Sources & Feeds')}
               ${linkBtn(toolkit, '🧰 Research Toolkit (Zotero, Connected Papers, etc.)')}
             </div>`,
-            'These notes are protected — if accidentally deleted, they regenerate on next reload.'
+            'Core notes are protected — they regenerate on reload if deleted.'
+          )}
+
+          ${card('📌 Capture bookmarklet',
+            `<div style="margin-bottom:8px;">Drag this to your browser bookmark bar. Click it on any paper / blog / arXiv page to capture the title + URL straight into your inbox.</div>
+             <a class="research-bookmarklet" draggable="true" href="${bookmarklet.replace(/"/g,'&quot;')}">📥 Capture to UltraNote</a>`,
+            'Select text first to capture a quote instead of the page title.'
           )}
         </div>
       </div>`;
 
     // Wire actions.
-    content.querySelectorAll('.research-actions button').forEach(btn => {
+    content.querySelectorAll('[data-action]').forEach(btn => {
       btn.onclick = () => {
         const a = btn.dataset.action;
         if (a === 'capture') openInboxCapture();
         else if (a === 'paper') newPaperNote();
         else if (a === 'topic') newOrOpenTopicMap();
+        else if (a === 'triage') { researchView = 'triage'; renderTriage(); }
       };
     });
     content.querySelectorAll('[data-open-id]').forEach(el => {
@@ -633,6 +764,188 @@ Things outside UltraNote that compound. Adopt one at a time.
         if (typeof window.openNote === 'function') window.openNote(id);
       };
     });
+    // Stop the bookmarklet from being followed when clicked from the app
+    // itself (only useful from the bookmark bar in another tab).
+    const bm = content.querySelector('.research-bookmarklet');
+    if (bm) bm.addEventListener('click', (e) => { e.preventDefault(); toast("Drag this link to your bookmark bar — don't click it here."); });
+  }
+
+  // ------------------------------------------------------------------
+  // Triage view — one row per inbox line, 1-click actions
+  // ------------------------------------------------------------------
+  function renderTriage(){
+    const content = document.getElementById('content');
+    if (!content) return;
+    const db = window.db;
+    const inbox = findNote(n => n.title === '📥 Inbox');
+    const lines = parseInboxLines(inbox);
+
+    const rows = lines.map((l, idx) => `
+      <div class="triage-row" data-idx="${idx}">
+        <div class="triage-meta">${esc(l.stamp || '')}</div>
+        <div class="triage-text" contenteditable="true" spellcheck="false" data-line-idx="${idx}">${esc(l.text)}</div>
+        <div class="triage-actions">
+          <button data-act="paper" title="Promote to a paper note">📄</button>
+          <button data-act="topic" title="Open / create topic map">🗺️</button>
+          <button data-act="defer" title="Defer (prepend 'later: ')">⏳</button>
+          <button data-act="delete" title="Delete this line">🗑️</button>
+        </div>
+      </div>`).join('');
+
+    content.innerHTML = `
+      <style>
+        .triage-wrap{padding:18px 22px 60px;max-width:980px;margin:0 auto;}
+        .triage-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;}
+        .triage-head h1{margin:0;font-size:20px;}
+        .triage-head p{margin:2px 0 0;color:var(--muted);font-size:12px;}
+        .triage-head .triage-back{background:transparent;color:var(--text,inherit);border:1px solid var(--border,#444);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;}
+        .triage-head .triage-capture{background:var(--accent,#4a90e2);color:#fff;border:none;padding:7px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600;}
+        .triage-empty{padding:40px 20px;text-align:center;color:var(--muted);background:rgba(127,127,127,0.06);border-radius:12px;}
+        .triage-list{display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 180px);overflow-y:auto;border:1px solid var(--border,#333);border-radius:12px;padding:8px;background:rgba(127,127,127,0.04);}
+        .triage-row{display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center;padding:8px 10px;background:var(--card,transparent);border:1px solid var(--border,transparent);border-radius:8px;min-width:0;}
+        .triage-row:hover{border-color:var(--accent,#4a90e2);}
+        .triage-meta{font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .triage-text{font-size:13px;outline:none;padding:4px 6px;border-radius:4px;min-width:0;word-break:break-word;}
+        .triage-text:focus{background:rgba(127,127,127,0.10);}
+        .triage-actions{display:flex;gap:4px;}
+        .triage-actions button{background:transparent;color:var(--text,inherit);border:1px solid var(--border,#444);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px;padding:0;}
+        .triage-actions button:hover{background:rgba(127,127,127,0.18);}
+        .triage-actions button[data-act="delete"]:hover{background:rgba(239,68,68,0.20);border-color:#ef4444;}
+        .triage-actions button[data-act="paper"]:hover{background:rgba(74,144,226,0.22);border-color:var(--accent,#4a90e2);}
+      </style>
+      <div class="triage-wrap">
+        <div class="triage-head">
+          <div>
+            <h1>🔁 Triage — 📥 Inbox <span style="opacity:.6;font-weight:500;">(${lines.length})</span></h1>
+            <p>For each line: promote (📄/🗺️), defer (⏳), or delete (🗑️). Click the text to edit it inline.</p>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="triage-capture" data-act="add">＋ Capture</button>
+            <button class="triage-back" data-act="back">← Back to dashboard</button>
+          </div>
+        </div>
+        ${lines.length
+          ? `<div class="triage-list">${rows}</div>`
+          : `<div class="triage-empty">Inbox is empty. Press <strong>Alt+I</strong> to capture something, or click <strong>＋ Capture</strong> above.</div>`}
+      </div>`;
+
+    // Top-level buttons
+    content.querySelector('[data-act="back"]').onclick = () => {
+      researchView = 'dashboard';
+      renderDashboard();
+    };
+    content.querySelector('[data-act="add"]').onclick = async () => {
+      await openInboxCapture();
+      renderTriage();
+    };
+
+    // Row buttons + inline edits
+    content.querySelectorAll('.triage-row').forEach(row => {
+      const idx = +row.dataset.idx;
+      row.querySelectorAll('.triage-actions button').forEach(btn => {
+        btn.onclick = async () => {
+          const act = btn.dataset.act;
+          if (act === 'delete') {
+            removeInboxLineByIdx(idx);
+            renderTriage();
+          } else if (act === 'defer') {
+            deferInboxLine(idx);
+            renderTriage();
+          } else if (act === 'paper') {
+            const text = stripDeferPrefix(lines[idx].text);
+            await newPaperNote(text);
+            removeInboxLineByIdx(idx);
+            renderTriage();
+          } else if (act === 'topic') {
+            const text = stripDeferPrefix(lines[idx].text);
+            await newOrOpenTopicMap(text);
+            renderTriage();
+          }
+        };
+      });
+      const textEl = row.querySelector('.triage-text');
+      textEl.addEventListener('blur', () => {
+        const newText = textEl.textContent.trim();
+        if (!newText) { removeInboxLineByIdx(idx); renderTriage(); return; }
+        if (newText !== lines[idx].text) {
+          updateInboxLineText(idx, newText);
+        }
+      });
+      textEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); textEl.blur(); }
+      });
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Inbox line helpers
+  // ------------------------------------------------------------------
+  // Inbox lines look like:  `- [ ] [2026-05-30 09:12] some text`
+  function parseInboxLines(inbox){
+    if (!inbox) return [];
+    const out = [];
+    inbox.content.split('\n').forEach(raw => {
+      const m = raw.match(/^\s*-\s*\[[^\]]*\]\s*(?:\[([^\]]+)\]\s*)?(.*)$/);
+      if (!m) return;
+      out.push({ raw, stamp: m[1] || '', text: m[2] || '' });
+    });
+    return out;
+  }
+
+  function stripDeferPrefix(s){ return (s || '').replace(/^later:\s*/i, '').trim(); }
+
+  function _withInboxLines(fn){
+    const inbox = findNote(n => n.title === '📥 Inbox');
+    if (!inbox) return;
+    const splitter = inbox.content.split('\n');
+    let i = 0;
+    const newLines = splitter.map(raw => {
+      if (/^\s*-\s*\[[^\]]*\]/.test(raw)) {
+        const r = fn(raw, i);
+        i++;
+        return r;
+      }
+      return raw;
+    }).filter(x => x !== null);
+    inbox.content = newLines.join('\n');
+    inbox.updatedAt = nowISO();
+    window.save();
+  }
+
+  function removeInboxLineByIdx(target){
+    _withInboxLines((raw, i) => (i === target ? null : raw));
+  }
+
+  function deferInboxLine(target){
+    _withInboxLines((raw, i) => {
+      if (i !== target) return raw;
+      return raw.replace(/^(\s*-\s*\[[^\]]*\]\s*(?:\[[^\]]+\]\s*)?)(?!later:)(.*)$/i, '$1later: $2');
+    });
+  }
+
+  function updateInboxLineText(target, newText){
+    _withInboxLines((raw, i) => {
+      if (i !== target) return raw;
+      return raw.replace(/^(\s*-\s*\[[^\]]*\]\s*(?:\[[^\]]+\]\s*)?).*$/, `$1${newText}`);
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // URL capture handler (bookmarklet entry point)
+  // ------------------------------------------------------------------
+  // The bookmarklet opens `https://<app>/?capture=<encoded>`. On boot we
+  // detect that param, prefill the capture modal, strip the param from the
+  // URL so reloads don't re-trigger it.
+  function handleUrlCapture(){
+    try {
+      const url = new URL(location.href);
+      const cap = url.searchParams.get('capture');
+      if (!cap) return;
+      url.searchParams.delete('capture');
+      history.replaceState(null, '', url.pathname + (url.search ? url.search : '') + url.hash);
+      // Defer so the rest of the app finishes booting first.
+      setTimeout(() => openInboxCapture(cap), 300);
+    } catch(_) {}
   }
 
   function esc(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
