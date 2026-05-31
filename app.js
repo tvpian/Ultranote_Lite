@@ -5032,6 +5032,16 @@ function openNote(id){
   window._editorDirty = false;
   content.innerHTML = `
     <div class="card">
+      ${(() => {
+        const nb = n.notebookId ? (db.notebooks || []).find(x => x.id === n.notebookId) : null;
+        if (!nb || !nb.system) return '';
+        return `<div style='font-size:11px;padding:6px 10px;margin-bottom:8px;
+                  background:rgba(139,109,255,0.08);border:1px solid rgba(139,109,255,0.25);
+                  border-radius:6px;color:var(--muted,#8b6dff);'>
+                  🔬 Managed by Research — this page is surfaced by the Research dashboard.
+                  Editing here works, but the dashboard expects its current structure.
+                </div>`;
+      })()}
       <input id="title" type="text" value="${htmlesc(n.title)}" />
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
         <input id="tags" type="text" placeholder="Tags (space separated)" value="${(n.tags||[]).map(t=>'#'+t).join(' ')}" />
