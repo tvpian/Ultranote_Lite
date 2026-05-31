@@ -64,21 +64,13 @@ function createDailyNoteFor(dateKey, contentOverride){
   const templateContent = contentOverride !== undefined ? contentOverride : (db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n");
   const daily = createNote({title:`${dateKey} — Daily`, type:'daily', dateIndex:dateKey, content:templateContent});
   if(isToday){
-    if(db.settings.rollover){
-      // Find the most recent previous daily note before the current dateKey
-      const prior = db.notes
-        .filter(n => n.type === 'daily' && n.dateIndex && n.dateIndex < dateKey)
-        .sort((a,b) => b.dateIndex.localeCompare(a.dateIndex))[0];
-      if(prior){
-        const carryTasks = db.tasks.filter(t => t.noteId === prior.id && t.status !== 'DONE' && t.status !== 'BACKLOG');
-        carryTasks.forEach(t => {
-          // Move the task to the new daily note rather than duplicating it
-          t.noteId = daily.id;
-          t.updatedAt = nowISO();
-        });
-        if(carryTasks.length) save();
-      }
-    }
+    // NOTE: rollover NO LONGER moves yesterday's incomplete tasks onto today's
+    // daily note. They stay attached to their original day and surface in the
+    // 'Unfinished from previous days' panel on Today (which already lets you
+    // tick them off or dismiss them). This preserves day-of-origin attribution
+    // and keeps today's task list focused on what you actually planned today.
+    // The db.settings.rollover toggle is preserved for backward compatibility
+    // but is now effectively a no-op for the auto-move behavior.
     if(db.settings.autoCarryTasks){
       const priorities={high:3,medium:2,low:1};
       const projectPool = db.tasks.filter(t=> t.projectId && !t.noteId && t.status==='TODO')
@@ -493,6 +485,54 @@ function migrateDB() {
   // Bump schema version
   if ((db.version || 1) < 2) { db.version = 2; dirty = true; }
   if (!Array.isArray(db.activity)) { db.activity = []; dirty = true; }
+
+  // ── one-time: un-rollover stuck tasks (v67 → v68) ────────────────────────
+  // Earlier behavior auto-MOVED yesterday's incomplete tasks onto today's
+  // daily note, which hid them from the 'Unfinished from previous days'
+  // panel. New behavior leaves them on their original day. Walk today's
+  // task list once and send any task that was created on a previous day
+  // back to a daily note from its createdAt date. Conservative filters:
+  // skip project tasks, auto-carried tasks, recurring/monthly virtuals.
+  if (!db.settings._rolloverUndoneV68) {
+    try {
+      const today = todayKey();
+      const todayDaily = (db.notes||[]).find(n => n.type==='daily' && n.dateIndex===today && !n.deletedAt);
+      if (todayDaily) {
+        const dailyByDate = new Map();
+        (db.notes||[]).forEach(n => {
+          if (n.type==='daily' && n.dateIndex && !n.deletedAt) dailyByDate.set(n.dateIndex, n);
+        });
+        const sortedDates = Array.from(dailyByDate.keys()).sort();
+        const pickPriorDaily = (taskDate) => {
+          if (dailyByDate.has(taskDate)) return dailyByDate.get(taskDate);
+          // Otherwise the most recent prior daily note that exists.
+          let candidate = null;
+          for (const d of sortedDates) { if (d < today && d <= taskDate) candidate = dailyByDate.get(d); }
+          return candidate;
+        };
+        let moved = 0;
+        (db.tasks||[]).forEach(t => {
+          if (t.noteId !== todayDaily.id) return;
+          if (t.deletedAt) return;
+          if (t.projectId) return;          // project tasks (incl. auto-carried) stay
+          if (t.carriedToNoteId) return;
+          if (!t.createdAt) return;
+          const taskDate = String(t.createdAt).slice(0,10);
+          if (taskDate >= today) return;     // genuinely added today → leave alone
+          const target = pickPriorDaily(taskDate);
+          if (target && target.id !== todayDaily.id) {
+            t.noteId = target.id;
+            t.updatedAt = nowISO();
+            moved++;
+          }
+        });
+        if (moved) console.log(`⚙️  migrateDB: un-rolled ${moved} stuck task(s) back to their original day`);
+      }
+    } catch (e) { console.warn('rollover undo skipped:', e); }
+    db.settings._rolloverUndoneV68 = true;
+    dirty = true;
+  }
+
   if (dirty) { persistDB(); console.log('⚙️  migrateDB: schema patched and saved'); }
 }
 // ---------------------------------------------------------------------------
