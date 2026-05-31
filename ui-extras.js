@@ -100,11 +100,17 @@
     });
 
     // Global actions.
-    items.push({ type: 'Action', label: 'New note', hint: 'Create + open',
+    items.push({ type: 'Action', label: 'New note', hint: 'Open draft',
       action: () => {
-        if (typeof window.createNote !== 'function') return;
-        const n = window.createNote({ title: 'Untitled', content: '', type: 'note' });
-        if (typeof window.openNote === 'function') window.openNote(n.id);
+        // Use the draft form so an empty/abandoned note is never persisted.
+        // openDraftNote opens an in-memory editor; the row only gets saved
+        // when the user actually types and confirms.
+        if (typeof window.openDraftNote === 'function') {
+          window.openDraftNote({});
+        } else if (typeof window.createNote === 'function') {
+          const n = window.createNote({ title: 'Untitled', content: '', type: 'note' });
+          if (typeof window.openNote === 'function') window.openNote(n.id);
+        }
       } });
     items.push({ type: 'Action', label: 'Toggle focus mode', hint: 'Alt+F',
       action: () => {

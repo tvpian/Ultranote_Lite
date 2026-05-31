@@ -486,6 +486,39 @@ function migrateDB() {
   if ((db.version || 1) < 2) { db.version = 2; dirty = true; }
   if (!Array.isArray(db.activity)) { db.activity = []; dirty = true; }
 
+  // ── v80 one-time: soft-delete empty "Untitled" noise notes ───────────────
+  // Earlier paths (command palette "New note", abandoned drafts) could leave
+  // behind alive type='note' rows with no title, no content, no tags, and no
+  // links — pure noise that clutters the Vault. Move them to Trash so they're
+  // out of the way but still recoverable from Review → Trash.
+  // Idempotent: gated on db._cleanedEmptyUntitled flag so it runs exactly once.
+  if (!db._cleanedEmptyUntitled) {
+    const ts = nowISO();
+    let cleaned = 0;
+    (db.notes || []).forEach(n => {
+      if (n.deletedAt) return;
+      if (n.type !== 'note') return;             // never touch pages / daily / ideas
+      if (n.notebookId) return;                  // belongs to a notebook → leave alone
+      if (n.projectId) return;                   // belongs to a project → leave alone
+      if (n.pinned) return;                      // user explicitly pinned → leave alone
+      const title = (n.title || '').trim().toLowerCase();
+      const content = (n.content || '').trim();
+      const tags = (n.tags || []).length;
+      const links = (n.links || []).length;
+      const attachments = (n.attachments || []).length;
+      const hasTasks = (db.tasks || []).some(t => t.noteId === n.id && !t.deletedAt);
+      const isEmptyTitle = title === '' || title === 'untitled';
+      if (isEmptyTitle && !content && !tags && !links && !attachments && !hasTasks) {
+        n.deletedAt = ts;
+        n.updatedAt = ts;
+        cleaned++;
+      }
+    });
+    db._cleanedEmptyUntitled = true;
+    dirty = true;
+    if (cleaned) console.info('[migrate] moved', cleaned, 'empty Untitled note(s) to Trash');
+  }
+
   // ── one-time: un-rollover stuck tasks (v67 → v68) ────────────────────────
   // Earlier behavior auto-MOVED yesterday's incomplete tasks onto today's
   // daily note, which hid them from the 'Unfinished from previous days'
