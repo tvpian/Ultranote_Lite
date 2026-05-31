@@ -1,5 +1,5 @@
-const CACHE = 'ultranote-lite-v54-no-today-bar';
-const ASSETS = ['/', '/index.html', '/manifest.json', '/styles.css', '/app.js', '/autosync.js', '/ui-polish.js', '/ui-extras.js', '/editor-extras.js', '/power-features.js', '/fonts/fonts.css'];
+const CACHE = 'ultranote-lite-v55-research-mode';
+const ASSETS = ['/', '/index.html', '/manifest.json', '/styles.css', '/app.js', '/autosync.js', '/ui-polish.js', '/ui-extras.js', '/editor-extras.js', '/power-features.js', '/research-mode.js', '/fonts/fonts.css'];
 self.addEventListener('install', e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
 });
