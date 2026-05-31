@@ -565,9 +565,10 @@ Things outside UltraNote that compound. Adopt one at a time.
         .research-list li{padding:3px 0;display:flex;justify-content:space-between;gap:8px;align-items:baseline;}
         .research-meta{font-size:11px;color:var(--muted);white-space:nowrap;}
         .research-empty{color:var(--muted);font-size:12px;font-style:italic;}
-        .research-inbox-preview{font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap;background:var(--bg-subtle,#f7f7f7);padding:8px;border-radius:6px;max-height:120px;overflow:auto;}
+        .research-inbox-preview{font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap;background:rgba(127,127,127,0.10);color:var(--text,inherit);padding:10px;border-radius:6px;max-height:140px;overflow:auto;border:1px solid var(--border,transparent);}
         .research-pill-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
-        .research-pill-row .research-link{background:var(--bg-subtle,#f0f0f0);padding:4px 10px;border-radius:14px;font-size:12px;}
+        .research-pill-row .research-link{background:rgba(127,127,127,0.12);color:var(--text,inherit);padding:4px 10px;border-radius:14px;font-size:12px;border:1px solid var(--border,transparent);}
+        .research-pill-row .research-link:hover{background:rgba(127,127,127,0.22);text-decoration:none;}
       </style>
       <div class="research-wrap">
         <div class="research-hero">
