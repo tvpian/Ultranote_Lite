@@ -115,6 +115,26 @@
     items.push({ type: 'Action', label: 'Keyboard shortcuts', hint: '?',
       action: () => openHelp() });
 
+    // Research module actions (registered by research-mode.js on window).
+    if (typeof window.researchCapture === 'function') {
+      items.push({ type: 'Research', label: 'Capture to inbox', hint: 'Alt+I',
+        action: () => window.researchCapture() });
+    }
+    if (typeof window.researchNewPaper === 'function') {
+      items.push({ type: 'Research', label: 'New paper note', hint: 'Alt+P',
+        action: () => window.researchNewPaper() });
+    }
+    if (typeof window.researchNewTopicMap === 'function') {
+      items.push({ type: 'Research', label: 'New / open topic map', hint: 'Alt+M',
+        action: () => window.researchNewTopicMap() });
+    }
+    if (typeof window.researchNewSynthesis === 'function') {
+      items.push({ type: 'Research', label: 'New monthly synthesis', hint: 'Research',
+        action: () => window.researchNewSynthesis() });
+    }
+    items.push({ type: 'Research', label: 'Open 🔬 Research', hint: 'Dashboard',
+      action: () => simulateRoute('research') });
+
     const db = window.db;
     if (db && typeof db === 'object') {
       (db.notes || []).filter(n => !n.deletedAt).slice(0, 500).forEach((n) => {
@@ -281,7 +301,10 @@
           <div class="shk-row"><kbd>${mod}</kbd><kbd>S</kbd><span>Save current note</span></div>
           <div class="shk-row"><kbd>Alt</kbd><kbd>N</kbd><span>Quick add note</span></div>
           <div class="shk-row"><kbd>Alt</kbd><kbd>T</kbd><span>Quick add task (to today)</span></div>
-          <div class="shk-row"><kbd>/</kbd><span>Slash commands (inside an editor)</span></div>
+          <div class="shk-row"><kbd>Alt</kbd><kbd>I</kbd><span>Capture to 🔬 Research inbox (from anywhere)</span></div>
+          <div class="shk-row"><kbd>Alt</kbd><kbd>P</kbd><span>New paper note (Research)</span></div>
+          <div class="shk-row"><kbd>Alt</kbd><kbd>M</kbd><span>New / open topic map (Research)</span></div>
+          <div class="shk-row"><kbd>/</kbd><span>Focus search box (outside editor) · Slash commands (inside editor)</span></div>
           <div class="shk-row"><kbd>[</kbd><kbd>[</kbd><span>Wiki-link autocomplete (inside an editor)</span></div>
           <div class="shk-row"><kbd>Tab</kbd><span>Indent line / list item</span></div>
           <div class="shk-row"><kbd>Enter</kbd><span>Continue list / checkbox (empty item breaks out)</span></div>

@@ -32,6 +32,11 @@
     bindShortcuts();
     // Expose dashboard renderer so app.js render() can dispatch to it.
     window.renderResearch = renderResearch;
+    // Expose actions so the command palette (ui-extras.js) can offer them.
+    window.researchCapture       = () => openInboxCapture();
+    window.researchNewPaper      = () => newPaperNote();
+    window.researchNewTopicMap   = () => newOrOpenTopicMap();
+    window.researchNewSynthesis  = () => newOrOpenSynthesis();
     // Reset to dashboard whenever we navigate to the route fresh (so back/forward
     // doesn't strand the user in a stale triage view).
     const _origRender = window.render;
