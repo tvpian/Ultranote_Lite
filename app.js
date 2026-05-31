@@ -1026,6 +1026,7 @@ const sections = [
   {id:"links", label:"🔗 Links"}, // NEW
   {id:"map", label:"🗺️ Map"},
   {id:"notebooks", label:"📓 Notebooks"},
+  {id:"research", label:"🔬 Research"},
   {id:"vault", label:"🔍 Vault"},
   {id:"monthly", label:"🗓️ Monthly"},
   {id:"review", label:"📊 Review"},
@@ -5149,6 +5150,7 @@ function render(){
   else if(route==='ideas') renderIdeas();
   else if(route==='links') renderLinks(); // NEW
   else if(route==='notebooks') renderNotebooks();
+  else if(route==='research') { if(typeof window.renderResearch === 'function') window.renderResearch(); else { content.innerHTML = '<p style="padding:24px;">Research module loading…</p>'; } }
   else if(route==='vault') renderVault();
   else if(route==='monthly') renderMonthly();
   else if(route==='review') renderReview();

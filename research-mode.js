@@ -27,9 +27,15 @@
   function init(){
     const db = window.db;
     db.settings = db.settings || {};
-    try { seedIfNeeded(db); } catch(e){ console.error('[research-mode] seed', e); }
+    try { ensureResearchScaffold(db); } catch(e){ console.error('[research-mode] seed', e); }
     try { scheduleRituals(db); } catch(e){ console.error('[research-mode] rituals', e); }
     bindShortcuts();
+    // Expose dashboard renderer so app.js render() can dispatch to it.
+    window.renderResearch = renderResearch;
+    // If we're already sitting on the route (e.g. SW reload), repaint now.
+    if (window.route === 'research' && typeof window.render === 'function') {
+      try { window.render(); } catch(_){}
+    }
     console.log('[research-mode] ready');
   }
 
@@ -95,20 +101,24 @@
   }
 
   // ------------------------------------------------------------------
-  // Seed notebook
+  // Seed / self-heal notebook (runs every boot; idempotent)
   // ------------------------------------------------------------------
-  function seedIfNeeded(db){
-    if (db.settings.researchSeededAt) return;
+  // We deliberately do NOT gate on a settings flag. Running this on every
+  // boot means: if the user (or sync, or a bad merge) ever drops a core
+  // page, it reappears on next reload. ensurePage/ensureNotebook are
+  // find-or-create, so duplicates can't happen.
+  function ensureResearchScaffold(db){
     const nb = ensureNotebook('🔬 Research');
-    ensurePage({ title: '📥 Inbox', notebookId: nb.id, content: INBOX_BODY, tags: ['research', 'inbox'] });
-    ensurePage({ title: '🗺️ Topic Maps — Index', notebookId: nb.id, content: TOPIC_INDEX_BODY, tags: ['research', 'topic-maps'] });
-    ensurePage({ title: '📊 Monthly Synthesis — Template', notebookId: nb.id, content: SYNTH_TEMPLATE, tags: ['research', 'synthesis', 'template'] });
-    ensurePage({ title: '🔁 Weekly Triage Ritual', notebookId: nb.id, content: WEEKLY_BODY, tags: ['research', 'ritual'] });
-    ensurePage({ title: '📚 Sources & Feeds', notebookId: nb.id, content: SOURCES_BODY, tags: ['research', 'sources'] });
-    ensurePage({ title: '🧰 Research Toolkit', notebookId: nb.id, content: TOOLKIT_BODY, tags: ['research', 'tools'] });
-    db.settings.researchSeededAt = nowISO();
+    // Mark the notebook as system so UI can warn before delete (used below).
+    nb.system = true;
+    ensurePage({ title: '📥 Inbox',                       notebookId: nb.id, content: INBOX_BODY,        tags: ['research', 'inbox', 'system'] });
+    ensurePage({ title: '🗺️ Topic Maps — Index',         notebookId: nb.id, content: TOPIC_INDEX_BODY,  tags: ['research', 'topic-maps', 'system'] });
+    ensurePage({ title: '📊 Monthly Synthesis — Template',  notebookId: nb.id, content: SYNTH_TEMPLATE,    tags: ['research', 'synthesis', 'template', 'system'] });
+    ensurePage({ title: '🔁 Weekly Triage Ritual',          notebookId: nb.id, content: WEEKLY_BODY,       tags: ['research', 'ritual', 'system'] });
+    ensurePage({ title: '📚 Sources & Feeds',                notebookId: nb.id, content: SOURCES_BODY,      tags: ['research', 'sources', 'system'] });
+    ensurePage({ title: '🧰 Research Toolkit',               notebookId: nb.id, content: TOOLKIT_BODY,      tags: ['research', 'tools', 'system'] });
+    if (!db.settings.researchSeededAt) db.settings.researchSeededAt = nowISO();
     window.save();
-    console.log('[research-mode] seeded 🔬 Research notebook');
   }
 
   // ------------------------------------------------------------------
@@ -481,5 +491,161 @@ Things outside UltraNote that compound. Adopt one at a time.
 ## Follow-ups
 - [ ]
 `;
+
+  // ------------------------------------------------------------------
+  // Dashboard renderer (called by app.js render() when route==='research')
+  // ------------------------------------------------------------------
+  function renderResearch(){
+    const content = document.getElementById('content');
+    if (!content) return;
+    const db = window.db;
+    const nb = (db.notebooks || []).find(x => x.title === '🔬 Research');
+    if (!nb) {
+      content.innerHTML = '<div style="padding:24px;">Research scaffold missing — reload the page.</div>';
+      ensureResearchScaffold(db);
+      return;
+    }
+    const pages = (db.notes || []).filter(n => n.notebookId === nb.id && !n.deletedAt && n.type === 'page');
+    const byTitle = (t) => pages.find(p => p.title === t);
+    const inbox     = byTitle('📥 Inbox');
+    const topicIdx  = byTitle('🗺️ Topic Maps — Index');
+    const synthTmpl = byTitle('📊 Monthly Synthesis — Template');
+    const weekly    = byTitle('🔁 Weekly Triage Ritual');
+    const sources   = byTitle('📚 Sources & Feeds');
+    const toolkit   = byTitle('🧰 Research Toolkit');
+
+    const topicMaps = pages
+      .filter(p => p.title.startsWith('🗺️ Topic Map — ') && p.title !== '🗺️ Topic Maps — Index')
+      .sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
+    const papers = pages
+      .filter(p => (p.tags||[]).includes('paper'))
+      .sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''))
+      .slice(0, 12);
+    const synths = pages
+      .filter(p => (p.tags||[]).includes('synthesis') && !(p.tags||[]).includes('template'))
+      .sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''))
+      .slice(0, 6);
+
+    // Inbox preview — first 5 capture lines.
+    const captureLines = (inbox?.content || '').split('\n')
+      .filter(l => /^\s*-\s*\[/.test(l))
+      .slice(0, 5);
+
+    const card = (title, body, footer='') => `
+      <div class="research-card">
+        <div class="research-card-title">${esc(title)}</div>
+        <div class="research-card-body">${body}</div>
+        ${footer ? `<div class="research-card-footer">${footer}</div>` : ''}
+      </div>`;
+    const linkBtn = (note, label) => note
+      ? `<button class="research-link" data-open-id="${note.id}">${esc(label || note.title)}</button>`
+      : `<span style="color:var(--muted)">missing</span>`;
+    const list = (items, empty) => items.length
+      ? `<ul class="research-list">${items.map(p => `<li><button class="research-link" data-open-id="${p.id}">${esc(p.title)}</button> <span class="research-meta">${relTime(p.updatedAt)}</span></li>`).join('')}</ul>`
+      : `<div class="research-empty">${empty}</div>`;
+
+    content.innerHTML = `
+      <style>
+        .research-wrap{padding:18px 22px 60px;max-width:1100px;margin:0 auto;}
+        .research-hero{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
+        .research-hero h1{margin:0;font-size:22px;}
+        .research-hero p{margin:2px 0 0;color:var(--muted);font-size:13px;}
+        .research-actions{display:flex;gap:8px;flex-wrap:wrap;}
+        .research-actions button{background:var(--accent,#4a90e2);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;}
+        .research-actions button:hover{filter:brightness(1.1);}
+        .research-actions .kbd{opacity:.85;font-weight:400;margin-left:6px;font-size:11px;}
+        .research-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;}
+        .research-card{background:var(--card,#fff);border:1px solid var(--border,#e3e3e3);border-radius:12px;padding:14px 16px;}
+        .research-card-title{font-weight:700;margin-bottom:8px;font-size:14px;}
+        .research-card-body{font-size:13px;}
+        .research-card-footer{margin-top:10px;font-size:12px;color:var(--muted);}
+        .research-link{background:transparent;border:none;color:var(--link,#3b82f6);cursor:pointer;padding:2px 0;text-align:left;font:inherit;}
+        .research-link:hover{text-decoration:underline;}
+        .research-list{list-style:none;padding:0;margin:0;}
+        .research-list li{padding:3px 0;display:flex;justify-content:space-between;gap:8px;align-items:baseline;}
+        .research-meta{font-size:11px;color:var(--muted);white-space:nowrap;}
+        .research-empty{color:var(--muted);font-size:12px;font-style:italic;}
+        .research-inbox-preview{font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap;background:var(--bg-subtle,#f7f7f7);padding:8px;border-radius:6px;max-height:120px;overflow:auto;}
+        .research-pill-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+        .research-pill-row .research-link{background:var(--bg-subtle,#f0f0f0);padding:4px 10px;border-radius:14px;font-size:12px;}
+      </style>
+      <div class="research-wrap">
+        <div class="research-hero">
+          <div>
+            <h1>🔬 Research</h1>
+            <p>Capture daily · triage weekly · synthesize monthly. Three shortcuts run the whole thing.</p>
+          </div>
+          <div class="research-actions">
+            <button data-action="capture">📥 Capture <span class="kbd">Alt+I</span></button>
+            <button data-action="paper">📄 New paper <span class="kbd">Alt+P</span></button>
+            <button data-action="topic">🗺️ New topic map <span class="kbd">Alt+M</span></button>
+          </div>
+        </div>
+
+        <div class="research-grid">
+          ${card('📥 Inbox',
+            captureLines.length
+              ? `<div class="research-inbox-preview">${captureLines.map(esc).join('\n')}</div>`
+              : `<div class="research-empty">Nothing captured yet. Press <strong>Alt+I</strong> from anywhere to drop a paper/link/idea here.</div>`,
+            inbox ? linkBtn(inbox, 'Open full inbox →') : ''
+          )}
+
+          ${card('🗺️ Topic Maps',
+            topicMaps.length
+              ? `<div class="research-pill-row">${topicMaps.map(p => `<button class="research-link" data-open-id="${p.id}">${esc(p.title.replace('🗺️ Topic Map — ',''))}</button>`).join('')}</div>`
+              : `<div class="research-empty">No topic maps yet. Spin one up with <strong>Alt+M</strong> when a thread shows up in your inbox a 3rd time.</div>`,
+            linkBtn(topicIdx, 'How topic maps work →')
+          )}
+
+          ${card('📄 Recent paper notes',
+            list(papers, 'No paper notes yet. Press <strong>Alt+P</strong> during Friday triage to promote inbox items.')
+          )}
+
+          ${card('📊 Monthly synthesis',
+            list(synths, 'No synthesis notes yet. One will be auto-suggested on the 1st of each month.'),
+            linkBtn(synthTmpl, 'Open template →')
+          )}
+
+          ${card('🔁 Rituals & how-to',
+            `<div style="display:flex;flex-direction:column;gap:4px;">
+              ${linkBtn(weekly, '🔁 Weekly Triage Ritual')}
+              ${linkBtn(sources, '📚 Sources & Feeds')}
+              ${linkBtn(toolkit, '🧰 Research Toolkit (Zotero, Connected Papers, etc.)')}
+            </div>`,
+            'These notes are protected — if accidentally deleted, they regenerate on next reload.'
+          )}
+        </div>
+      </div>`;
+
+    // Wire actions.
+    content.querySelectorAll('.research-actions button').forEach(btn => {
+      btn.onclick = () => {
+        const a = btn.dataset.action;
+        if (a === 'capture') openInboxCapture();
+        else if (a === 'paper') newPaperNote();
+        else if (a === 'topic') newOrOpenTopicMap();
+      };
+    });
+    content.querySelectorAll('[data-open-id]').forEach(el => {
+      el.onclick = () => {
+        const id = el.dataset.openId;
+        if (typeof window.openNote === 'function') window.openNote(id);
+      };
+    });
+  }
+
+  function esc(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+  function relTime(iso){
+    if (!iso) return '';
+    const diff = Date.now() - new Date(iso).getTime();
+    const min = Math.floor(diff/60000);
+    if (min < 1) return 'just now';
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min/60);
+    if (hr < 24) return `${hr}h ago`;
+    const day = Math.floor(hr/24);
+    if (day < 30) return `${day}d ago`;
+    return iso.slice(0,10);
+  }
 
 })();
