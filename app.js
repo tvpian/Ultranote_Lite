@@ -4510,7 +4510,10 @@ function renderVault(){
 // --- Notebooks view ---
 function renderNotebooks(){
   if(!db.notebooks) db.notebooks=[];
-  const nbs=db.notebooks.filter(nb=>!nb.deletedAt).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
+  // Hide system-managed notebooks (e.g. 🔬 Research) from the generic list \u2014
+  // they're surfaced by their own dedicated tool and would just look like
+  // duplicates here.
+  const nbs=db.notebooks.filter(nb=>!nb.deletedAt && !nb.system).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
   content.innerHTML=`
     <div class='card'>
       <div class='row' style='justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;'>
