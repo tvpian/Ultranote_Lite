@@ -71,7 +71,10 @@
   function ensureNotebook(title){
     const db = window.db;
     db.notebooks = db.notebooks || [];
-    let nb = db.notebooks.find(x => x.title === title);
+    // Skip tombstoned rows — if the user explicitly deleted a notebook with
+    // this title we must NOT find-or-create on top of it; we'd just keep
+    // resurrecting the same row on every boot.
+    let nb = db.notebooks.find(x => x.title === title && !x.deletedAt);
     if (nb) return nb;
     nb = { id: uid(), title, description: '', createdAt: nowISO(), updatedAt: nowISO() };
     db.notebooks.push(nb);
@@ -319,7 +322,7 @@
       confirmLabel: 'Create note',
     });
     if (!title) return;
-    const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research');
+    const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research' && !x.deletedAt);
     if (!nb) { toast('🔬 Research notebook missing'); return; }
     const p = ensurePage({
       title,
@@ -341,7 +344,7 @@
       confirmLabel: 'Open map',
     });
     if (!name) return;
-    const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research');
+    const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research' && !x.deletedAt);
     if (!nb) { toast('🔬 Research notebook missing'); return; }
     const title = `🗺️ Topic Map — ${name}`;
     const existed = !!findNote(n => n.notebookId === nb.id && n.title === title);
@@ -370,7 +373,7 @@
     if (!ym) return;
     const clean = ym.trim();
     if (!/^\d{4}-\d{2}$/.test(clean)) { toast('Use YYYY-MM (e.g. 2026-05)'); return; }
-    const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research');
+    const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research' && !x.deletedAt);
     if (!nb) { toast('🔬 Research notebook missing'); return; }
     const title = `📊 Synthesis — ${clean}`;
     const existed = !!findNote(n => n.notebookId === nb.id && n.title === title);
@@ -651,7 +654,7 @@ Things outside UltraNote that compound. Adopt one at a time.
     const content = document.getElementById('content');
     if (!content) return;
     const db = window.db;
-    const nb = (db.notebooks || []).find(x => x.title === '🔬 Research');
+    const nb = (db.notebooks || []).find(x => x.title === '🔬 Research' && !x.deletedAt);
     if (!nb) {
       content.innerHTML = '<div style="padding:24px;">Research scaffold missing — reload the page.</div>';
       ensureResearchScaffold(db);
@@ -963,7 +966,7 @@ Things outside UltraNote that compound. Adopt one at a time.
     const content = document.getElementById('content');
     if (!content) return;
     const db = window.db;
-    const nb = (db.notebooks || []).find(x => x.title === '🔬 Research');
+    const nb = (db.notebooks || []).find(x => x.title === '🔬 Research' && !x.deletedAt);
     if (!nb) { researchView = 'dashboard'; return renderDashboard(); }
 
     const items = (db.notes || [])

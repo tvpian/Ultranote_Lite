@@ -568,7 +568,12 @@ function migrateDB() {
       removedEmpty++;
     });
     if (toRemove.size) {
-      db.notebooks = db.notebooks.filter(nb => !toRemove.has(nb.id));
+      // Tombstone instead of splice so a stale client POST can't resurrect them
+      // (server merge rule #3 keeps the deletion when client copy is older).
+      const tt = nowISO();
+      db.notebooks.forEach(nb => {
+        if (toRemove.has(nb.id)) { nb.deletedAt = tt; nb.updatedAt = tt; }
+      });
     }
     db._cleanedDupNotebooks = true;
     dirty = true;
@@ -1167,8 +1172,16 @@ function updateNotebook(id, patch){
 }
 function deleteNotebook(id){
   if(!db.notebooks) db.notebooks=[];
-  db.notes.filter(n=>n.notebookId===id && !n.deletedAt).forEach(n=>{ n.deletedAt=nowISO(); });
-  db.notebooks=db.notebooks.filter(x=>x.id!==id); save();
+  // Soft-delete (tombstone) instead of splice. The server's POST /api/db merge
+  // treats unknown ids as "new from client, add it back" — so a hard splice on
+  // this device gets undone the moment a stale tab on another device (or this
+  // device's stale in-memory snapshot) POSTs. Setting deletedAt + bumping
+  // updatedAt makes rule #2/#3 of the server merge honor the deletion.
+  const ts = nowISO();
+  const nb = db.notebooks.find(x => x.id === id);
+  if (nb) { nb.deletedAt = ts; nb.updatedAt = ts; }
+  db.notes.filter(n=>n.notebookId===id && !n.deletedAt).forEach(n=>{ n.deletedAt=ts; n.updatedAt=ts; });
+  save();
 }
 function getNotebookPages(notebookId){
   return db.notes.filter(n=>n.notebookId===notebookId && !n.deletedAt && n.type==='page')
@@ -4497,7 +4510,7 @@ function renderVault(){
 // --- Notebooks view ---
 function renderNotebooks(){
   if(!db.notebooks) db.notebooks=[];
-  const nbs=[...db.notebooks].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
+  const nbs=db.notebooks.filter(nb=>!nb.deletedAt).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
   content.innerHTML=`
     <div class='card'>
       <div class='row' style='justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;'>
@@ -4562,7 +4575,7 @@ function renderNotebookDetail(nbId){
   try { window.scrollTo({top:0, left:0, behavior:'instant'}); } catch(_) { window.scrollTo(0,0); }
   if (content) content.scrollTop = 0;
   if(!db.notebooks) db.notebooks=[];
-  const nb=db.notebooks.find(x=>x.id===nbId);
+  const nb=db.notebooks.find(x=>x.id===nbId && !x.deletedAt);
   if(!nb){ currentNotebookId=null; renderNotebooks(); return; }
   const pages=getNotebookPages(nbId);
   // Validate currentPageId still belongs to this notebook
