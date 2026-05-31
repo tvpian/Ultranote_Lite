@@ -1284,15 +1284,43 @@ function markdownToHtml(md){
   // Use marked.js if available for full markdown support
   if(typeof marked !== 'undefined'){
     try {
+      // One-time wiring of optional enrichers (CDN-loaded; skipped if absent):
+      //  • marked-highlight + highlight.js → syntax colors in fenced code
+      //  • marked-gfm-heading-id           → id="..." on headings (deep links + TOC)
+      //  • DOMPurify (applied below)       → strips <script>, event handlers, etc.
+      if(!marked._uniExtSetup){
+        marked._uniExtSetup = true;
+        try {
+          if(typeof markedHighlight !== 'undefined' && typeof hljs !== 'undefined'){
+            marked.use(markedHighlight.markedHighlight({
+              langPrefix: 'hljs language-',
+              highlight(code, lang){
+                const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+                try { return hljs.highlight(code, { language, ignoreIllegals: true }).value; }
+                catch(_) { return code; }
+              }
+            }));
+          }
+          if(typeof markedGfmHeadingId !== 'undefined' && markedGfmHeadingId.gfmHeadingId){
+            marked.use(markedGfmHeadingId.gfmHeadingId());
+          }
+        } catch(extErr){ console.warn('marked extensions setup skipped:', extErr); }
+      }
       // Configure marked for safe rendering
       marked.setOptions({
         breaks: true,        // Convert single line breaks to <br>
         gfm: true,          // GitHub Flavored Markdown
-        sanitize: false,     // We'll handle sanitization ourselves
+        sanitize: false,     // DOMPurify handles sanitization below
         smartLists: true,    // Use smarter list behavior
         smartypants: false   // Don't use smart quotes (can cause issues)
       });
-      return _injectWikiLinks(marked.parse(stripped), tokens);
+      const raw = marked.parse(stripped);
+      // DOMPurify removes <script>, on* handlers, javascript: urls, etc. Keep
+      // id/class so heading anchors and hljs color classes survive.
+      const safe = (typeof DOMPurify !== 'undefined')
+        ? DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, ADD_ATTR: ['target','rel'] })
+        : raw;
+      return _injectWikiLinks(safe, tokens);
     } catch(error) {
       console.warn('marked.js failed, falling back to basic renderer:', error);
     }

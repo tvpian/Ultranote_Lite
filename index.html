@@ -71,6 +71,8 @@
   </style>
   -->
   <link rel="stylesheet" href="styles.css" />
+  <!-- highlight.js theme (GitHub Dark) for fenced code-block syntax colors -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css" />
 </head>
 <body>
   <header>
@@ -1305,6 +1307,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
 -->
     <!-- Include marked.js for enhanced markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+    <!-- Markdown enrichers: syntax highlighting, heading anchors, HTML sanitization -->
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked-highlight@2.1.1/lib/index.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked-gfm-heading-id@3.1.2/lib/index.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
     <!-- Auto-sync system for real-time cross-session updates -->
     <script src="autosync.js"></script>
     <!-- Externalized JavaScript logic -->

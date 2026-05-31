@@ -4764,3 +4764,22 @@ body.focus-mode .editor-pane-wrap > #markdownPreview {
   line-height: 1.75;
   width: 100% !important;
 }
+
+/* highlight.js paints colors via the .hljs class. Let its theme own the
+   background/colors inside fenced code blocks; outer <pre> still keeps our
+   card frame for visual consistency. */
+.markdown-preview pre code.hljs {
+  background: transparent !important;
+  padding: 0;
+  color: inherit;
+}
+.markdown-preview pre:has(code.hljs) {
+  background: #0d1117; /* matches github-dark theme */
+  border-color: #30363d;
+}
+
+/* Heading anchors injected by marked-gfm-heading-id — keep them subtle */
+.markdown-preview h1, .markdown-preview h2, .markdown-preview h3,
+.markdown-preview h4, .markdown-preview h5, .markdown-preview h6 {
+  scroll-margin-top: 80px;
+}
