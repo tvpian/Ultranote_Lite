@@ -27,7 +27,15 @@
   function init(){
     const db = window.db;
     db.settings = db.settings || {};
-    try { ensureResearchScaffold(db); } catch(e){ console.error('[research-mode] seed', e); }
+    // Only auto-seed on FIRST boot. Running every boot meant a user-deleted
+    // system page would silently reappear; worse, it kept fighting the
+    // notebook tombstone cleanup. After first seed, the user is in charge —
+    // they can call window.researchRestoreScaffold() (or click the "Restore
+    // system pages" link in the Research dashboard) to recreate anything
+    // they removed by mistake.
+    if (!db.settings.researchSeededAt) {
+      try { ensureResearchScaffold(db); } catch(e){ console.error('[research-mode] seed', e); }
+    }
     try { scheduleRituals(db); } catch(e){ console.error('[research-mode] rituals', e); }
     bindShortcuts();
     // Expose dashboard renderer so app.js render() can dispatch to it.
@@ -37,6 +45,14 @@
     window.researchNewPaper      = () => newPaperNote();
     window.researchNewTopicMap   = () => newOrOpenTopicMap();
     window.researchNewSynthesis  = () => newOrOpenSynthesis();
+    // Manual re-seed for users who deleted a core page and want it back.
+    window.researchRestoreScaffold = () => {
+      try {
+        ensureResearchScaffold(window.db);
+        if (typeof window.toast === 'function') window.toast('Research system pages restored');
+        if (window.route === 'research' && typeof window.render === 'function') window.render();
+      } catch(e){ console.error('[research-mode] restore', e); }
+    };
     // Reset to dashboard whenever we navigate to the route fresh (so back/forward
     // doesn't strand the user in a stale triage view).
     const _origRender = window.render;
@@ -788,8 +804,9 @@ Things outside UltraNote that compound. Adopt one at a time.
               ${linkBtn(weekly, '🔁 Weekly Triage Ritual')}
               ${linkBtn(sources, '📚 Sources & Feeds')}
               ${linkBtn(toolkit, '🧰 Research Toolkit (Zotero, Connected Papers, etc.)')}
+              <button class="research-chip" data-action="restore-scaffold" style="margin-top:6px;align-self:flex-start;">↻ Restore missing system pages</button>
             </div>`,
-            'Core notes are protected — they regenerate on reload if deleted.'
+            'Core notes stay deleted if you remove them. Use Restore to recreate any you removed by mistake.'
           )}
 
           ${card('📌 Capture bookmarklet',
@@ -812,6 +829,9 @@ Things outside UltraNote that compound. Adopt one at a time.
         else if (a === 'manage-topics')    { researchView = 'manage-topics';    renderManage('topics'); }
         else if (a === 'manage-papers')    { researchView = 'manage-papers';    renderManage('papers'); }
         else if (a === 'manage-synthesis') { researchView = 'manage-synthesis'; renderManage('synthesis'); }
+        else if (a === 'restore-scaffold') {
+          if (typeof window.researchRestoreScaffold === 'function') window.researchRestoreScaffold();
+        }
       };
     });
     content.querySelectorAll('[data-open-id]').forEach(el => {

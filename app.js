@@ -1066,10 +1066,13 @@ function createTemplate(name, content){
 function addTag(text){ const tags = extractTags(text); if(tags.length) { const uniqueTags = [...new Set([...getAllTags(), ...tags])]; } return tags; }
 // Collect unique tags from notes and links (ideas/notes use tags on note; links have their own tags)
 function getAllTags(){
-  // Tags explicitly stored on notes (exclude soft-deleted)
-  const noteTags = db.notes.filter(n => !n.deletedAt).flatMap(n => n.tags || []);
+  const sysNbIds = new Set((db.notebooks || [])
+    .filter(nb => nb.system && !nb.deletedAt).map(nb => nb.id));
+  const isUserNote = n => !n.deletedAt && !sysNbIds.has(n.notebookId);
+  // Tags explicitly stored on notes (exclude soft-deleted + system-managed)
+  const noteTags = db.notes.filter(isUserNote).flatMap(n => n.tags || []);
   // Inline hashtags inside note content (e.g. "#research")
-  const inlineContentTags = db.notes.filter(n => !n.deletedAt).flatMap(n => extractTags(n.content || ''));
+  const inlineContentTags = db.notes.filter(isUserNote).flatMap(n => extractTags(n.content || ''));
   // Tags stored on links
   const linkTags = db.links ? db.links.flatMap(l => l.tags || []) : [];
   // Tags on tasks, templates, monthly tasks and notebooks (forward-compatible, agent-queryable)
@@ -1083,6 +1086,20 @@ function getAllTags(){
                      ].filter(Boolean))].sort((a,b)=> a.localeCompare(b));
 }
 function extractTags(text){ return (text.match(/#[\w-]+/g) || []).map(tag => tag.slice(1)); }
+
+// True when the note lives in a system-managed notebook (e.g. 🔬 Research).
+// Those notes are surfaced by their own dedicated tool; we hide them from
+// generic surfaces (Vault search, hashtag cloud, link picker) so they don't
+// pollute the user's day-to-day note workspace.
+function _systemNotebookIds(){
+  return new Set((db.notebooks || [])
+    .filter(nb => nb.system && !nb.deletedAt)
+    .map(nb => nb.id));
+}
+function isSystemManagedNote(n){
+  if(!n || !n.notebookId) return false;
+  return _systemNotebookIds().has(n.notebookId);
+}
 // --- Links helpers ---
 function createLink({title,url,tags=[],pinned=false,status="NEW",description=''}){ const l={id:uid(), title, url, description, tags, pinned, status, createdAt:nowISO(), updatedAt:nowISO()}; db.links.push(l); save(); return l; }
 function updateLink(id, patch){ const l=db.links.find(x=>x.id===id); if(!l) return; Object.assign(l, patch, {updatedAt:nowISO()}); save(); return l; }
@@ -3685,9 +3702,17 @@ function openLinkModal(noteId) {
   const addBtn = document.getElementById('linkAdd');
   const cancelBtn = document.getElementById('linkCancel');
   _linkTargetNoteId = noteId;
-  // Populate select with all other notes
+  // Populate select with all other notes (skip system-managed pages too —
+  // user shouldn't be manually linking against Research seed pages).
+  const sysNbIds = new Set((db.notebooks || [])
+    .filter(nb => nb.system && !nb.deletedAt).map(nb => nb.id));
   const populate = (filter='') => {
-    const opts = db.notes.filter(n => n.id !== noteId && !n.deletedAt && n.title.toLowerCase().includes(filter.toLowerCase())).map(n => `<option value="${n.id}">${htmlesc(n.title)}</option>`).join('');
+    const opts = db.notes.filter(n =>
+      n.id !== noteId &&
+      !n.deletedAt &&
+      !sysNbIds.has(n.notebookId) &&
+      n.title.toLowerCase().includes(filter.toLowerCase())
+    ).map(n => `<option value="${n.id}">${htmlesc(n.title)}</option>`).join('');
     select.innerHTML = opts;
   };
   // Reset search field and populate options
@@ -4366,7 +4391,12 @@ function renderVault(){
   const query = (document.getElementById('q')?.value || '').trim();
   const tagFilters = (query.match(/#[\w-]+/g)||[]).map(t=>t.slice(1).toLowerCase());
   const text = query.replace(/#[\w-]+/g,'').trim().toLowerCase();
-  let notes = db.notes.filter(n => !n.deletedAt);
+  const sysNbIds = new Set((db.notebooks || [])
+    .filter(nb => nb.system && !nb.deletedAt).map(nb => nb.id));
+  // Hide system-managed notes (Research module pages) — they're searchable
+  // from inside the Research dashboard. Mixing them into the general Vault
+  // makes the workspace feel cluttered with rows the user didn't create.
+  let notes = db.notes.filter(n => !n.deletedAt && !sysNbIds.has(n.notebookId));
   if(tagFilters.length){ notes = notes.filter(n=> tagFilters.every(t=> (n.tags||[]).map(x=>x.toLowerCase()).includes(t))); }
   if(text){ notes = notes.filter(n=> n.title.toLowerCase().includes(text) || (n.content||'').toLowerCase().includes(text)); }
   // NEW: status filter — set by clicking a chip in the toolbar. Persists across re-renders.
@@ -4746,6 +4776,16 @@ function openPageInNotebook(pageId, nbId){
   });
   editor.innerHTML=`
     <div style='max-width:800px;'>
+      ${(() => {
+        const nb = (db.notebooks || []).find(x => x.id === nbId);
+        if (!nb || !nb.system) return '';
+        return `<div style='font-size:11px;padding:6px 10px;margin-bottom:8px;
+                  background:rgba(139,109,255,0.08);border:1px solid rgba(139,109,255,0.25);
+                  border-radius:6px;color:var(--muted,#8b6dff);'>
+                  🔬 Managed by Research — this page is surfaced by the Research dashboard.
+                  Editing here works, but the dashboard expects its current structure.
+                </div>`;
+      })()}
       <input id='pgTitle' type='text' value='${htmlesc(p.title)}'
              style='width:100%;font-size:17px;font-weight:600;margin-bottom:8px;box-sizing:border-box;' />
       <input id='pgTags' type='text' placeholder='Tags (e.g. #ml #ros2)'
