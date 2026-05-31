@@ -4783,3 +4783,23 @@ body.focus-mode .editor-pane-wrap > #markdownPreview {
 .markdown-preview h4, .markdown-preview h5, .markdown-preview h6 {
   scroll-margin-top: 80px;
 }
+
+/* Block-math KaTeX parse error fallback — strong visual so a broken $$...$$
+   never looks like literal source. Uses a class (not inline styles) so it
+   survives any DOMPurify config change or downstream CSS reset. */
+.markdown-preview .katex-error,
+.note-preview .katex-error,
+.katex-error {
+  display: block !important;
+  border: 1px solid #ff5555 !important;
+  background: rgba(255, 85, 85, 0.10) !important;
+  color: #ff8888 !important;
+  padding: 0.6em 0.8em !important;
+  border-radius: 4px !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+  white-space: pre-wrap !important;
+  margin: 0.75em 0 !important;
+}
+.markdown-preview .katex-error strong,
+.note-preview .katex-error strong,
+.katex-error strong { color: #ff5555 !important; }
