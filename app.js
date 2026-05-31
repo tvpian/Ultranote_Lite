@@ -1292,13 +1292,19 @@ function _extractBlockMath(md){
   const out = md.replace(/(^|\r?\n)\$\$[ \t]*\r?\n([\s\S]+?)\r?\n[ \t]*\$\$[ \t]*(?=\r?\n|$)/g, (_m, lead, expr) => {
     const i = blocks.length;
     blocks.push(expr);
-    return `${lead}\u0000MATH${i}\u0000`;
+    // Pure-ASCII sentinel: NUL gets stripped by DOMPurify/marked. The token
+    // is unusual enough to not collide with real prose, and we render it as
+    // a render() of the math; marked will wrap it in <p>, which we strip.
+    return `${lead}xKaTeXBlocK${i}KaTeXBlocKx`;
   });
   return { out, blocks };
 }
 function _renderBlockMath(html, blocks){
   if(!blocks.length) return html;
-  return html.replace(/\u0000MATH(\d+)\u0000/g, (_m, i) => {
+  // Unwrap solo <p>token</p> first so the rendered display math isn't nested
+  // inside a paragraph (invalid HTML, breaks katex-display styling).
+  html = html.replace(/<p>\s*(xKaTeXBlocK\d+KaTeXBlocKx)\s*<\/p>/g, '$1');
+  return html.replace(/xKaTeXBlocK(\d+)KaTeXBlocKx/g, (_m, i) => {
     const expr = blocks[+i] || '';
     if(typeof katex === 'undefined') return `<pre><code>${htmlesc('$$\n'+expr+'\n$$')}</code></pre>`;
     try { return katex.renderToString(expr, { displayMode: true, throwOnError: false, output: 'html' }); }
