@@ -1030,21 +1030,20 @@ function getTrashedNotes(){
 }
 
 function emptyTrash() {
-  showConfirm("Permanently delete ALL trashed tasks and notes? This cannot be undone.", 'Empty Trash', 'Cancel').then(ok=>{
-    if(!ok) return;
-    const tasksBefore = db.tasks.length;
-    const notesBefore = db.notes.length;
-    // Track all IDs being wiped so sync cannot revive them from the server
-    db.tasks.filter(x => x.deletedAt).forEach(t => window._hardDeletedIds.add(t.id));
-    db.notes.filter(x => x.deletedAt).forEach(n => {
-      window._hardDeletedIds.add(n.id);
-      db.tasks.filter(t => t.noteId === n.id).forEach(t => window._hardDeletedIds.add(t.id));
-    });
-    db.tasks = db.tasks.filter(x => !x.deletedAt);
-    db.notes = db.notes.filter(x => !x.deletedAt);
-    if(db.tasks.length !== tasksBefore || db.notes.length !== notesBefore) persistDB();
-    if(route==='review') renderReview();
+  // NOTE: callers MUST confirm with the user before invoking this. We do not
+  // re-prompt here so that the single Review-page confirm isn't shown twice.
+  const tasksBefore = db.tasks.length;
+  const notesBefore = db.notes.length;
+  // Track all IDs being wiped so sync cannot revive them from the server
+  db.tasks.filter(x => x.deletedAt).forEach(t => window._hardDeletedIds.add(t.id));
+  db.notes.filter(x => x.deletedAt).forEach(n => {
+    window._hardDeletedIds.add(n.id);
+    db.tasks.filter(t => t.noteId === n.id).forEach(t => window._hardDeletedIds.add(t.id));
   });
+  db.tasks = db.tasks.filter(x => !x.deletedAt);
+  db.notes = db.notes.filter(x => !x.deletedAt);
+  if(db.tasks.length !== tasksBefore || db.notes.length !== notesBefore) persistDB();
+  if(route==='review') renderReview();
 }
 function createProject(name){
   // Canonical project schema — all fields explicit so agents can rely on them.
@@ -2914,6 +2913,10 @@ function renderReview(){
   });
   // Exclude deleted tasks from analytics
   const done = [...virtualDone, ...db.tasks.filter(t=> t.status==='DONE' && !t.deletedAt)];
+  // For the Completed Tasks LIST + count we show only real tasks. Recurring
+  // habit completions are visualized in the Habit Streaks grid instead — mixing
+  // them into the list was confusing (and Clear History couldn't touch them).
+  const realDone = db.tasks.filter(t => t.status==='DONE' && !t.deletedAt);
   const activeTasks = [...virtualDone, ...db.tasks.filter(t=> t.status!=='BACKLOG' && !t.deletedAt)];
   const total = activeTasks.length;
   const pct = total? Math.round(done.length/total*100) : 0;
@@ -2976,7 +2979,8 @@ function renderReview(){
   upcoming.sort((a,b)=> new Date(a.due) - new Date(b.due));
 
   // Precompute HTML for completed tasks history. Sort by completion date (latest first).
-  const completedHtml = done.length ? done.slice().sort((a,b)=>{
+  // Use realDone only — recurring habit completions live in the Habit Streaks grid.
+  const completedHtml = realDone.length ? realDone.slice().sort((a,b)=>{
     // Use completedAt first, fallback to updatedAt or createdAt
     const aDate = a.completedAt || a.updatedAt || a.createdAt;
     const bDate = b.completedAt || b.updatedAt || b.createdAt;
@@ -2988,14 +2992,6 @@ function renderReview(){
     const dateStr = t.completedAt ? new Date(t.completedAt).toLocaleDateString() : '';
     const goTarget = proj ? `data-open-project='${proj.id}'` : (note ? `data-open='${note.id}'` : '');
     const goBtn = goTarget ? `<button class='btn' ${goTarget} style='font-size:11px;' title='Go to context'>Go →</button>` : '';
-    if(t._virtualRecurring){
-      return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>
-        <span style='flex:1;min-width:0;word-break:break-word;'>${htmlesc(t.title)} <span class='pill' style='background:#6b46e5;color:#fff;'>🔁 recurring</span> <span class='pill'>${dateStr}</span></span>
-        <div class='row' style='gap:4px;flex-shrink:0;'>
-          <button class='btn' data-rec-uncomplete='${t._monthlyId}' data-rec-date='${t.completedAt.slice(0,10)}' style='font-size:11px;' title='Mark as not completed'>Undo</button>
-        </div>
-      </div>`;
-    }
     return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>
       <span style='flex:1;min-width:0;word-break:break-word;'>${htmlesc(t.title)} ${ctx} <span class='pill'>${dateStr}</span></span>
       <div class='row' style='gap:4px;flex-shrink:0;'>
@@ -3123,9 +3119,8 @@ function renderReview(){
   }
   const habitGridHtml = buildHabitGrid();
 
-  // --- Research pulse, Notebook activity, Stale notes ---
+  // --- Research pulse + Notebook activity ---
   const _weekAgoMs = weekAgo.getTime();
-  const _30dAgoMs  = Date.now() - 30 * 86400000;
   const _researchNb = (db.notebooks||[]).find(n => !n.deletedAt && n.system && n.title === '🔬 Research');
   let researchHtml = '<div class="muted" style="font-size:12px;">Research module not initialized.</div>';
   if(_researchNb){
@@ -3189,27 +3184,6 @@ function renderReview(){
         </div>`;
       }).join('')}
     </div>` : '<div class="muted" style="font-size:12px;margin-top:8px;">No notebooks yet.</div>';
-
-  const _staleNotes = (db.notes||[])
-    .filter(n => !n.deletedAt && n.type !== 'daily' && n.updatedAt && new Date(n.updatedAt).getTime() < _30dAgoMs)
-    .sort((a,b) => new Date(a.updatedAt) - new Date(b.updatedAt));
-  const _staleTop = _staleNotes.slice(0, 5);
-  const staleHtml = _staleTop.length ? `
-    <div class="list" style="margin-top:10px;">
-      ${_staleTop.map(n => {
-        const days = Math.floor((Date.now() - new Date(n.updatedAt).getTime())/86400000);
-        const nb = n.notebookId ? (db.notebooks||[]).find(x => x.id === n.notebookId) : null;
-        const ctx = nb ? `<span class='pill'>${htmlesc(nb.title)}</span>` : '';
-        return `<div class='row' style='justify-content:space-between;align-items:center;gap:8px;'>
-          <span style='flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;' title='${htmlesc(n.title||'Untitled')}'>${htmlesc(n.title||'Untitled')} ${ctx}</span>
-          <div class='row' style='gap:6px;align-items:center;flex-shrink:0;'>
-            <span class='muted' style='font-size:11px;'>${days}d cold</span>
-            <button class='btn' data-open='${n.id}' style='font-size:11px;'>Open →</button>
-          </div>
-        </div>`;
-      }).join('')}
-      ${_staleNotes.length > 5 ? `<div class='muted' style='font-size:11px;text-align:center;margin-top:4px;'>…and ${_staleNotes.length - 5} more</div>` : ''}
-    </div>` : '<div class="muted" style="font-size:12px;margin-top:8px;">Nothing stale ✔ All notes touched in the last 30 days.</div>';
 
   // --- Duplicate tasks computation ---
   const dupGroups = findDuplicateTaskGroups(0.75);
@@ -3302,6 +3276,10 @@ function renderReview(){
         </div>
       </div>
     </div>
+    <div class="card">
+      <strong>🔥 Habit Streaks — ${new Date(_hYear, _hMonth).toLocaleString('default',{month:'long'})} ${_hYear}</strong>
+      ${habitGridHtml}
+    </div>
     <details class="card" open>
       <summary style="cursor:pointer;list-style:none;"><strong>🔬 Research Pulse</strong></summary>
       ${researchHtml}
@@ -3310,18 +3288,6 @@ function renderReview(){
       <summary style="cursor:pointer;list-style:none;"><strong>📓 Notebook Activity (${_aliveNbs.length})</strong></summary>
       ${notebookHtml}
     </details>
-    <details class="card">
-      <summary style="cursor:pointer;list-style:none;"><strong>🧊 Stale Notes (${_staleNotes.length} cold &gt;30d)</strong></summary>
-      ${staleHtml}
-    </details>
-    <div class="card">
-      <strong>🔥 Habit Streaks — ${new Date(_hYear, _hMonth).toLocaleString('default',{month:'long'})} ${_hYear}</strong>
-      ${habitGridHtml}
-    </div>
-    <div class="card">
-      <strong>🔍 Duplicate Tasks (${dupGroups.length} group${dupGroups.length!==1?'s':''})</strong>
-      <div style="margin-top:8px;">${dupHtml}</div>
-    </div>
     <div class="card">
       <strong>📅 Upcoming Tasks (${upcoming.length})</strong>
       <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
@@ -3364,28 +3330,22 @@ function renderReview(){
         }).join('') || '<div class="muted">No backlog tasks</div>'}
       </div>
     </div>
-    <!-- Completed tasks history -->
-    <div class="card">
-      <div class="row" style="justify-content:space-between;align-items:center;">
-        <strong>✅ Completed Tasks (${done.length})</strong>
-        <button id="clearCompleted" class="btn" style="font-size:12px;">Clear History</button>
-      </div>
+    <details class="card">
+      <summary style="cursor:pointer;list-style:none;"><strong>🔍 Duplicate Tasks (${dupGroups.length} group${dupGroups.length!==1?'s':''})</strong></summary>
+      <div style="margin-top:8px;">${dupHtml}</div>
+    </details>
+    <!-- Completed tasks history (real tasks only — recurring habit completions live in the Habit Streaks grid) -->
+    <details class="card">
+      <summary style="cursor:pointer;list-style:none;">
+        <div class="row" style="justify-content:space-between;align-items:center;">
+          <strong>✅ Completed Tasks (${realDone.length})</strong>
+          <button id="clearCompleted" class="btn" style="font-size:12px;">Clear History</button>
+        </div>
+      </summary>
       <div class="list" style="margin-top:8px;max-height:240px;overflow:auto;">
         ${completedHtml}
       </div>
-    </div>
-    <!-- Trash section — at the bottom for visibility without cluttering the top -->
-    <div class="card">
-      <div class="row" style="justify-content:space-between;align-items:center;">
-        <strong>🗑️ Trash (${getTrashedTasks().length + getTrashedNotes().length})</strong>
-        <button id="emptyTrashBtn" class="btn" style="font-size:12px;">Empty Trash</button>
-      </div>
-      <div class="list" style="margin-top:8px;max-height:320px;overflow:auto;">
-  ${getTrashedTasks().map(t=>trashTaskRow(t)).join('')}
-  ${getTrashedNotes().map(n=>trashNoteRow(n)).join('')}
-  ${(getTrashedTasks().length + getTrashedNotes().length) === 0 ? '<div class="muted" style="text-align:center;padding:12px;">Trash is empty</div>' : ''}
-      </div>
-    </div>
+    </details>
     <div class="card">
       <strong>📅 Recent Daily Logs</strong>
       <div class="list" style="margin-top:8px;">${db.notes.filter(n=>n.type==='daily' && !n.deletedAt).slice(-7).reverse().map(n=> `<div class='row' style='justify-content:space-between;'><span>${htmlesc(n.title)}</span><button class='btn' data-open='${n.id}' style='font-size:11px;'>View →</button></div>`).join('')}</div>
@@ -3399,6 +3359,20 @@ function renderReview(){
         return `<button class='pill' data-tag='${tag}' style='cursor:pointer;margin:2px;'>#${htmlesc(tag)} (${count})</button>`;
       }).join('') || '<div class="muted">No tags yet</div>'}</div>
     </div>
+    <!-- Trash section — pinned to the very bottom -->
+    <details class="card">
+      <summary style="cursor:pointer;list-style:none;">
+        <div class="row" style="justify-content:space-between;align-items:center;">
+          <strong>🗑️ Trash (${getTrashedTasks().length + getTrashedNotes().length})</strong>
+          <button id="emptyTrashBtn" class="btn" style="font-size:12px;">Empty Trash</button>
+        </div>
+      </summary>
+      <div class="list" style="margin-top:8px;max-height:320px;overflow:auto;">
+  ${getTrashedTasks().map(t=>trashTaskRow(t)).join('')}
+  ${getTrashedNotes().map(n=>trashNoteRow(n)).join('')}
+  ${(getTrashedTasks().length + getTrashedNotes().length) === 0 ? '<div class="muted" style="text-align:center;padding:12px;">Trash is empty</div>' : ''}
+      </div>
+    </details>
     </div>`;
   content.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> openNote(b.dataset.open));
   content.querySelectorAll('[data-open-note]').forEach(b=> b.onclick=()=> openNote(b.dataset.openNote));
@@ -3462,7 +3436,9 @@ function renderReview(){
   // Empty trash handler
   const emptyTrashBtn = document.getElementById('emptyTrashBtn');
   if(emptyTrashBtn){
-    emptyTrashBtn.onclick = async () => {
+    emptyTrashBtn.onclick = async (e) => {
+      // Button lives inside a <summary>; prevent the click from toggling the details.
+      e.preventDefault(); e.stopPropagation();
       const deletedTasks = getTrashedTasks();
       const deletedNotes = getTrashedNotes();
       const total = deletedTasks.length + deletedNotes.length;
@@ -3475,10 +3451,12 @@ function renderReview(){
   // Handler for clearing completed tasks history
   const clearBtn = document.getElementById('clearCompleted');
   if(clearBtn){
-    clearBtn.onclick = async () => {
+    clearBtn.onclick = async (e) => {
+      // Button lives inside a <summary>; prevent the click from toggling the details.
+      e.preventDefault(); e.stopPropagation();
       const ok = await showConfirm('Clear all completed tasks history?', 'Clear', 'Cancel');
       if(!ok) return;
-      // Soft delete all done tasks that haven't already been deleted
+      // Soft delete all done tasks that haven't already been deleted (recurring habit completions are not affected).
       db.tasks.filter(t => t.status === 'DONE' && !t.deletedAt).forEach(t => deleteTask(t.id));
       // Re-render review after clearing
       renderReview();
