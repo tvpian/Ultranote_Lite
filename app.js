@@ -1821,6 +1821,8 @@ function renderToday(){
       createTask({title: titleVal, noteId: daily.id, priority: $("#taskPriority").value, due: dueVal});
       taskInput.value = '';
       if(dueInput) dueInput.value = '';
+      // Make sure the user actually sees the row they just added.
+      window._tasksCollapsed = false;
       drawTasks();
     };
     taskInput.addEventListener('keydown', e=>{
@@ -1853,10 +1855,11 @@ function renderToday(){
       createTask({title, noteId: daily.id, priority: $("#taskPriority").value, due: dueVal});
       if(taskInput) taskInput.value='';
       if(dueInput) dueInput.value='';
+      window._tasksCollapsed = false;
       drawTasks();
     };
   }
-  const handleQuickCapture = ()=>{ if(!quickCapture) return; const text = quickCapture.value.trim(); if(!text) return; if(text.startsWith('!')){ createTask({title:text.slice(1), noteId:daily.id, priority:'high'}); } else if(text.includes('#')) { const tags = extractTags(text); createNote({title:text, type:'idea', tags}); } else { createTask({title:text, noteId:daily.id, priority:'medium'}); } quickCapture.value=''; drawTasks(); };
+  const handleQuickCapture = ()=>{ if(!quickCapture) return; const text = quickCapture.value.trim(); if(!text) return; if(text.startsWith('!')){ createTask({title:text.slice(1), noteId:daily.id, priority:'high'}); } else if(text.includes('#')) { const tags = extractTags(text); createNote({title:text, type:'idea', tags}); } else { createTask({title:text, noteId:daily.id, priority:'medium'}); } quickCapture.value=''; window._tasksCollapsed = false; drawTasks(); };
   if(quickCapture){
     ['keydown','keypress','keyup'].forEach(evt=>{
       quickCapture.addEventListener(evt, e=>{
@@ -1903,8 +1906,8 @@ function renderToday(){
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
     // Virtual recurring rows for the displayed date.
     const recurring = getRecurringForDate(key);
-    if(window._recurringCollapsed === undefined) window._recurringCollapsed = true;
-    if(window._tasksCollapsed === undefined) window._tasksCollapsed = true;
+    if(window._recurringCollapsed === undefined) window._recurringCollapsed = false;
+    if(window._tasksCollapsed === undefined) window._tasksCollapsed = false;
     const recCollapsed = window._recurringCollapsed;
     const tasksCollapsed = window._tasksCollapsed;
     const recArrow = recCollapsed ? '▶' : '▼';
