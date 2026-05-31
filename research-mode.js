@@ -353,6 +353,34 @@
     toast(existed ? 'Opened topic map: ' + name : 'New topic map: ' + name);
   }
 
+  async function newOrOpenSynthesis(prefill = ''){
+    const d = new Date();
+    const defaultYM = `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+    const ym = await showInputModal({
+      title: '📊 New / open monthly synthesis',
+      placeholder: 'YYYY-MM (e.g. 2026-05)',
+      initial: prefill || defaultYM,
+      confirmLabel: 'Open synthesis',
+    });
+    if (!ym) return;
+    const clean = ym.trim();
+    if (!/^\d{4}-\d{2}$/.test(clean)) { toast('Use YYYY-MM (e.g. 2026-05)'); return; }
+    const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research');
+    if (!nb) { toast('🔬 Research notebook missing'); return; }
+    const title = `📊 Synthesis — ${clean}`;
+    const existed = !!findNote(n => n.notebookId === nb.id && n.title === title);
+    const p = ensurePage({
+      title,
+      notebookId: nb.id,
+      content: SYNTH_TEMPLATE.replace('📊 Monthly Synthesis — Template', `📊 Synthesis — ${clean}`),
+      tags: ['research', 'synthesis']
+    });
+    window.save();
+    if (typeof window.openNote === 'function') window.openNote(p.id);
+    else if (typeof window.render === 'function') window.render();
+    toast(existed ? 'Opened synthesis: ' + clean : 'New synthesis: ' + clean);
+  }
+
   // ------------------------------------------------------------------
   // Content templates
   // ------------------------------------------------------------------
@@ -654,7 +682,7 @@ Things outside UltraNote that compound. Adopt one at a time.
         ${footer ? `<div class="research-card-footer">${footer}</div>` : ''}
       </div>`;
     const linkBtn = (note, label) => note
-      ? `<button class="research-link" data-open-id="${note.id}">${esc(label || note.title)}</button>`
+      ? `<button class="research-chip" data-open-id="${note.id}">${esc(label || note.title)}</button>`
       : `<span style="color:var(--muted)">missing</span>`;
     const scrollList = (items, empty) => items.length
       ? `<div class="research-scrollbox"><ul class="research-list">${items.map(p => `<li><button class="research-link" data-open-id="${p.id}">${esc(p.title)}</button> <span class="research-meta">${relTime(p.updatedAt)}</span></li>`).join('')}</ul></div>`
@@ -681,6 +709,8 @@ Things outside UltraNote that compound. Adopt one at a time.
         .research-card-footer{margin-top:10px;font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
         .research-link{background:transparent;border:none;color:var(--link,#3b82f6);cursor:pointer;padding:2px 0;text-align:left;font:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
         .research-link:hover{text-decoration:underline;}
+        .research-chip{display:inline-flex;align-items:center;gap:4px;background:rgba(127,127,127,0.10);color:var(--text,inherit);border:1px solid var(--border,#444);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;text-decoration:none;line-height:1.2;}
+        .research-chip:hover{background:rgba(127,127,127,0.20);border-color:var(--accent,#4a90e2);text-decoration:none;}
         .research-list{list-style:none;padding:0;margin:0;}
         .research-list li{padding:3px 0;display:flex;justify-content:space-between;gap:8px;align-items:baseline;min-width:0;}
         .research-list li .research-link{flex:1 1 auto;min-width:0;}
@@ -714,27 +744,29 @@ Things outside UltraNote that compound. Adopt one at a time.
             totalInbox
               ? `<div class="research-inbox-preview">${previewLines.map(l => esc(l.raw)).join('\n')}</div>`
               : `<div class="research-empty">Nothing captured yet. Press <strong>Alt+I</strong> from anywhere to drop a paper/link/idea here.</div>`,
-            `${totalInbox ? `<button class="research-link" data-action="triage">Open triage view →</button>` : ''}
-             ${inbox ? linkBtn(inbox, 'Edit raw note') : ''}`
+            `${inbox ? linkBtn(inbox, 'Edit raw note') : ''}`
           )}
 
           ${card(`🗺️ Topic Maps<span class="research-count">${topicMaps.length}</span>`,
             topicMaps.length
               ? `<div class="research-pill-scroll"><div class="research-pill-row">${topicMaps.map(p => `<button class="research-link" data-open-id="${p.id}" title="${esc(p.title)}">${esc(p.title.replace('🗺️ Topic Map — ',''))}</button>`).join('')}</div></div>`
               : `<div class="research-empty">No topic maps yet. Spin one up with <strong>Alt+M</strong> when a thread shows up in your inbox a 3rd time.</div>`,
-            `${topicMaps.length ? `<button class="research-link" data-action="manage-topics">Manage all →</button>` : ''}
-             ${linkBtn(topicIdx, 'How topic maps work →')}`
+            `<button class="research-chip" data-action="topic">＋ New</button>
+             ${topicMaps.length ? `<button class="research-chip" data-action="manage-topics">Manage all →</button>` : ''}
+             ${linkBtn(topicIdx, 'How topic maps work')}`
           )}
 
           ${card(`📄 Paper notes<span class="research-count">${papers.length}</span>`,
             scrollList(papers, 'No paper notes yet. Press <strong>Alt+P</strong> during Friday triage to promote inbox items.'),
-            `${papers.length ? `<button class="research-link" data-action="manage-papers">Manage all →</button>` : ''}`
+            `<button class="research-chip" data-action="paper">＋ New</button>
+             ${papers.length ? `<button class="research-chip" data-action="manage-papers">Manage all →</button>` : ''}`
           )}
 
           ${card(`📊 Monthly synthesis<span class="research-count">${synths.length}</span>`,
-            scrollList(synths, 'No synthesis notes yet. One will be auto-suggested on the 1st of each month.'),
-            `${synths.length ? `<button class="research-link" data-action="manage-synthesis">Manage all →</button>` : ''}
-             ${linkBtn(synthTmpl, 'Open template →')}`
+            scrollList(synths, 'No synthesis notes yet. One is auto-suggested on the 1st of each month — or start one now.'),
+            `<button class="research-chip" data-action="synth">＋ New</button>
+             ${synths.length ? `<button class="research-chip" data-action="manage-synthesis">Manage all →</button>` : ''}
+             ${linkBtn(synthTmpl, 'Open template')}`
           )}
 
           ${card('🔁 Rituals & how-to',
@@ -761,6 +793,7 @@ Things outside UltraNote that compound. Adopt one at a time.
         if (a === 'capture') openInboxCapture();
         else if (a === 'paper') newPaperNote();
         else if (a === 'topic') newOrOpenTopicMap();
+        else if (a === 'synth') newOrOpenSynthesis();
         else if (a === 'triage') { researchView = 'triage'; renderTriage(); }
         else if (a === 'manage-topics')    { researchView = 'manage-topics';    renderManage('topics'); }
         else if (a === 'manage-papers')    { researchView = 'manage-papers';    renderManage('papers'); }
@@ -906,9 +939,9 @@ Things outside UltraNote that compound. Adopt one at a time.
     },
     synthesis: {
       label: '📊 Monthly synthesis',
-      empty: 'No synthesis notes yet. One is auto-suggested on the 1st of each month.',
+      empty: 'No synthesis notes yet. Click <strong>＋ New</strong> above to start one.',
       titlePrefix: '',
-      newAction: null,
+      newAction: () => newOrOpenSynthesis(),
       filter: (p) => (p.tags || []).includes('synthesis') && !(p.tags || []).includes('template'),
     },
   };
