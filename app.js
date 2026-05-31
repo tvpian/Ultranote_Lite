@@ -1278,9 +1278,38 @@ document.addEventListener('click', (e) => {
   }
 });
 
+// Pre-pass: pull block math ($$ ... $$ on their own lines) out before
+// marked runs, render with KaTeX directly, and stash placeholders. The
+// marked-katex-extension's block tokenizer was unreliable against real-world
+// input (line endings, paragraph joining, ordering vs. other extensions) so
+// we sidestep marked entirely for the block form. Inline $...$ is still
+// handled by markedKatex.
+function _extractBlockMath(md){
+  const blocks = [];
+  // Match $$ on its own line, content, $$ on its own line. Tolerates CRLF
+  // and trailing whitespace. Non-greedy on content, requires closing $$ to
+  // be at line start.
+  const out = md.replace(/(^|\r?\n)\$\$[ \t]*\r?\n([\s\S]+?)\r?\n[ \t]*\$\$[ \t]*(?=\r?\n|$)/g, (_m, lead, expr) => {
+    const i = blocks.length;
+    blocks.push(expr);
+    return `${lead}\u0000MATH${i}\u0000`;
+  });
+  return { out, blocks };
+}
+function _renderBlockMath(html, blocks){
+  if(!blocks.length) return html;
+  return html.replace(/\u0000MATH(\d+)\u0000/g, (_m, i) => {
+    const expr = blocks[+i] || '';
+    if(typeof katex === 'undefined') return `<pre><code>${htmlesc('$$\n'+expr+'\n$$')}</code></pre>`;
+    try { return katex.renderToString(expr, { displayMode: true, throwOnError: false, output: 'html' }); }
+    catch(e){ return `<span class="katex-error" style="color:#f55">${htmlesc(String(e.message||e))}</span>`; }
+  });
+}
+
 function markdownToHtml(md){
   if(!md) return '';
-  const { out: stripped, tokens } = _extractWikiLinks(md);
+  const { out: mathStripped, blocks: mathBlocks } = _extractBlockMath(md);
+  const { out: stripped, tokens } = _extractWikiLinks(mathStripped);
   // Use marked.js if available for full markdown support
   if(typeof marked !== 'undefined'){
     try {
@@ -1355,7 +1384,7 @@ function markdownToHtml(md){
       const safe = (typeof DOMPurify !== 'undefined')
         ? DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, ADD_ATTR: ['target','rel','data-mermaid-src'] })
         : raw;
-      return _injectWikiLinks(safe, tokens);
+      return _renderBlockMath(_injectWikiLinks(safe, tokens), mathBlocks);
     } catch(error) {
       console.warn('marked.js failed, falling back to basic renderer:', error);
     }
@@ -1392,7 +1421,7 @@ function markdownToHtml(md){
   // Paragraphs: replace two or more newlines with <br><br>, single newline with <br>
   html = html.replace(/\n{2,}/g, '<br><br>');
   html = html.replace(/\n/g, '<br>');
-  return _injectWikiLinks(html, tokens);
+  return _renderBlockMath(_injectWikiLinks(html, tokens), mathBlocks);
 }
 
 // Lazy mermaid loader + post-processor. Call after setting innerHTML on any
