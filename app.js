@@ -1288,30 +1288,35 @@ function markdownToHtml(md){
       //  • marked-highlight + highlight.js → syntax colors in fenced code
       //  • marked-gfm-heading-id           → id="..." on headings (deep links + TOC)
       //  • DOMPurify (applied below)       → strips <script>, event handlers, etc.
-      if(!marked._uniExtSetup){
-        marked._uniExtSetup = true;
+      // Each enricher is registered independently and only when its CDN
+      // global is actually present. If a CDN script was slow / blocked on the
+      // first preview call, the next call will retry just the missing pieces
+      // instead of one-shot disabling everything.
+      marked._extFlags = marked._extFlags || {};
+      const _ef = marked._extFlags;
+      if(!_ef.hl && typeof markedHighlight !== 'undefined' && typeof hljs !== 'undefined'){
         try {
-          if(typeof markedHighlight !== 'undefined' && typeof hljs !== 'undefined'){
-            marked.use(markedHighlight.markedHighlight({
-              langPrefix: 'hljs language-',
-              highlight(code, lang){
-                const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
-                try { return hljs.highlight(code, { language, ignoreIllegals: true }).value; }
-                catch(_) { return code; }
-              }
-            }));
-          }
-          if(typeof markedGfmHeadingId !== 'undefined' && markedGfmHeadingId.gfmHeadingId){
-            marked.use(markedGfmHeadingId.gfmHeadingId());
-          }
-          // KaTeX: $inline$ and $$block$$ math. Throws on bad syntax are
-          // swallowed so a malformed expression doesn't blank the preview.
-          if(typeof markedKatex !== 'undefined'){
-            marked.use(markedKatex({ throwOnError: false, output: 'html' }));
-          }
-          // Mermaid: intercept ```mermaid blocks BEFORE highlight.js sees
-          // them and emit a marker div the post-processor picks up. Lazy
-          // loader fetches mermaid.js the first time one of these appears.
+          marked.use(markedHighlight.markedHighlight({
+            langPrefix: 'hljs language-',
+            highlight(code, lang){
+              const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+              try { return hljs.highlight(code, { language, ignoreIllegals: true }).value; }
+              catch(_) { return code; }
+            }
+          }));
+          _ef.hl = true;
+        } catch(e){ console.warn('marked-highlight setup failed:', e); _ef.hl = true; }
+      }
+      if(!_ef.hid && typeof markedGfmHeadingId !== 'undefined' && markedGfmHeadingId.gfmHeadingId){
+        try { marked.use(markedGfmHeadingId.gfmHeadingId()); _ef.hid = true; }
+        catch(e){ console.warn('gfm-heading-id setup failed:', e); _ef.hid = true; }
+      }
+      if(!_ef.katex && typeof markedKatex !== 'undefined' && typeof katex !== 'undefined'){
+        try { marked.use(markedKatex({ throwOnError: false, output: 'html' })); _ef.katex = true; }
+        catch(e){ console.warn('marked-katex setup failed:', e); _ef.katex = true; }
+      }
+      if(!_ef.mermaid){
+        try {
           marked.use({ extensions: [{
             name: 'mermaid', level: 'block',
             start(src){ const m = src.match(/```mermaid/); return m ? m.index : -1; },
@@ -1321,7 +1326,18 @@ function markdownToHtml(md){
             },
             renderer(t){ return `<div class="mermaid" data-mermaid-src="${htmlesc(t.code)}">${htmlesc(t.code)}</div>`; }
           }]});
-        } catch(extErr){ console.warn('marked extensions setup skipped:', extErr); }
+          _ef.mermaid = true;
+        } catch(e){ console.warn('mermaid block extension setup failed:', e); _ef.mermaid = true; }
+      }
+      // One-shot diagnostic: surface missing CDN globals so we know why a
+      // feature isn't rendering, instead of silently degrading.
+      if(!marked._missingWarned){
+        marked._missingWarned = true;
+        const missing = [];
+        if(typeof markedKatex === 'undefined' || typeof katex === 'undefined') missing.push('katex');
+        if(typeof DOMPurify === 'undefined') missing.push('DOMPurify');
+        if(typeof hljs === 'undefined') missing.push('highlight.js');
+        if(missing.length) console.warn('Markdown enrichers not loaded:', missing.join(', '), '— check network tab for CDN failures.');
       }
       // Configure marked for safe rendering
       marked.setOptions({
