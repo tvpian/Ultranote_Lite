@@ -1902,7 +1902,9 @@ function renderToday(){
       return true;
     };
     // --- Main task list ---
-    const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG' && !t.deletedAt && !isUndivergedRecurring(t))
+    // Exclude anything with a projectId — those belong to the project page,
+    // never the daily task list, even if they also carry a noteId.
+    const tasks = db.tasks.filter(t=> t.noteId===daily.id && !t.projectId && t.status!=='BACKLOG' && !t.deletedAt && !isUndivergedRecurring(t))
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
     // Virtual recurring rows for the displayed date.
     const recurring = getRecurringForDate(key);
@@ -2059,7 +2061,7 @@ function renderToday(){
   function drawBacklog(){
     const list = $("#backlogList");
     if(!list || list.style.display==='none') return;
-    const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status==='BACKLOG' && !t.deletedAt);
+    const tasks = db.tasks.filter(t=> t.noteId===daily.id && !t.projectId && t.status==='BACKLOG' && !t.deletedAt);
     // Compose a header showing backlog count styled like the project page
     let html = `<div class='muted' style='font-size:12px;margin-bottom:4px;'>Backlog (${tasks.length})</div>`;
     if (tasks.length) {
