@@ -1025,6 +1025,12 @@ const MD_TOOLBAR_ACTIONS = [
   {label:'\u2022 List',before:'\n- ', after:'',       ph:'item',         title:'Bullet list'},
   {label:'1. List', before:'\n1. ',   after:'',       ph:'item',         title:'Numbered list'},
   {label:'[link]',  before:'[',       after:'](url)', ph:'link text',    title:'Link'},
+  {label:'[[w]]',   before:'[[',      after:']]',     ph:'Note Title',   title:'Wiki link to another note'},
+  {label:'$x$',     before:'$',       after:'$',      ph:'a^2+b^2=c^2',  title:'Inline math (KaTeX)'},
+  {label:'$$',      before:'\n$$\n',  after:'\n$$\n', ph:'\\int_0^1 x\\,dx', title:'Block math (KaTeX)'},
+  {label:'\u25A6',  before:'\n| Col 1 | Col 2 | Col 3 |\n| :--- | :---: | ---: |\n| a | b | c |\n', after:'', ph:'', title:'Table'},
+  {label:'[ ]',     before:'\n- [ ] ', after:'',      ph:'task',         title:'Task list item'},
+  {label:'flow',    before:'\n```mermaid\nflowchart LR\n  A --> B\n', after:'\n```\n', ph:'', title:'Mermaid diagram'},
   {label:'\u2014',  before:'\n---\n', after:'',       ph:'',             title:'Horizontal rule'},
 ];
 function insertMd(ta, before, after, ph){
