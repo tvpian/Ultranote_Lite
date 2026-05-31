@@ -682,7 +682,7 @@ Things outside UltraNote that compound. Adopt one at a time.
         ${footer ? `<div class="research-card-footer">${footer}</div>` : ''}
       </div>`;
     const linkBtn = (note, label) => note
-      ? `<button class="research-chip" data-open-id="${note.id}">${esc(label || note.title)}</button>`
+      ? `<button class="research-doc" data-open-id="${note.id}">${esc(label || note.title)}</button>`
       : `<span style="color:var(--muted)">missing</span>`;
     const scrollList = (items, empty) => items.length
       ? `<div class="research-scrollbox"><ul class="research-list">${items.map(p => `<li><button class="research-link" data-open-id="${p.id}">${esc(p.title)}</button> <span class="research-meta">${relTime(p.updatedAt)}</span></li>`).join('')}</ul></div>`
@@ -702,26 +702,31 @@ Things outside UltraNote that compound. Adopt one at a time.
         .research-actions button:hover{filter:brightness(1.1);}
         .research-actions .kbd{opacity:.85;font-weight:400;margin-left:6px;font-size:11px;}
         .research-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start;}
-        .research-card{background:var(--card,#fff);border:1px solid var(--border,#e3e3e3);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;min-width:0;}
+        .research-card{background:var(--card,#fff);border:1px solid var(--border,#e3e3e3);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;min-width:0;max-width:100%;overflow:hidden;}
         .research-card-title{font-weight:700;margin-bottom:8px;font-size:14px;display:flex;justify-content:space-between;align-items:center;gap:8px;}
         .research-card-title .research-count{font-size:11px;font-weight:500;color:var(--muted);background:rgba(127,127,127,0.12);border-radius:10px;padding:1px 8px;}
         .research-card-body{font-size:13px;min-width:0;}
-        .research-card-footer{margin-top:10px;font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+        .research-card-footer{margin-top:10px;font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
         .research-link{background:transparent;border:none;color:var(--link,#3b82f6);cursor:pointer;padding:2px 0;text-align:left;font:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
         .research-link:hover{text-decoration:underline;}
-        .research-chip{display:inline-flex;align-items:center;gap:4px;background:rgba(127,127,127,0.10);color:var(--text,inherit);border:1px solid var(--border,#444);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;text-decoration:none;line-height:1.2;}
-        .research-chip:hover{background:rgba(127,127,127,0.20);border-color:var(--accent,#4a90e2);text-decoration:none;}
+        /* Action chip: clearly a button. Square-ish, bordered, bold. */
+        .research-chip{display:inline-flex;align-items:center;gap:4px;background:var(--card,#fff);color:var(--text,inherit);border:1px solid var(--border,#555);border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:none;line-height:1.2;white-space:nowrap;}
+        .research-chip:hover{background:rgba(74,144,226,0.12);border-color:var(--accent,#4a90e2);color:var(--accent,#4a90e2);text-decoration:none;}
+        /* Document reference: a thing, not an action. Rounded pill, no border. */
+        .research-doc{display:inline-flex;align-items:center;gap:4px;background:rgba(127,127,127,0.14);color:var(--text,inherit);border:none;border-radius:14px;padding:3px 10px;font-size:12px;font-weight:400;cursor:pointer;font-family:inherit;text-decoration:none;line-height:1.3;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .research-doc:hover{background:rgba(127,127,127,0.24);color:var(--link,#3b82f6);text-decoration:none;}
+        .research-doc::before{content:'•';opacity:.55;margin-right:2px;}
         .research-list{list-style:none;padding:0;margin:0;}
         .research-list li{padding:3px 0;display:flex;justify-content:space-between;gap:8px;align-items:baseline;min-width:0;}
         .research-list li .research-link{flex:1 1 auto;min-width:0;}
         .research-meta{font-size:11px;color:var(--muted);white-space:nowrap;flex:0 0 auto;}
         .research-empty{color:var(--muted);font-size:12px;font-style:italic;}
-        .research-scrollbox{max-height:260px;overflow-y:auto;border:1px solid var(--border,transparent);border-radius:8px;padding:6px 10px;background:rgba(127,127,127,0.04);}
-        .research-inbox-preview{font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap;background:rgba(127,127,127,0.10);color:var(--text,inherit);padding:10px;border-radius:6px;max-height:160px;overflow:auto;border:1px solid var(--border,transparent);}
-        .research-pill-scroll{max-height:180px;overflow-y:auto;padding:2px;}
-        .research-pill-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;}
-        .research-pill-row .research-link{background:rgba(127,127,127,0.12);color:var(--text,inherit);padding:4px 10px;border-radius:14px;font-size:12px;border:1px solid var(--border,transparent);white-space:nowrap;}
-        .research-pill-row .research-link:hover{background:rgba(127,127,127,0.22);text-decoration:none;}
+        .research-scrollbox{max-height:220px;overflow-y:auto;border:1px solid var(--border,transparent);border-radius:8px;padding:6px 10px;background:rgba(127,127,127,0.04);}
+        /* Inbox preview: strict one-line-per-item, capped at 5 rows. */
+        .research-inbox-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;}
+        .research-inbox-list li{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:rgba(127,127,127,0.10);color:var(--text,inherit);padding:4px 8px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+        .research-pill-scroll{max-height:140px;overflow-y:auto;padding:2px;}
+        .research-pill-row{display:flex;gap:5px;flex-wrap:wrap;margin-top:2px;}
         .research-bookmarklet{display:inline-block;background:rgba(127,127,127,0.14);border:1px dashed var(--border,#888);color:var(--text,inherit);padding:6px 12px;border-radius:8px;text-decoration:none;font-size:12px;font-weight:600;cursor:grab;}
         .research-bookmarklet:hover{background:rgba(127,127,127,0.22);}
       </style>
@@ -742,14 +747,15 @@ Things outside UltraNote that compound. Adopt one at a time.
         <div class="research-grid">
           ${card(`📥 Inbox<span class="research-count">${totalInbox}</span>`,
             totalInbox
-              ? `<div class="research-inbox-preview">${previewLines.map(l => esc(l.raw)).join('\n')}</div>`
+              ? `<ul class="research-inbox-list">${previewLines.map(l => `<li title="${esc(l.raw)}">${esc((l.stamp ? `[${l.stamp}] ` : '') + l.text)}</li>`).join('')}</ul>
+                 ${totalInbox > previewLines.length ? `<div style="margin-top:6px;"><button class="research-chip" data-action="triage">+ ${totalInbox - previewLines.length} more → triage</button></div>` : ''}`
               : `<div class="research-empty">Nothing captured yet. Press <strong>Alt+I</strong> from anywhere to drop a paper/link/idea here.</div>`,
             `${inbox ? linkBtn(inbox, 'Edit raw note') : ''}`
           )}
 
           ${card(`🗺️ Topic Maps<span class="research-count">${topicMaps.length}</span>`,
             topicMaps.length
-              ? `<div class="research-pill-scroll"><div class="research-pill-row">${topicMaps.map(p => `<button class="research-link" data-open-id="${p.id}" title="${esc(p.title)}">${esc(p.title.replace('🗺️ Topic Map — ',''))}</button>`).join('')}</div></div>`
+              ? `<div class="research-pill-scroll"><div class="research-pill-row">${topicMaps.map(p => `<button class="research-doc" data-open-id="${p.id}" title="${esc(p.title)}">${esc(p.title.replace('🗺️ Topic Map — ',''))}</button>`).join('')}</div></div>`
               : `<div class="research-empty">No topic maps yet. Spin one up with <strong>Alt+M</strong> when a thread shows up in your inbox a 3rd time.</div>`,
             `<button class="research-chip" data-action="topic">＋ New</button>
              ${topicMaps.length ? `<button class="research-chip" data-action="manage-topics">Manage all →</button>` : ''}
