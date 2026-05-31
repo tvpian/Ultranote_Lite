@@ -225,7 +225,8 @@ const seed = {
   templates:[
     {id:"tpl1", name:"Meeting Notes", content:"# Meeting: [Title]\n**Date:** [Date]\n**Attendees:** \n\n## Agenda\n- \n\n## Notes\n\n## Action Items\n- [ ] \n\n## Next Steps\n"},
     {id:"tpl2", name:"Project Plan", content:"# [Project Name]\n\n## Objective\n\n## Goals\n- \n\n## Milestones\n- [ ] \n\n## Resources\n\n## Risks\n\n## Success Metrics\n"},
-    {id:"tpl3", name:"Weekly Review", content:"# Week of [Date]\n\n## Wins\n- \n\n## Challenges\n- \n\n## Lessons Learned\n- \n\n## Next Week Focus\n- [ ] \n"}
+    {id:"tpl3", name:"Weekly Review", content:"# Week of [Date]\n\n## Wins\n- \n\n## Challenges\n- \n\n## Lessons Learned\n- \n\n## Next Week Focus\n- [ ] \n"},
+    {id:"tpl_paper", name:"Research Paper", content:"# [Year] [Author] — [Short Title]\n\n**Citation:** \n**Link / DOI:** \n**Venue:** \n**Read on:** [Date]\n**Tags:** #\n\n## Why I read it\n\n## TL;DR (1 sentence)\n\n## Key ideas\n- \n- \n- \n\n## Method (1 paragraph)\n\n## Results that matter\n- \n\n## Limitations / pushback\n- \n\n## ✨ Inspirations for my work\n- \n\n## Open questions\n- \n\n## Related work to chase\n- \n"}
   ],
   // NEW collection for saved links
   links:[
@@ -414,6 +415,19 @@ function migrateDB() {
     ensure(t, 'tags',        []);
     ensure(t, 'description', '');
   });
+  // Inject built-in Research Paper template for existing installs if missing.
+  if (Array.isArray(db.templates) && !db.templates.some(t => (t.name || '').toLowerCase() === 'research paper')) {
+    db.templates.push({
+      id: 'tpl_paper',
+      name: 'Research Paper',
+      content: "# [Year] [Author] — [Short Title]\n\n**Citation:** \n**Link / DOI:** \n**Venue:** \n**Read on:** [Date]\n**Tags:** #\n\n## Why I read it\n\n## TL;DR (1 sentence)\n\n## Key ideas\n- \n- \n- \n\n## Method (1 paragraph)\n\n## Results that matter\n- \n\n## Limitations / pushback\n- \n\n## ✨ Inspirations for my work\n- \n\n## Open questions\n- \n\n## Related work to chase\n- \n",
+      tags: ['research', 'paper'],
+      description: 'Atomic note per paper. Capture citation, TL;DR, key ideas, and (most importantly) inspirations for your own work.',
+      createdAt: nowISO(),
+      updatedAt: nowISO()
+    });
+    dirty = true;
+  }
 
   // ── monthly recurring tasks ───────────────────────────────────────────────
   (db.monthly || []).forEach(m => {
@@ -780,25 +794,49 @@ function hardDeleteTask(id){
 function softDeleteNote(id){
   const n = db.notes.find(x => x.id === id);
   if(!n) return;
-  n.deletedAt = nowISO();
-  // Soft-delete non-backlog tasks linked to this note so they land in Trash.
-  // BACKLOG tasks are intentionally preserved — detach them from the note so
-  // they survive as floating backlog items visible on the Review page.
-  db.tasks.filter(t => t.noteId === id && !t.deletedAt).forEach(t => {
-    if(t.status === 'BACKLOG'){
-      t.noteId = null; // detach, keep alive
-    } else {
-      t.deletedAt = nowISO();
-    }
-  });
+  const ts = nowISO();
+  n.deletedAt = ts;
+  n.updatedAt = ts;
+  // SAFETY (daily): never cascade-delete tasks on a daily page. Detach them
+  // (preserving the original noteId in _detachedFromNoteId) so accidentally
+  // deleting a daily page never loses tasks — restoring the note reattaches.
+  if(n.type === 'daily'){
+    db.tasks.filter(t => t.noteId === id && !t.deletedAt).forEach(t => {
+      t._detachedFromNoteId = id;
+      t.noteId = null;
+      t.updatedAt = ts; // bump so server merge respects the detach
+    });
+  } else {
+    // Non-daily notes: soft-delete linked tasks (keep BACKLOG detached & alive).
+    db.tasks.filter(t => t.noteId === id && !t.deletedAt).forEach(t => {
+      if(t.status === 'BACKLOG'){
+        t.noteId = null;
+        t.updatedAt = ts;
+      } else {
+        t.deletedAt = ts;
+        t.updatedAt = ts;
+      }
+    });
+  }
   save();
 }
 function restoreNote(id){
   const n = db.notes.find(x => x.id === id);
   if(!n) return;
+  const ts = nowISO();
   delete n.deletedAt;
-  // Also restore tasks that were trashed when this note was deleted
-  db.tasks.filter(t => t.noteId === id && t.deletedAt).forEach(t => { delete t.deletedAt; });
+  n.updatedAt = ts;
+  // Reattach any tasks that were detached when a daily was soft-deleted.
+  db.tasks.filter(t => t._detachedFromNoteId === id).forEach(t => {
+    t.noteId = id;
+    delete t._detachedFromNoteId;
+    t.updatedAt = ts;
+  });
+  // Restore tasks that were trashed when this (non-daily) note was deleted.
+  db.tasks.filter(t => t.noteId === id && t.deletedAt).forEach(t => {
+    delete t.deletedAt;
+    t.updatedAt = ts;
+  });
   save();
 }
 function hardDeleteNote(id){
@@ -1065,9 +1103,104 @@ function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;","
 //  - Safe HTML rendering to prevent XSS attacks
 //  - Basic markdown support as fallback if marked.js fails to load
 //  - Converts headings, lists, code blocks, emphasis, and more
+// --- Note status helpers ---
+// Status is a free-form string on note.status. Known values render as a small
+// colored pill via styles.css `.status-pill[data-s="..."]`. Unknown / empty
+// values render as nothing so older notes stay visually unchanged.
+const NOTE_STATUS_LABELS = {
+  inbox:     '📥 Inbox',
+  reading:   '📖 Reading',
+  read:      '✅ Read',
+  annotated: '✍️ Annotated',
+  followup:  '🔁 Follow up',
+  archive:   '🗄️ Archived',
+};
+function statusBadge(status){
+  if(!status) return '';
+  const label = NOTE_STATUS_LABELS[status] || status;
+  return ` <span class='status-pill' data-s='${htmlesc(status)}'>${htmlesc(label)}</span>`;
+}
+
+// --- Wiki-link helpers ---
+// Pre-process [[Title]] tokens out of markdown source so marked.js doesn't mangle
+// them, and stitch them back in as <a class='wikilink'> after rendering. Missing
+// notes get class 'missing' so they appear visually distinct.
+function _wikiPlaceholderFor(i){ return `\u0000WIKI${i}\u0000`; }
+function _extractWikiLinks(md){
+  const tokens = [];
+  // Supports both [[Title]] and [[Title|alias text]]
+  const out = md.replace(/\[\[([^\[\]\n|]+?)(?:\|([^\[\]\n]+?))?\]\]/g, (m, rawTitle, rawAlias) => {
+    const title = rawTitle.trim();
+    if (!title) return m;
+    const alias = (rawAlias || '').trim() || null;
+    const i = tokens.length;
+    tokens.push({ title, alias });
+    return _wikiPlaceholderFor(i);
+  });
+  return { out, tokens };
+}
+// Fuzzy fallback: tolerates case, whitespace, and inexact wording.
+// Returns a note id (or null). Conservative — only matches if the query is
+// a substring of the title (case-insensitive) OR title is a substring of query.
+function _resolveWikiTitle(title){
+  const notes = (window.db && window.db.notes) ? window.db.notes : [];
+  if (!title) return null;
+  const q = title.toLowerCase().trim();
+  // 1. Exact case-insensitive
+  for (const n of notes) {
+    if (n.deletedAt || !n.title) continue;
+    if (n.title.toLowerCase() === q) return n;
+  }
+  // 2. Substring either way (cheap fuzzy)
+  let best = null, bestLen = Infinity;
+  for (const n of notes) {
+    if (n.deletedAt || !n.title) continue;
+    const t = n.title.toLowerCase();
+    if (t.includes(q) || q.includes(t)) {
+      if (n.title.length < bestLen) { best = n; bestLen = n.title.length; }
+    }
+  }
+  return best;
+}
+function _injectWikiLinks(html, tokens){
+  return html.replace(/\u0000WIKI(\d+)\u0000/g, (m, i) => {
+    const tok = tokens[+i] || { title: '', alias: null };
+    const display = tok.alias || tok.title;
+    const resolved = _resolveWikiTitle(tok.title);
+    const safe = htmlesc(display);
+    if (resolved) {
+      const titleAttr = resolved.title.toLowerCase() === tok.title.toLowerCase()
+        ? `Open ${htmlesc(resolved.title)}`
+        : `Open ${htmlesc(resolved.title)} (fuzzy match for "${htmlesc(tok.title)}")`;
+      return `<a class='wikilink' data-id='${resolved.id}' title='${titleAttr}'>${safe}</a>`;
+    }
+    return `<a class='wikilink missing' data-title='${htmlesc(tok.title)}' title='Click to create \u201C${htmlesc(tok.title)}\u201D'>${safe}</a>`;
+  });
+}
+function openNoteByTitle(rawTitle){
+  const title = (rawTitle || '').trim();
+  if (!title) return;
+  const match = _resolveWikiTitle(title);
+  if (match) { openNote(match.id); return; }
+  const created = createNote({ title, content: '', type: 'note' });
+  openNote(created.id);
+}
+window.openNoteByTitle = openNoteByTitle;
+// Delegated click handler for wiki-links anywhere in the app
+document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a.wikilink');
+  if (!a) return;
+  e.preventDefault();
+  if (a.dataset.id) {
+    if (typeof openNote === 'function') openNote(a.dataset.id);
+  } else if (a.dataset.title) {
+    openNoteByTitle(a.dataset.title);
+  }
+});
+
 function markdownToHtml(md){
   if(!md) return '';
-  
+  const { out: stripped, tokens } = _extractWikiLinks(md);
   // Use marked.js if available for full markdown support
   if(typeof marked !== 'undefined'){
     try {
@@ -1079,11 +1212,13 @@ function markdownToHtml(md){
         smartLists: true,    // Use smarter list behavior
         smartypants: false   // Don't use smart quotes (can cause issues)
       });
-      return marked.parse(md);
+      return _injectWikiLinks(marked.parse(stripped), tokens);
     } catch(error) {
       console.warn('marked.js failed, falling back to basic renderer:', error);
     }
   }
+  // Fallback path uses the stripped source too so wiki tokens survive escaping
+  md = stripped;
   
   // Fallback basic markdown implementation
   // Escape HTML first
@@ -1114,7 +1249,7 @@ function markdownToHtml(md){
   // Paragraphs: replace two or more newlines with <br><br>, single newline with <br>
   html = html.replace(/\n{2,}/g, '<br><br>');
   html = html.replace(/\n/g, '<br>');
-  return html;
+  return _injectWikiLinks(html, tokens);
 }
 
 // ------------------------------------------------------------------
@@ -1250,8 +1385,12 @@ function drawProjectsSidebar(){
 }
 
 // --- Draft note helper ---
+// Previously this rendered a separate stripped-down draft form, which left
+// many editor features (Attach, Linked Notes, Duplicate, Export, Template
+// selector, markdown toolbar, project select, etc.) inaccessible until the
+// note was saved once. We now create the note immediately and open the full
+// editor — instantly available features, no divergence to maintain.
 function openDraftNote({title='', projectId=null, type='note', templateId=''}){
-  // Prepare initial content from template if provided
   let contentTxt='';
   if(templateId){
     const tpl = db.templates.find(t=>t.id===templateId);
@@ -1262,84 +1401,74 @@ function openDraftNote({title='', projectId=null, type='note', templateId=''}){
         .replace(/\[Project Name\]/g, projectId? (db.projects.find(p=>p.id===projectId)?.name || '') : '');
     }
   }
-  // Reset draft sketches array when opening a new draft so previous sketches don't persist
-  window._draftSketches = [];
-  // Reset draft voices array when opening a new draft so previous voices don't persist
-  window._draftVoices = [];
-  content.innerHTML = `
-    <div class="card">
-      <div class="muted" style="margin-bottom:6px;">Draft (not saved yet)</div>
-      <input id="draftTitle" type="text" value="${htmlesc(title)}" placeholder="Title" />
-      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
-        <input id="draftTags" type="text" placeholder="Tags (space separated)" />
-        <label style="margin-left:8px;"><input id="draftPinned" type="checkbox"> Pin</label>
-        <button id="draftAddSketch" class="btn" style="font-size:12px;">Add Sketch</button>
-        <button id="draftAddVoice" class="btn" style="font-size:12px;">Add Voice</button>
-      </div>
-      <div style="margin-top:8px;"><textarea id="draftContent" style="min-height:300px;">${htmlesc(contentTxt)}</textarea></div>
-      <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;">
-        <button id="draftSave" class="btn acc">Save</button>
-        <button id="draftCancel" class="btn">Cancel</button>
-        <span id="draftSaveStatus" class="muted" style="font-size:11px;"></span>
-      </div>
-    </div>`;
-  const doSaveDraft = () => {
-    const t = document.getElementById('draftTitle').value.trim() || 'Untitled';
-    const tags = (document.getElementById('draftTags').value || '').split(/\s+/).map(x => x.startsWith('#') ? x.slice(1) : x).filter(Boolean);
-    const newNote = createNote({ title: t, content: document.getElementById('draftContent').value, tags, projectId, type, pinned: document.getElementById('draftPinned').checked });
-    // If there are sketches attached to the draft, assign them as attachments to the new note
-    if (window._draftSketches && window._draftSketches.length) {
-      newNote.attachments = window._draftSketches.map(att => ({ ...att }));
-      save();
-      window._draftSketches = [];
-    }
-    // If there are voices attached to the draft, append them as attachments
-    if (window._draftVoices && window._draftVoices.length) {
-      if (!newNote.attachments) newNote.attachments = [];
-      newNote.attachments = newNote.attachments.concat(window._draftVoices.map(att => ({ ...att })));
-      save();
-      window._draftVoices = [];
-    }
-    openNote(newNote.id);
-  };
-  document.getElementById('draftSave').onclick = doSaveDraft;
-  
-  // Add Ctrl+S shortcut for draft save
-  const draftKeyHandler = (e) => {
-    if(e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
-      e.preventDefault();
-      e.stopPropagation();
-      doSaveDraft();
-      return false;
-    }
-  };
-  
-  // Attach as document-level capture handler so Ctrl+S fires regardless of focus
-  if(window._draftKeyHandler) document.removeEventListener('keydown', window._draftKeyHandler, true);
-  document.addEventListener('keydown', draftKeyHandler, true);
-  window._draftKeyHandler = draftKeyHandler;
-  document.getElementById('draftCancel').onclick = ()=> _navPop();
-  const addSketchBtn = document.getElementById('draftAddSketch');
-  if(typeof openSketchModal==='function') addSketchBtn.onclick = ()=>{
-    // Insert sketch at caret later; for draft we reuse existing sketch logic by temporarily creating an off-screen note? Simplest: open modal and after insert we append to textarea.
-    const originalInsert = window.openSketchModal;
-    // Use existing openSketchModal but pass a temporary note id not used; after export we just append.
-    openSketchModal('__draft__');
-    // Monkey patch insertion handler after modal opens handled in existing code (not perfect, kept simple)
-  };
-
-  // Voice button handler for draft
-  const addVoiceBtn = document.getElementById('draftAddVoice');
-  if(typeof openVoiceModal==='function' && addVoiceBtn){
-    addVoiceBtn.onclick = () => openVoiceModal('__draft__');
-  }
+  const newNote = createNote({
+    title: title || 'Untitled',
+    content: contentTxt,
+    projectId,
+    type
+  });
+  openNote(newNote.id);
 }
 
-// Inject any missing monthly-recurring tasks into an existing daily note.
-// Called both when creating a new note (inside createDailyNoteFor) and when
-// opening an already-existing note so that tasks added to the Monthly page
-// after the note was first created still appear.
-function syncMonthlyTasksToDaily(daily, dateKey){
+// TRIAL (Option 2): Recurring monthly tasks are now rendered VIRTUALLY from
+// db.monthly in the Today view via getRecurringForDate(); they are no longer
+// materialized into db.tasks here. This stops daily-note creation from
+// piling up duplicate task rows (Workout x35, Meditation x34, etc.). Real
+// rows in db.tasks are only created when the user diverges (reschedule,
+// add subtasks, etc.) — to be added in a follow-up if this UX pans out.
+// The function body is kept as a no-op so existing call sites stay valid.
+function syncMonthlyTasksToDaily(_daily, _dateKey){ return; }
+
+// Return the recurring entries that should appear for a given date, with
+// per-date completion status read from m.completions[dateKey].
+function getRecurringForDate(dateKey){
+  if(!dateKey || !Array.isArray(db.monthly)) return [];
+  const dObj = new Date(dateKey + 'T00:00:00');
+  const weekday = dObj.getDay();
+  const monthKey = dateKey.slice(0, 7);
+  const seen = new Set();
+  const out = [];
+  for(const m of db.monthly){
+    if(m.deletedAt) continue;
+    if(!m.month || m.month !== monthKey) continue;
+    const tDays = Array.isArray(m.days) ? m.days : [];
+    if(tDays.length && !tDays.includes(weekday)) continue;
+    if(seen.has(m.title)) continue;
+    seen.add(m.title);
+    const completions = (m.completions && typeof m.completions === 'object') ? m.completions : {};
+    out.push({ m, completed: completions[dateKey] === true });
+  }
+  return out;
+}
+
+// Toggle a recurring task's completion for a specific date.
+function setRecurringCompletion(monthlyId, dateKey, done){
+  const m = (db.monthly || []).find(x => x.id === monthlyId);
+  if(!m) return;
+  if(!m.completions || typeof m.completions !== 'object') m.completions = {};
+  if(done) m.completions[dateKey] = true;
+  else delete m.completions[dateKey];
+  m.updatedAt = nowISO();
+  save();
+}
+
+// Legacy helper (no longer used by syncMonthlyTasksToDaily but kept for any
+// other call sites). Returns the set of lowercased titles for non-deleted
+// monthly recurring tasks scoped to the same month as dateKey.
+function _recurringTitlesForMonth(dateKey){
+  const monthKey = (dateKey || '').slice(0, 7);
+  const titles = new Set();
+  (db.monthly || []).forEach(m => {
+    if(m.deletedAt) return;
+    if(!m.month || m.month !== monthKey) return;
+    titles.add((m.title || '').toLowerCase());
+  });
+  return titles;
+}
+
+// Dead code from the old materialize-on-render path; kept commented for
+// reference until the trial is accepted or reverted.
+function _OLD_syncMonthlyTasksToDaily_DISABLED(daily, dateKey){
   if(!daily || !db.monthly || !Array.isArray(db.monthly)) return;
   try {
     const dObj = new Date(dateKey + 'T00:00:00');
@@ -1394,6 +1523,29 @@ function syncMonthlyTasksToDaily(daily, dateKey){
 function renderToday(){
   const key = selectedDailyDate || todayKey();
   const daily = db.notes.find(n=>n.type==='daily' && n.dateIndex===key && !n.deletedAt) || null;
+  // Auto-reattach: if there are tasks detached from a previously-deleted daily
+  // for THIS SAME date, re-link them to the current active daily so the user
+  // never loses tasks just by deleting (and recreating) today's page.
+  if(daily){
+    const prevDailyIds = new Set(
+      db.notes
+        .filter(n => n.type==='daily' && n.dateIndex===key && n.deletedAt && n.id !== daily.id)
+        .map(n => n.id)
+    );
+    if(prevDailyIds.size){
+      let reattached = 0;
+      const ts = nowISO();
+      db.tasks.forEach(t => {
+        if(t._detachedFromNoteId && prevDailyIds.has(t._detachedFromNoteId) && !t.noteId && !t.deletedAt){
+          t.noteId = daily.id;
+          delete t._detachedFromNoteId;
+          t.updatedAt = ts;
+          reattached++;
+        }
+      });
+      if(reattached) save();
+    }
+  }
   // For an existing daily note, inject any monthly tasks that were added after
   // the note was originally created (or that weren't present on last open).
   if(daily) syncMonthlyTasksToDaily(daily, key);
@@ -1504,7 +1656,7 @@ function renderToday(){
       <div class="card">
         <div class="muted">Quick Capture (today only)</div>
         <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
-          <input id="quickCapture" type="text" placeholder="⌘/Ctrl+Shift+K for quick add" style="flex:1;min-width:0;" ${key!==todayKey()? 'disabled':''}/>
+          <input id="quickCapture" type="text" placeholder="Alt+T for quick task" style="flex:1;min-width:0;" ${key!==todayKey()? 'disabled':''}/>
           <button id="captureBtn" class="btn" ${key!==todayKey()? 'disabled':''}>Add</button>
         </div>
         <div class="muted" style="margin-top:12px;">Scratchpad</div>
@@ -1729,10 +1881,54 @@ function renderToday(){
   function drawTasks(){
     const list = $("#taskList"); if(!list) return;
     const todayStr = todayKey();
+    // TRIAL (Option 2): hide previously-materialized recurring duplicates
+    // whose titles match a non-deleted db.monthly entry for this month, and
+    // render them virtually instead (see getRecurringForDate). Only hide
+    // UNDIVERGED rows — anything the user customized (description, subtasks,
+    // due date, non-default priority, non-TODO status) stays visible.
+    const recurringTitles = _recurringTitlesForMonth(key);
+    const isUndivergedRecurring = (t) => {
+      if(!recurringTitles.has((t.title||'').toLowerCase())) return false;
+      if(t.status !== 'TODO') return false;
+      if(t.due) return false;
+      if(t.description) return false;
+      if(Array.isArray(t.subtasks) && t.subtasks.length) return false;
+      if(t.priority && t.priority !== 'medium') return false;
+      if(t.projectId) return false;
+      return true;
+    };
     // --- Main task list ---
-    const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG' && !t.deletedAt)
+    const tasks = db.tasks.filter(t=> t.noteId===daily.id && t.status!=='BACKLOG' && !t.deletedAt && !isUndivergedRecurring(t))
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
-    list.innerHTML = tasks.map(t=> {
+    // Virtual recurring rows for the displayed date.
+    const recurring = getRecurringForDate(key);
+    if(window._recurringCollapsed === undefined) window._recurringCollapsed = true;
+    if(window._tasksCollapsed === undefined) window._tasksCollapsed = true;
+    const recCollapsed = window._recurringCollapsed;
+    const tasksCollapsed = window._tasksCollapsed;
+    const recArrow = recCollapsed ? '▶' : '▼';
+    const tasksArrow = tasksCollapsed ? '▶' : '▼';
+    const recurringHtml = recurring.length ? `
+      <div style='margin:0 0 8px;padding:6px 8px;background:rgba(139,109,255,0.06);border:1px solid rgba(139,109,255,0.25);border-radius:6px;'>
+        <div id='recurringHeader' class='muted' style='font-size:11px;margin-bottom:${recCollapsed?'0':'4px'};cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;'>
+          <span>${recArrow}</span>
+          <span>🔁 Recurring (${recurring.filter(r=>!r.completed).length} open of ${recurring.length})</span>
+        </div>
+        ${recCollapsed ? '' : recurring.map(r => `
+          <div class='row' style='justify-content:space-between;padding:2px 0;'>
+            <label class='row' style='gap:8px;cursor:pointer;'>
+              <input type='checkbox' ${r.completed?'checked':''} data-rec-id='${r.m.id}'/>
+              <span class='${r.completed?'muted':''}' style='border-left:3px solid #8b6dff;padding-left:8px;font-size:13px;'>${htmlesc(r.m.title)}</span>
+            </label>
+          </div>`).join('')}
+      </div>` : '';
+    list.innerHTML = recurringHtml + (tasks.length ? `
+      <div style='margin:0;padding:6px 8px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:6px;'>
+        <div id='tasksHeader' class='muted' style='font-size:11px;margin-bottom:${tasksCollapsed?'0':'4px'};cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;'>
+          <span>${tasksArrow}</span>
+          <span>🗒️ Tasks (${tasks.filter(t=>t.status!=='DONE').length} open of ${tasks.length})</span>
+        </div>
+        ${tasksCollapsed ? '' : tasks.map(t=> {
       const colors={high:'#ff6b6b',medium:'#8b6dff',low:'#64748b'};
       const ds = dueStatus(t.due);
       const borderColor = ds==='overdue'?'#ff4444':ds==='due-today'?'#f59e0b':ds==='due-soon'?'#ca8a04':colors[t.priority||'medium'];
@@ -1743,7 +1939,7 @@ function renderToday(){
         else if(t.status!=='DONE' && ds==='due-soon')  duePill=`<span class='pill' style='background:#78350f;color:#fef3c7;'>Due ${formatDateString(t.due)}</span>`;
         else duePill=`<span class='pill'>${formatDateString(t.due)}</span>`;
       }
-      return `<div class='row' style='justify-content:space-between;'>
+      return `<div class='row' style='justify-content:space-between;padding:2px 0;'>
       <label class='row' style='gap:8px;'>
         <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
         <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${borderColor};padding-left:8px;'>${htmlesc(t.title)}${duePill ? ' '+duePill : ''}</span>
@@ -1754,9 +1950,22 @@ function renderToday(){
         <button class='btn' data-del='${t.id}' title='Delete'>✕</button>
       </div>
     </div>`;
-    }).join('');
+    }).join('')}
+      </div>` : (recurring.length ? '' : '<div class="muted" style="padding:8px;text-align:center;font-size:12px;">No tasks yet</div>'));
     // bind handlers
-    list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawTasks(); drawBacklog(); });
+    list.querySelector('#recurringHeader')?.addEventListener('click', () => {
+      window._recurringCollapsed = !window._recurringCollapsed;
+      drawTasks();
+    });
+    list.querySelector('#tasksHeader')?.addEventListener('click', () => {
+      window._tasksCollapsed = !window._tasksCollapsed;
+      drawTasks();
+    });
+    list.querySelectorAll("input[data-rec-id]").forEach(cb => cb.onchange = () => {
+      setRecurringCompletion(cb.dataset.recId, key, cb.checked);
+      drawTasks();
+    });
+    list.querySelectorAll("input[type=checkbox]:not([data-rec-id])").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawTasks(); drawBacklog(); });
     list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); drawBacklog(); });
     list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
     list.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{ openTaskModal(b.dataset.edit); });
@@ -1801,8 +2010,8 @@ function renderToday(){
         prevDayIds.has(t.noteId) && !monthlyTitles.has((t.title||'').toLowerCase())
       );
       if(prevTasks.length) {
-        // Persist collapse state across re-renders
-        if(window._prevTasksCollapsed === undefined) window._prevTasksCollapsed = false;
+        // Persist collapse state across re-renders. Default collapsed.
+        if(window._prevTasksCollapsed === undefined) window._prevTasksCollapsed = true;
         const collapsed = window._prevTasksCollapsed;
         const arrow = collapsed ? '▶' : '▼';
         const taskRows = collapsed ? '' : prevTasks.map(t => {
@@ -1822,7 +2031,7 @@ function renderToday(){
         prevList.innerHTML =
           `<div id='prevTasksHeader' style='font-size:12px;color:var(--muted);margin:10px 0 4px;border-top:1px solid var(--btn-border);padding-top:8px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;'>
             <span>${arrow}</span>
-            <span>📋 Unfinished from previous days <span style='opacity:0.7;'>(${prevTasks.length})</span></span>
+            <span>📋 Unfinished from previous days (${prevTasks.length})</span>
           </div>` + taskRows;
         // Toggle collapse on header click
         prevList.querySelector('#prevTasksHeader').onclick = () => {
@@ -2103,7 +2312,13 @@ function renderProjects(){
     listEl.querySelectorAll('[data-open]').forEach(b=> b.onclick = ()=> openNote(b.dataset.open));
     listEl.querySelectorAll('[data-pin]').forEach(b=> b.onclick = ()=> { const note=db.notes.find(x=>x.id===b.dataset.pin); if(note){ note.pinned=!note.pinned; save(); drawNotes(); } });
     listEl.querySelectorAll('[data-del]').forEach(b=> b.onclick = async ()=> {
-      const ok = await showConfirm('Delete this note?', 'Delete', 'Cancel');
+      const note = db.notes.find(x => x.id === b.dataset.del);
+      const tCount = note ? db.tasks.filter(t => t.noteId === note.id && !t.deletedAt).length : 0;
+      const isDaily = note && note.type === 'daily';
+      const extra = tCount ? (isDaily
+        ? ` This daily page has ${tCount} task${tCount!==1?'s':''} — they will be DETACHED (preserved, reattach on restore).`
+        : ` Its ${tCount} task${tCount!==1?'s':''} will be moved to Trash.`) : '';
+      const ok = await showConfirm(`Delete this note?${extra}`, 'Delete', 'Cancel');
       if(!ok) return;
       softDeleteNote(b.dataset.del);
       drawNotes();
@@ -2231,7 +2446,7 @@ function renderIdeas(){
     $("#ideaList").innerHTML = notes.map(n=> `
       <div class="card">
         <div class="row" style="justify-content:space-between;align-items:center;">
-          <span style="flex:1;cursor:pointer;" data-open="${n.id}">${htmlesc(n.title)}</span>
+          <span style="flex:1;cursor:pointer;" data-open="${n.id}">${htmlesc(n.title)}${statusBadge(n.status)}</span>
           <div class="row" style="gap:6px;">
             <button class="btn" data-open="${n.id}" style="font-size:12px;">Open</button>
             <button class="btn" data-del="${n.id}" style="font-size:12px;">✕</button>
@@ -2240,7 +2455,10 @@ function renderIdeas(){
       </div>`).join("");
     document.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> openNote(b.dataset.open));
     document.querySelectorAll('[data-del]').forEach(b=> b.onclick=async ()=>{
-      const ok = await showConfirm('Delete idea?', 'Delete', 'Cancel');
+      const note = db.notes.find(x => x.id === b.dataset.del);
+      const tCount = note ? db.tasks.filter(t => t.noteId === note.id && !t.deletedAt).length : 0;
+      const extra = tCount ? ` Its ${tCount} task${tCount!==1?'s':''} will be moved to Trash.` : '';
+      const ok = await showConfirm(`Delete idea?${extra}`, 'Delete', 'Cancel');
       if(!ok) return;
       softDeleteNote(b.dataset.del);
       draw();
@@ -2288,13 +2506,37 @@ function openProjectContext(projectId){
 }
 
 function renderReview(){
+  // TRIAL (Option 2): treat each completed virtual recurring occurrence
+  // (m.completions[dateKey] === true) as a DONE task for analytics purposes.
+  // We also add it to activeTasks so percentages stay <= 100%.
+  const virtualDone = [];
+  (db.monthly || []).forEach(m => {
+    if(m.deletedAt) return;
+    const comp = m.completions || {};
+    Object.keys(comp).forEach(dk => {
+      if(comp[dk] !== true) return;
+      virtualDone.push({
+        id: 'rec:' + m.id + ':' + dk,
+        title: m.title,
+        status: 'DONE',
+        priority: 'medium',
+        completedAt: dk + 'T12:00:00.000Z',
+        updatedAt: m.updatedAt || nowISO(),
+        createdAt: m.createdAt || nowISO(),
+        noteId: null,
+        projectId: null,
+        _virtualRecurring: true,
+        _monthlyId: m.id,
+      });
+    });
+  });
   // Exclude deleted tasks from analytics
-  const done = db.tasks.filter(t=> t.status==='DONE' && !t.deletedAt);
-  const activeTasks = db.tasks.filter(t=> t.status!=='BACKLOG' && !t.deletedAt);
+  const done = [...virtualDone, ...db.tasks.filter(t=> t.status==='DONE' && !t.deletedAt)];
+  const activeTasks = [...virtualDone, ...db.tasks.filter(t=> t.status!=='BACKLOG' && !t.deletedAt)];
   const total = activeTasks.length;
   const pct = total? Math.round(done.length/total*100) : 0;
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
-  const weekTasks = db.tasks.filter(t=> t.completedAt && new Date(t.completedAt) > weekAgo && !t.deletedAt);
+  const weekTasks = done.filter(t=> t.completedAt && new Date(t.completedAt) > weekAgo);
   const weekNotes = db.notes.filter(n=> new Date(n.createdAt) > weekAgo);
 
   // --- Enhanced analytics computations ---
@@ -2364,6 +2606,14 @@ function renderReview(){
     const dateStr = t.completedAt ? new Date(t.completedAt).toLocaleDateString() : '';
     const goTarget = proj ? `data-open-project='${proj.id}'` : (note ? `data-open='${note.id}'` : '');
     const goBtn = goTarget ? `<button class='btn' ${goTarget} style='font-size:11px;' title='Go to context'>Go →</button>` : '';
+    if(t._virtualRecurring){
+      return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>
+        <span style='flex:1;min-width:0;word-break:break-word;'>${htmlesc(t.title)} <span class='pill' style='background:#6b46e5;color:#fff;'>🔁 recurring</span> <span class='pill'>${dateStr}</span></span>
+        <div class='row' style='gap:4px;flex-shrink:0;'>
+          <button class='btn' data-rec-uncomplete='${t._monthlyId}' data-rec-date='${t.completedAt.slice(0,10)}' style='font-size:11px;' title='Mark as not completed'>Undo</button>
+        </div>
+      </div>`;
+    }
     return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>
       <span style='flex:1;min-width:0;word-break:break-word;'>${htmlesc(t.title)} ${ctx} <span class='pill'>${dateStr}</span></span>
       <div class='row' style='gap:4px;flex-shrink:0;'>
@@ -2445,6 +2695,7 @@ function renderReview(){
     for(const title of habitTitles){
       const mt = habitEntries.find(m => m.title === title);
       const scheduledDays = mt && Array.isArray(mt.days) && mt.days.length ? mt.days : null;
+      const comp = (mt && mt.completions) || {};
       html += `<tr><td style="padding:4px 8px;font-size:12px;white-space:nowrap;">${htmlesc(title)}</td>`;
       for(const d of days){
         const dateKey = `${_hYear}-${String(_hMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -2453,18 +2704,32 @@ function renderReview(){
           html += `<td style="text-align:center;padding:2px 3px;color:var(--muted);font-size:11px;">–</td>`;
           continue;
         }
+        // Option 2: virtual completion takes precedence.
+        if(comp[dateKey] === true){
+          html += `<td style="text-align:center;padding:2px 3px;" title="${htmlesc(title)} ✓ ${dateKey}">✅</td>`;
+          continue;
+        }
+        // Legacy fallback: look for a real DONE task on that day's daily note.
         const dailyNote = db.notes.find(n => n.type==='daily' && n.dateIndex===dateKey && !n.deletedAt);
         if(!dailyNote){
-          html += `<td style="text-align:center;padding:2px 3px;color:var(--muted);font-size:11px;">·</td>`;
+          // Future days (no note yet) → neutral dot
+          const dDate = new Date(_hYear, _hMonth, d);
+          const isFuture = dDate > new Date();
+          html += `<td style="text-align:center;padding:2px 3px;color:var(--muted);font-size:11px;">${isFuture ? '·' : '·'}</td>`;
           continue;
         }
         const task = db.tasks.find(t => t.noteId===dailyNote.id && t.title===title && !t.deletedAt);
-        if(!task){
-          html += `<td style="text-align:center;padding:2px 3px;color:var(--muted);font-size:11px;">·</td>`;
-        } else if(task.status === 'DONE'){
+        if(task && task.status === 'DONE'){
           html += `<td style="text-align:center;padding:2px 3px;" title="${htmlesc(title)} ✓ ${dateKey}">✅</td>`;
         } else {
-          html += `<td style="text-align:center;padding:2px 3px;" title="${htmlesc(title)} ✗ ${dateKey}">❌</td>`;
+          // No virtual completion, no real DONE → missed (only for past/today)
+          const dDate = new Date(_hYear, _hMonth, d);
+          const isFuture = dDate > new Date();
+          if(isFuture){
+            html += `<td style="text-align:center;padding:2px 3px;color:var(--muted);font-size:11px;">·</td>`;
+          } else {
+            html += `<td style="text-align:center;padding:2px 3px;" title="${htmlesc(title)} ✗ ${dateKey}">❌</td>`;
+          }
         }
       }
       html += '</tr>';
@@ -2659,6 +2924,11 @@ function renderReview(){
   content.querySelectorAll('[data-open-task]').forEach(b=> b.onclick=()=> openTaskContext(b.dataset.openTask));
   content.querySelectorAll('[data-open-project]').forEach(b=> b.onclick=()=> openProjectContext(b.dataset.openProject));
   content.querySelectorAll('[data-done]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.done,'DONE'); renderReview(); });
+  // Virtual recurring undo (Option 2 trial)
+  content.querySelectorAll('[data-rec-uncomplete]').forEach(b=> b.onclick=()=>{
+    setRecurringCompletion(b.dataset.recUncomplete, b.dataset.recDate, false);
+    renderReview();
+  });
   // Duplicate task remove handlers
   content.querySelectorAll('[data-dup-del]').forEach(b=> b.onclick=()=>{ deleteTask(b.dataset.dupDel); renderReview(); });
   content.querySelectorAll('[data-dup-keep]').forEach(b=> b.onclick=()=>{
@@ -3734,6 +4004,9 @@ function renderVault(){
   let notes = db.notes.filter(n => !n.deletedAt);
   if(tagFilters.length){ notes = notes.filter(n=> tagFilters.every(t=> (n.tags||[]).map(x=>x.toLowerCase()).includes(t))); }
   if(text){ notes = notes.filter(n=> n.title.toLowerCase().includes(text) || (n.content||'').toLowerCase().includes(text)); }
+  // NEW: status filter — set by clicking a chip in the toolbar. Persists across re-renders.
+  const sFilter = window._vaultStatusFilter || '';
+  if(sFilter) notes = notes.filter(n => (n.status || '') === sFilter);
   notes.sort((a,b)=> (b.pinned?1:0)-(a.pinned?1:0) || b.updatedAt.localeCompare(a.updatedAt));
   const pinned = notes.filter(n=> n.pinned);
   const others = notes.filter(n=> !n.pinned);
@@ -3769,6 +4042,25 @@ function renderVault(){
         <button id='sortRecent' class='btn' style='font-size:12px;'>Recent</button>
         <button id='sortAZ' class='btn' style='font-size:12px;'>A-Z</button>
         ${query? `<span class='muted' style='font-size:11px;'>Also searched: ${linkMatches.length} links, ${projectMatches.length} projects, ${taskMatches.length} tasks</span>`:''}
+      </div>
+      <div class='row' style='margin-top:8px;gap:6px;flex-wrap:wrap;align-items:center;'>
+        <span class='muted' style='font-size:11px;'>Status:</span>
+        ${[
+          {v:'',          l:'All'},
+          {v:'inbox',     l:'📥 Inbox'},
+          {v:'reading',   l:'📖 Reading'},
+          {v:'read',      l:'✅ Read'},
+          {v:'annotated', l:'✍️ Annotated'},
+          {v:'followup',  l:'🔁 Follow up'},
+          {v:'archive',   l:'🗄️ Archived'},
+        ].map(o => {
+          const count = o.v
+            ? db.notes.filter(n => !n.deletedAt && (n.status||'') === o.v).length
+            : db.notes.filter(n => !n.deletedAt).length;
+          const active = sFilter === o.v;
+          return `<button class='btn${active?' acc':''}' data-status-filter='${o.v}'
+                   style='font-size:11px;padding:3px 9px;'>${o.l} (${count})</button>`;
+        }).join('')}
       </div>
       ${tagFilters.length? `<div style='margin-top:8px;'>${tagFilters.map(t=>`<span class='pill'>#${htmlesc(t)}</span>`).join('')}</div>`:''}
     </div>
@@ -3812,7 +4104,7 @@ function renderVault(){
     const preview = (n.content||'').slice(0,140).replace(/\n/g,' ');
     return `<div class='card' style='padding:10px;'>
       <div class='row' style='justify-content:space-between;'>
-        <span style='cursor:pointer;' data-open='${n.id}'>${highlight(n.title)}${n.type==='daily'?` <span class='pill'>${n.dateIndex||''}</span>`:''}${n.type==='idea'?` <span class='pill'>idea</span>`:''}</span>
+        <span style='cursor:pointer;' data-open='${n.id}'>${highlight(n.title)}${n.type==='daily'?` <span class='pill'>${n.dateIndex||''}</span>`:''}${n.type==='idea'?` <span class='pill'>idea</span>`:''}${statusBadge(n.status)}</span>
         <div class='row' style='gap:6px;'>
           <button class='btn' data-pin='${n.id}' style='font-size:11px;'>${isPinned?'Unpin':'Pin'}</button>
           <button class='btn' data-open='${n.id}' style='font-size:11px;'>Open</button>
@@ -3823,6 +4115,10 @@ function renderVault(){
       ${(n.tags&&n.tags.length)?`<div style='margin-top:4px;'>${n.tags.map(t=>`<span class='pill' data-tag='${t}'>#${htmlesc(t)}</span>`).join(' ')}</div>`:''}
     </div>`;
   }
+  content.querySelectorAll('[data-status-filter]').forEach(b => b.onclick = () => {
+    window._vaultStatusFilter = b.dataset.statusFilter || '';
+    renderVault();
+  });
   content.querySelectorAll('[data-open]').forEach(b=> b.onclick=()=> openNote(b.dataset.open));
   content.querySelectorAll('[data-pin]').forEach(b=> b.onclick=()=>{ const note=db.notes.find(x=>x.id===b.dataset.pin); if(note){ note.pinned=!note.pinned; save(); renderVault(); } });
   content.querySelectorAll('[data-tag]').forEach(b=> b.onclick=()=>{ document.getElementById('q').value='#'+b.dataset.tag; renderVault(); });
@@ -3911,6 +4207,8 @@ function renderNotebooks(){
 }
 
 function renderNotebookDetail(nbId){
+  try { window.scrollTo({top:0, left:0, behavior:'instant'}); } catch(_) { window.scrollTo(0,0); }
+  if (content) content.scrollTop = 0;
   if(!db.notebooks) db.notebooks=[];
   const nb=db.notebooks.find(x=>x.id===nbId);
   if(!nb){ currentNotebookId=null; renderNotebooks(); return; }
@@ -3930,6 +4228,8 @@ function renderNotebookDetail(nbId){
                 title='${htmlesc(nb.title)}'>${htmlesc(nb.title)}</span>
         </div>
         <button id='newPage' class='btn acc' style='font-size:12px;width:100%;'>+ New Page</button>
+        <button id='nbExportMd' class='btn' style='font-size:11px;width:100%;'
+                title='Download every page in this notebook as one Markdown file'>⬇ Export .md</button>
         <div id='tocList' style='display:flex;flex-direction:column;gap:3px;margin-top:4px;'>
           ${pages.map(p=>`
             <div class='nb-toc-item' draggable='true' data-page-id='${p.id}'
@@ -3958,6 +4258,26 @@ function renderNotebookDetail(nbId){
     currentPageId=p.id;
     renderNotebookDetail(nbId);
   };
+
+  const exportMdBtn = document.getElementById('nbExportMd');
+  if (exportMdBtn) {
+    exportMdBtn.onclick = () => {
+      const lines = [`# ${nb.title}`];
+      if (nb.description) lines.push('', `> ${nb.description}`);
+      lines.push('', `_Exported ${new Date().toISOString().slice(0,10)} · ${pages.length} page${pages.length!==1?'s':''}_`, '');
+      pages.forEach((p, i) => {
+        lines.push('', '---', '', `# ${p.title || 'Untitled'}`);
+        if ((p.tags||[]).length) lines.push('', '_Tags:_ ' + p.tags.map(t=>'`#'+t+'`').join(' '));
+        lines.push('', (p.content || '').trim() || '_(empty page)_');
+      });
+      const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${(nb.title||'notebook').replace(/[^a-z0-9]+/gi,'_')}.md`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+  }
 
   // TOC item clicks
   content.querySelectorAll('.nb-toc-item').forEach(el=>{
@@ -4224,6 +4544,8 @@ function openNote(id){
   }
   // Push navigation state BEFORE switching to the note editor so Back returns here.
   _navPush();
+  try { window.scrollTo({top:0, left:0, behavior:'instant'}); } catch(_) { window.scrollTo(0,0); }
+  if (content) content.scrollTop = 0;
   // Record which note is open and reset dirty flag when opening.
   window._openNoteId = n.id;
   window._editorDirty = false;
@@ -4237,11 +4559,27 @@ function openNote(id){
           <option value="">— No Project —</option>
           ${db.projects.map(p=>`<option value="${p.id}" ${n.projectId===p.id?'selected':''}>${htmlesc(p.name)}</option>`).join('')}
         </select>
+        <select id="noteStatus" title="Reading status — handy for papers and long reads"
+                style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
+          ${[
+            {v:'',          l:'⚪ No status'},
+            {v:'inbox',     l:'📥 Inbox'},
+            {v:'reading',   l:'📖 Reading'},
+            {v:'read',      l:'✅ Read'},
+            {v:'annotated', l:'✍️ Annotated'},
+            {v:'followup',  l:'🔁 Follow up'},
+            {v:'archive',   l:'🗄️ Archived'},
+          ].map(o=>`<option value='${o.v}' ${(n.status||'')===o.v?'selected':''}>${o.l}</option>`).join('')}
+        </select>
         <button id="addSketch" class="btn" style="font-size:12px;" title="Draw a sketch">🎨 Sketch</button>
         <button id="addVoice" class="btn" style="font-size:12px;" title="Record voice note">🎙 Voice</button>
         <!-- Attachment uploader -->
         <label class="btn" for="noteAttachFile" style="font-size:12px;" title="Attach a file">📎 Attach</label>
         <input id="noteAttachFile" type="file" class="hidden" multiple />
+        <select id="noteApplyTemplate" title="Apply a template to this note">
+          <option value="">📋 Apply Template…</option>
+          ${(db.templates||[]).map(t=>`<option value="${t.id}">${htmlesc(t.name)}</option>`).join('')}
+        </select>
       </div>
       <div class="row" style="margin-top:8px; gap:8px; align-items:center;">
         <button id="toggleModeBtn" class="btn acc" style="font-size:12px;">Edit</button>
@@ -4287,12 +4625,14 @@ function openNote(id){
     const tagText = document.getElementById('tags').value;
     const tags = tagText ? tagText.split(/\s+/).map(t => t.startsWith('#') ? t.slice(1) : t).filter(Boolean) : [];
     const selectedProjectId = document.getElementById('noteProject')?.value || null;
+    const selectedStatus = document.getElementById('noteStatus')?.value || '';
     updateNote(n.id, {
       title: document.getElementById('title').value,
       content: document.getElementById('contentBox').value,
       tags,
       pinned: document.getElementById('pinned').checked,
-      projectId: selectedProjectId || null
+      projectId: selectedProjectId || null,
+      status: selectedStatus || null
     });
     window._editorDirty = false;
     showSavedToast('noteSaveStatus');
@@ -4300,6 +4640,33 @@ function openNote(id){
   saveBtn.onclick = doSaveNote;
   window._doSaveNote = doSaveNote;
   document.getElementById('back').onclick = ()=> _navPop();
+  // Apply Template dropdown — replaces or appends template content into this note.
+  const applyTplSel = document.getElementById('noteApplyTemplate');
+  if(applyTplSel){
+    applyTplSel.onchange = async (ev) => {
+      const tplId = ev.target.value;
+      if(!tplId){ return; }
+      const tpl = (db.templates||[]).find(x => x.id === tplId);
+      ev.target.value = '';
+      if(!tpl) return;
+      const box = document.getElementById('contentBox');
+      const current = (box.value || '').trim();
+      const prepared = tpl.content
+        .replace(/\[Title\]/g, document.getElementById('title').value || '')
+        .replace(/\[Date\]/g, new Date().toLocaleDateString())
+        .replace(/\[Project Name\]/g, n.projectId ? (db.projects.find(p=>p.id===n.projectId)?.name || '') : '');
+      let mode = 'replace';
+      if(current){
+        const replace = await showConfirm(
+          `Apply "${tpl.name}" template?\n\nOK = REPLACE current content.\nCancel = APPEND below current content.`,
+          'Replace', 'Append'
+        );
+        mode = replace ? 'replace' : 'append';
+      }
+      box.value = mode === 'append' ? (current + '\n\n' + prepared) : prepared;
+      window._editorDirty = true;
+    };
+  }
   document.getElementById('duplicate').onclick = ()=>{
     const copy = createNote({
       title: document.getElementById('title').value + ' (Copy)',
@@ -4316,7 +4683,9 @@ function openNote(id){
   };
   document.getElementById('delete').onclick = async ()=>{
     const linkedTaskCount = db.tasks.filter(t=> t.noteId === n.id && !t.deletedAt).length;
-    const taskNote = linkedTaskCount ? ` ${linkedTaskCount} task${linkedTaskCount!==1?'s':''} will be moved to Trash and can be restored from Review.` : '';
+    const taskNote = linkedTaskCount ? (n.type === 'daily'
+      ? ` This daily page has ${linkedTaskCount} task${linkedTaskCount!==1?'s':''} — they will be DETACHED (preserved, reattach on restore).`
+      : ` ${linkedTaskCount} task${linkedTaskCount!==1?'s':''} will be moved to Trash and can be restored from Review.`) : '';
     const ok = await showConfirm(`Delete this note?${taskNote}`, 'Delete', 'Cancel');
     if(!ok) return;
     softDeleteNote(n.id);
@@ -4743,6 +5112,10 @@ function openSketchModal(noteId) {
 
 // --- Global app logic ---
 function render(){
+  // Always scroll to top when switching views — prevents the new page from
+  // inheriting the scroll position of the previous one.
+  try { window.scrollTo({top:0, left:0, behavior:'instant'}); } catch(_) { window.scrollTo(0,0); }
+  if (content) content.scrollTop = 0;
   // When rendering a new section (today, projects, ideas, etc.), we are no longer editing a note.
   // Reset the open note tracking so that background sync will not reopen a note when the user has navigated away.
   window._openNoteId = null;
@@ -5195,41 +5568,139 @@ document.getElementById("q").addEventListener("input", ()=> { if(route!=="vault"
 
 // Quick add
 document.addEventListener("keydown", (e)=>{
-  (async ()=>{
-    // Quick-add note: Ctrl/Cmd + Shift + N
-    // (Ctrl+K is now reserved for the command palette in ui-extras.js)
-    if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'n'){
-      e.preventDefault();
-      const t = await showPrompt('Quick add note title', '', 'Create', 'Cancel');
-      if(t){
-        const n = createNote({title: t});
-        openNote(n.id);
-      }
-    }
-    // Quick task shortcut (Ctrl/Meta + Shift + K)
-    if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'k'){
-      e.preventDefault();
-      const t = await showPrompt('Quick task (goes to today)', '', 'Add', 'Cancel');
-      if(t){
-        const key = todayKey();
-        let daily = db.notes.find(n => n.type === 'daily' && n.dateIndex === key);
-        if(!daily){
-          daily = createNote({title: `${key} — Daily`, type: 'daily', dateIndex: key, content: db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"});
-        }
-        const priority = t.startsWith('!') ? 'high' : 'medium';
-        const title = t.startsWith('!') ? t.slice(1) : t;
-        createTask({title, noteId: daily.id, priority});
-        if(route !== 'today'){
-          route = 'today';
-          render();
-        } else {
-          // if already on Today, refresh the view to show new task
-          render();
-        }
-      }
-    }
-  })();
+  // Quick Capture: Alt+N. We avoid Ctrl+Shift+N because the browser captures
+  // that combo at the OS level to open an incognito/private window before any
+  // page handler ever runs. Alt+N reaches us cleanly on every major browser.
+  if(e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey &&
+     (e.key === 'n' || e.key === 'N')){
+    e.preventDefault();
+    openQuickCapture();
+    return;
+  }
+  // Quick task: Alt+T (was Ctrl+Shift+K, which some browsers also map).
+  if(e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey &&
+     (e.key === 't' || e.key === 'T')){
+    e.preventDefault();
+    openQuickCapture('!');
+    return;
+  }
 });
+
+// --- Quick Capture floating bar ---
+// Single low-friction input reachable from anywhere. Prefix grammar:
+//   (default)       → idea note (with #tags extracted)
+//   "! something"   → high-priority task on today's daily
+//   ". something"   → normal task on today's daily
+//   "> Title"       → full note (opens editor immediately)
+//   "j something"   → appended to today's Journal section
+function openQuickCapture(prefill=''){
+  // Build the panel once and reuse.
+  let panel = document.getElementById('quickCapturePanel');
+  if(!panel){
+    panel = document.createElement('div');
+    panel.id = 'quickCapturePanel';
+    panel.innerHTML = `
+      <div class="qc-backdrop"></div>
+      <div class="qc-panel" role="dialog" aria-label="Quick capture">
+        <input id="qcInput" type="text" autocomplete="off" spellcheck="false"
+          placeholder="Capture anything…  (! task,  . normal task,  > full note,  j journal,  default = idea)" />
+        <div class="qc-hint" id="qcHint">Idea</div>
+      </div>`;
+    document.body.appendChild(panel);
+    panel.querySelector('.qc-backdrop').onclick = closeQuickCapture;
+  }
+  panel.classList.add('show');
+  const input = panel.querySelector('#qcInput');
+  const hint  = panel.querySelector('#qcHint');
+  input.value = prefill;
+  // Focus AFTER paint so the cursor lands inside reliably.
+  requestAnimationFrame(()=> { input.focus(); input.setSelectionRange(input.value.length, input.value.length); });
+  const detect = v => {
+    const s = (v||'').trimStart();
+    if(s.startsWith('!')) return 'High-priority task → Today';
+    if(s.startsWith('.')) return 'Task → Today';
+    if(s.startsWith('>')) return 'New full note (opens editor)';
+    if(s.startsWith('j ') || s.startsWith('J ')) return 'Append to today\'s Journal';
+    return 'Idea note';
+  };
+  hint.textContent = detect(input.value);
+  input.oninput = () => { hint.textContent = detect(input.value); };
+  input.onkeydown = (ev) => {
+    if(ev.key === 'Escape'){ ev.preventDefault(); closeQuickCapture(); return; }
+    if(ev.key === 'Enter'){
+      ev.preventDefault();
+      const raw = input.value.trim();
+      if(!raw){ closeQuickCapture(); return; }
+      submitQuickCapture(raw);
+      closeQuickCapture();
+    }
+  };
+}
+function closeQuickCapture(){
+  const panel = document.getElementById('quickCapturePanel');
+  if(panel) panel.classList.remove('show');
+}
+function submitQuickCapture(raw){
+  const s = raw.trimStart();
+  // Helper: ensure today's daily exists and return it
+  const ensureToday = () => {
+    const key = todayKey();
+    let daily = db.notes.find(n => n.type === 'daily' && !n.deletedAt && n.dateIndex === key);
+    if(!daily){
+      const tpl = db.settings.dailyTemplate || "# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n";
+      daily = createNote({title:`${key} — Daily`, type:'daily', dateIndex:key, content:tpl});
+    }
+    return daily;
+  };
+  if(s.startsWith('!') || s.startsWith('.')){
+    const daily = ensureToday();
+    const priority = s.startsWith('!') ? 'high' : 'medium';
+    createTask({title: s.slice(1).trim(), noteId: daily.id, priority});
+    showQuickToast(priority === 'high' ? '🔥 Task added' : '✓ Task added');
+    if(route === 'today') render();
+    return;
+  }
+  if(s.startsWith('>')){
+    const title = s.slice(1).trim() || 'Untitled';
+    const n = createNote({title, content:'', type:'note'});
+    openNote(n.id);
+    return;
+  }
+  if(s.startsWith('j ') || s.startsWith('J ')){
+    const daily = ensureToday();
+    const stamp = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    const line = `\n- ${stamp} — ${s.slice(2).trim()}`;
+    if(/^|\n## Journal\b/m.test(daily.content)){
+      // Insert after "## Journal" heading
+      daily.content = daily.content.replace(/(^|\n)(##\s+Journal[^\n]*\n)/, (m,p1,p2)=> `${p1}${p2}${line}\n`);
+    } else {
+      daily.content = (daily.content || '') + `\n\n## Journal${line}\n`;
+    }
+    daily.updatedAt = nowISO();
+    save();
+    showQuickToast('📓 Added to Journal');
+    if(route === 'today') render();
+    return;
+  }
+  // Default: idea note (extract #tags)
+  const tags = (s.match(/#[\w-]+/g) || []).map(t => t.slice(1));
+  const titleClean = s.replace(/#[\w-]+/g,'').trim() || 'Idea';
+  createNote({title: titleClean, content:'', type:'idea', tags});
+  showQuickToast('💡 Idea saved');
+  if(route === 'ideas') render();
+}
+function showQuickToast(text){
+  let t = document.getElementById('qcToast');
+  if(!t){
+    t = document.createElement('div');
+    t.id = 'qcToast';
+    document.body.appendChild(t);
+  }
+  t.textContent = text;
+  t.classList.add('show');
+  clearTimeout(window._qcToastT);
+  window._qcToastT = setTimeout(()=> t.classList.remove('show'), 1800);
+}
 
 // Export
 // Make this DOMContentLoaded handler asynchronous so we can await

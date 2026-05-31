@@ -92,54 +92,83 @@
     // Static pages from nav.
     document.querySelectorAll('#nav [data-route]').forEach((btn) => {
       const route = btn.dataset.route;
-      // Strip badge/pill text from label.
       const label = (btn.firstChild && btn.firstChild.nodeType === 3)
         ? btn.firstChild.textContent.trim()
         : btn.textContent.trim();
-      items.push({
-        type: 'Page',
-        label: label || route,
-        hint: 'Navigate',
-        action: () => btn.click(),
-      });
+      items.push({ type: 'Page', label: label || route, hint: 'Navigate',
+        action: () => btn.click() });
     });
+
+    // Global actions.
+    items.push({ type: 'Action', label: 'New note', hint: 'Create + open',
+      action: () => {
+        if (typeof window.createNote !== 'function') return;
+        const n = window.createNote({ title: 'Untitled', content: '', type: 'note' });
+        if (typeof window.openNote === 'function') window.openNote(n.id);
+      } });
+    items.push({ type: 'Action', label: 'Toggle focus mode', hint: 'Alt+F',
+      action: () => {
+        const exit = document.getElementById('focusExitBtn');
+        if (exit) { exit.click(); return; }
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', altKey: true }));
+      } });
+    items.push({ type: 'Action', label: 'Keyboard shortcuts', hint: '?',
+      action: () => openHelp() });
 
     const db = window.db;
     if (db && typeof db === 'object') {
-      (db.notes || []).slice(0, 500).forEach((n) => {
+      (db.notes || []).filter(n => !n.deletedAt).slice(0, 500).forEach((n) => {
         items.push({
           type: 'Note',
           label: n.title || '(untitled)',
-          hint: n.daily ? 'Daily note' : 'Note',
+          hint: n.type === 'daily' ? 'Daily note' : (n.type === 'idea' ? 'Idea' : 'Note'),
           action: () => {
             const open = window.openNote;
             if (typeof open === 'function') open(n.id);
-            else simulateRoute('notes');
+            else simulateRoute('vault');
           },
         });
       });
-      (db.projects || []).forEach((p) => {
+      (db.projects || []).filter(p => !p.deletedAt).forEach((p) => {
         items.push({
           type: 'Project',
           label: p.name || '(unnamed project)',
           hint: 'Open project',
           action: () => {
-            window.route = 'project:' + p.id;
+            window.currentProjectId = p.id;
+            window.route = 'projects';
             if (typeof window.render === 'function') window.render();
-            else simulateRoute('projects');
           },
         });
       });
-      // Pending tasks only (avoid drowning the list).
+      (db.notebooks || []).filter(nb => !nb.deletedAt).forEach((nb) => {
+        items.push({
+          type: 'Notebook',
+          label: nb.title || '(unnamed)',
+          hint: 'Open notebook',
+          action: () => {
+            window.currentNotebookId = nb.id;
+            window.route = 'notebooks';
+            if (typeof window.render === 'function') window.render();
+          },
+        });
+      });
       (db.tasks || [])
-        .filter((t) => !t.done)
+        .filter((t) => t.status !== 'DONE' && !t.deletedAt)
         .slice(0, 300)
         .forEach((t) => {
           items.push({
             type: 'Task',
             label: t.title || '(untitled task)',
-            hint: t.due ? ('Due ' + t.due) : 'Task',
-            action: () => simulateRoute('tasks'),
+            hint: t.due ? ('Due ' + t.due) : (t.priority === 'high' ? 'High priority' : 'Task'),
+            action: () => {
+              if (t.noteId && typeof window.openNote === 'function') window.openNote(t.noteId);
+              else if (t.projectId) {
+                window.currentProjectId = t.projectId;
+                window.route = 'projects';
+                if (typeof window.render === 'function') window.render();
+              } else simulateRoute('today');
+            },
           });
         });
     }
@@ -250,8 +279,15 @@
         <div class="shk-grid">
           <div class="shk-row"><kbd>${mod}</kbd><kbd>K</kbd><span>Command palette — jump anywhere</span></div>
           <div class="shk-row"><kbd>${mod}</kbd><kbd>S</kbd><span>Save current note</span></div>
-          <div class="shk-row"><kbd>${mod}</kbd><kbd>Shift</kbd><kbd>N</kbd><span>Quick add note</span></div>
-          <div class="shk-row"><kbd>${mod}</kbd><kbd>Shift</kbd><kbd>K</kbd><span>Quick add task (to today)</span></div>
+          <div class="shk-row"><kbd>Alt</kbd><kbd>N</kbd><span>Quick add note</span></div>
+          <div class="shk-row"><kbd>Alt</kbd><kbd>T</kbd><span>Quick add task (to today)</span></div>
+          <div class="shk-row"><kbd>/</kbd><span>Slash commands (inside an editor)</span></div>
+          <div class="shk-row"><kbd>[</kbd><kbd>[</kbd><span>Wiki-link autocomplete (inside an editor)</span></div>
+          <div class="shk-row"><kbd>Tab</kbd><span>Indent line / list item</span></div>
+          <div class="shk-row"><kbd>Enter</kbd><span>Continue list / checkbox (empty item breaks out)</span></div>
+          <div class="shk-row"><kbd>Alt</kbd><kbd>↑</kbd>/<kbd>↓</kbd><span>Move line up / down</span></div>
+          <div class="shk-row"><kbd>${mod}</kbd><kbd>D</kbd><span>Duplicate line</span></div>
+          <div class="shk-row"><kbd>Alt</kbd><kbd>F</kbd><span>Focus mode (distraction-free editor)</span></div>
           <div class="shk-row"><kbd>?</kbd><span>Show this help</span></div>
           <div class="shk-row"><kbd>Esc</kbd><span>Close overlays / dialogs</span></div>
           <div class="shk-row"><kbd>\u2191</kbd><kbd>\u2193</kbd><span>Navigate palette results</span></div>

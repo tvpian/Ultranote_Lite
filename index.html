@@ -7,6 +7,14 @@
   <title>UltraNote Lite</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='ug' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%2393c5fd'/%3E%3Cstop offset='1' stop-color='%234ea1ff'/%3E%3C/linearGradient%3E%3ClinearGradient id='bg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23111827'/%3E%3Cstop offset='1' stop-color='%230b0f14'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23bg)'/%3E%3Cpath d='M7.5 5.5 L7.5 20.5 Q7.5 27 16 27 Q24.5 27 24.5 20.5 L24.5 5.5' stroke='url(%23ug)' stroke-width='5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E" />
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='ug' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%2393c5fd'/%3E%3Cstop offset='1' stop-color='%234ea1ff'/%3E%3C/linearGradient%3E%3ClinearGradient id='bg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23111827'/%3E%3Cstop offset='1' stop-color='%230b0f14'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23bg)'/%3E%3Cpath d='M7.5 5.5 L7.5 20.5 Q7.5 27 16 27 Q24.5 27 24.5 20.5 L24.5 5.5' stroke='url(%23ug)' stroke-width='5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E" />
+  <!-- Preload latin web fonts so they are ready before first paint.
+       Prevents the mid-session font swap (FOUT) you can otherwise see
+       while typing in a note. font-display:optional in fonts/fonts.css
+       guarantees no swap once a font choice is made. -->
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+        href="fonts/LDIoaomQNQcsA88c7O9yZ4KMCoOg4Ko20yw.woff2" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+        href="fonts/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2" />
   <!--
   <style>
     :root { --bg:#0b0f14; --fg:#e8eef7; --muted:#a9b6c6; --card:#161122; --acc:#8b6dff; }
@@ -1305,5 +1313,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
     <script src="ui-polish.js" defer></script>
     <!-- Phase 9: command palette (Ctrl+K), shortcut help (?), skeleton -->
     <script src="ui-extras.js" defer></script>
+    <!-- Phase 10: editor extras — wiki-links [[ ]], slash commands /,
+         list/Tab/Enter niceties, smart paste, focus mode, backlinks -->
+    <script src="editor-extras.js" defer></script>
+    <!-- Phase 11: power features — sticky today bar, reading timer,
+         note→tasks panel, daily review banner. -->
+    <script src="power-features.js" defer></script>
 </body>
 </html>
