@@ -230,10 +230,10 @@
         else title = it.label;
         // Preserve any '|alias' fragment the user already typed
         const insert = title + (ctx.aliasPart || '');
-        const before = ta.value.slice(0, ctx.from);
         const after  = ta.value.slice(ctx.to);
         const closes = after.startsWith(']]') ? '' : ']]';
-        ta.value = before + insert + closes + after;
+        // setRangeText is undoable; raw ta.value=… would nuke the undo stack.
+        ta.setRangeText(insert + closes, ctx.from, ctx.to, 'end');
         const caret = ctx.from + insert.length + closes.length;
         ta.setSelectionRange(caret, caret);
         ta.focus();
@@ -319,10 +319,8 @@
       anchorRect: rect,
       onPick: (it) => {
         const cmd = it.cmd;
-        const before = ta.value.slice(0, ctx.from);
-        const after  = ta.value.slice(ctx.to);
         const snippet = cmd.insertContextual ? cmd.insertContextual(ta) : cmd.insert();
-        ta.value = before + snippet + after;
+        ta.setRangeText(snippet, ctx.from, ctx.to, 'end');
         const caretBack = cmd.caretBack || 0;
         const caret = ctx.from + snippet.length - caretBack;
         ta.setSelectionRange(caret, caret);
@@ -435,16 +433,15 @@
       if (startL === 0) return false;
       const prevStart = v.lastIndexOf('\n', startL - 2) + 1;
       const prevLine  = v.slice(prevStart, startL - 1);
-      const newVal = v.slice(0, prevStart) + block + '\n' + prevLine + v.slice(endL);
-      ta.value = newVal;
+      // setRangeText keeps Ctrl+Z working; raw ta.value= would not.
+      ta.setRangeText(block + '\n' + prevLine, prevStart, endL, 'preserve');
       const delta = startL - prevStart;
       ta.setSelectionRange(s - delta, eSel - delta);
     } else {
       if (endL === v.length) return false;
       const nextEnd = (v.indexOf('\n', endL + 1) === -1) ? v.length : v.indexOf('\n', endL + 1);
       const nextLine = v.slice(endL + 1, nextEnd);
-      const newVal = v.slice(0, startL) + nextLine + '\n' + block + v.slice(nextEnd);
-      ta.value = newVal;
+      ta.setRangeText(nextLine + '\n' + block, startL, nextEnd, 'preserve');
       const delta = nextLine.length + 1;
       ta.setSelectionRange(s + delta, eSel + delta);
     }
