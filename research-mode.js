@@ -699,10 +699,19 @@ Things outside UltraNote that compound. Adopt one at a time.
     const totalInbox = allInboxLines.length;
     const previewLines = allInboxLines.slice(0, 5);
 
-    // --- Follow-ups: open tasks promoted from any note's "- [ ]" checklist.
+    // --- Follow-ups: open tasks promoted from a Research-scope note's "- [ ]" checklist.
     // Grouped by source note so you can see which paper still has loose ends.
+    // Scope: only follow-ups whose source note is tagged 'paper' OR lives in the
+    // 🔬 Research notebook — otherwise non-research notes leak into this card.
     const allNotesById = new Map((db.notes || []).filter(n => !n.deletedAt).map(n => [n.id, n]));
-    const followups = (db.tasks || []).filter(t => !t.deletedAt && t.status !== 'DONE' && (t.tags || []).includes('paper-followup'));
+    const isResearchSource = (noteId) => {
+      const src = allNotesById.get(noteId);
+      if (!src) return false;
+      if ((src.tags || []).includes('paper')) return true;
+      if (nb && src.notebookId === nb.id) return true;
+      return false;
+    };
+    const followups = (db.tasks || []).filter(t => !t.deletedAt && t.status !== 'DONE' && (t.tags || []).includes('paper-followup') && isResearchSource(t.noteId));
     const followupsByNote = new Map();
     followups.forEach(t => {
       const arr = followupsByNote.get(t.noteId) || [];
@@ -735,7 +744,10 @@ Things outside UltraNote that compound. Adopt one at a time.
       : `<div class="research-empty">${empty}</div>`;
 
     const origin = location.origin;
-    const bookmarklet = `javascript:(function(){var u=encodeURIComponent((document.getSelection().toString()||document.title)+' — '+location.href);window.open('${origin}/?capture='+u,'_blank','noopener');})();`;
+    // Named target ('ultranote') makes the browser reuse the same tab/window on
+    // subsequent clicks instead of spawning a new instance each time.
+    // .focus() then brings it forward. Drop noopener so .focus() works.
+    const bookmarklet = `javascript:(function(){var u=encodeURIComponent((document.getSelection().toString()||document.title)+' — '+location.href);var w=window.open('${origin}/?capture='+u,'ultranote');if(w){try{w.focus();}catch(e){}}})();`;
 
     content.innerHTML = `
       <style>
