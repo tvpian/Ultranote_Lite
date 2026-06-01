@@ -355,6 +355,10 @@
         panel.dataset.sig = '';
         renderNoteTasksPanel();
         renderTodayBar();
+        // Flip the Checklist promoter badge from "→ tracked" to "✓ done".
+        const fup = document.getElementById('noteFollowupsSection');
+        if (fup) fup.dataset.sig = '';
+        renderFollowupsPanel();
       };
     });
   }
