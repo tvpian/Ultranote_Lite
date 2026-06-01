@@ -434,12 +434,12 @@
     const name = await showInputModal({
       title: '🗺️ New / open topic map',
       placeholder: 'e.g. shared autonomy · diffusion policies · social robot trust',
-      initial: prefill,
+      initial: stripFiledPrefix(prefill),
       confirmLabel: 'Open map',
     });
-    if (!name) return;
+    if (!name) return null;
     const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research' && !x.deletedAt);
-    if (!nb) { toast('🔬 Research notebook missing'); return; }
+    if (!nb) { toast('🔬 Research notebook missing'); return null; }
     const title = `🗺️ Topic Map — ${name}`;
     const existed = !!findNote(n => n.notebookId === nb.id && n.title === title);
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -453,6 +453,7 @@
     if (typeof window.openNote === 'function') window.openNote(p.id);
     else if (typeof window.render === 'function') window.render();
     toast(existed ? 'Opened topic map: ' + name : 'New topic map: ' + name);
+    return { name, page: p };
   }
 
   async function newOrOpenSynthesis(prefill = ''){
@@ -735,6 +736,7 @@ Things outside UltraNote that compound. Adopt one at a time.
   // Internal sub-view state for the Research route: 'dashboard' (default)
   // or 'triage' (the structured per-line inbox triage workspace).
   let researchView = 'dashboard';
+  let triageShowFiled = false;
 
   function renderResearch(){
     if (researchView === 'triage') return renderTriage();
@@ -1001,19 +1003,30 @@ Things outside UltraNote that compound. Adopt one at a time.
     if (!content) return;
     const db = window.db;
     const inbox = findNote(n => n.title === '📥 Inbox');
-    const lines = parseInboxLines(inbox);
+    const allLines = parseInboxLines(inbox);
+    const filedCount = allLines.filter(l => isFiledLine(l.text)).length;
+    const unsortedCount = allLines.length - filedCount;
+    const visible = triageShowFiled
+      ? allLines.map((l, idx) => ({ ...l, idx }))
+      : allLines.map((l, idx) => ({ ...l, idx })).filter(l => !isFiledLine(l.text));
 
-    const rows = lines.map((l, idx) => `
-      <div class="triage-row" data-idx="${idx}">
+    const rows = visible.map(l => {
+      const filed = isFiledLine(l.text);
+      const topic = filed ? extractFiledTopic(l.text) : '';
+      const body = filed ? stripFiledPrefix(l.text) : l.text;
+      const tag = filed ? `<span class="triage-tag" title="Filed to topic map">🗺️ ${esc(topic)}</span>` : '';
+      return `
+      <div class="triage-row${filed ? ' triage-row-filed' : ''}" data-idx="${l.idx}">
         <div class="triage-meta">${esc(l.stamp || '')}</div>
-        <div class="triage-text" contenteditable="true" spellcheck="false" data-line-idx="${idx}">${esc(l.text)}</div>
+        <div class="triage-body">${tag}<div class="triage-text" contenteditable="true" spellcheck="false" data-line-idx="${l.idx}">${esc(body)}</div></div>
         <div class="triage-actions">
           <button data-act="paper" title="Promote to a paper note">📄</button>
-          <button data-act="topic" title="Open / create topic map">🗺️</button>
+          <button data-act="topic" title="${filed ? 'Re-file to a different topic map' : 'Open / create topic map'}">🗺️</button>
           <button data-act="defer" title="Defer (prepend 'later: ')">⏳</button>
           <button data-act="delete" title="Delete this line">🗑️</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     content.innerHTML = `
       <style>
@@ -1027,29 +1040,38 @@ Things outside UltraNote that compound. Adopt one at a time.
         .triage-list{display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 180px);overflow-y:auto;border:1px solid var(--border,#333);border-radius:12px;padding:8px;background:rgba(127,127,127,0.04);}
         .triage-row{display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center;padding:8px 10px;background:var(--card,transparent);border:1px solid var(--border,transparent);border-radius:8px;min-width:0;}
         .triage-row:hover{border-color:var(--accent,#4a90e2);}
+        .triage-row-filed{opacity:0.72;border-left:3px solid var(--accent,#4a90e2);}
+        .triage-row-filed:hover{opacity:1;}
         .triage-meta{font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        .triage-text{font-size:13px;outline:none;padding:4px 6px;border-radius:4px;min-width:0;word-break:break-word;}
+        .triage-body{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap;}
+        .triage-tag{font-size:11px;background:rgba(74,144,226,0.18);color:var(--accent,#4a90e2);border:1px solid rgba(74,144,226,0.35);padding:1px 7px;border-radius:10px;white-space:nowrap;font-weight:500;}
+        .triage-text{font-size:13px;outline:none;padding:4px 6px;border-radius:4px;min-width:0;word-break:break-word;flex:1;}
         .triage-text:focus{background:rgba(127,127,127,0.10);}
         .triage-actions{display:flex;gap:4px;}
         .triage-actions button{background:transparent;color:var(--text,inherit);border:1px solid var(--border,#444);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px;padding:0;}
         .triage-actions button:hover{background:rgba(127,127,127,0.18);}
         .triage-actions button[data-act="delete"]:hover{background:rgba(239,68,68,0.20);border-color:#ef4444;}
         .triage-actions button[data-act="paper"]:hover{background:rgba(74,144,226,0.22);border-color:var(--accent,#4a90e2);}
+        .triage-filed-toggle{background:transparent;color:var(--muted);border:1px dashed var(--border,#444);padding:4px 10px;border-radius:8px;font-size:11px;cursor:pointer;}
+        .triage-filed-toggle:hover{color:var(--text,inherit);border-style:solid;}
       </style>
       <div class="triage-wrap">
         <div class="triage-head">
           <div>
-            <h1>🔁 Triage — 📥 Inbox <span style="opacity:.6;font-weight:500;">(${lines.length})</span></h1>
+            <h1>🔁 Triage — 📥 Inbox <span style="opacity:.6;font-weight:500;">(${unsortedCount}${filedCount ? ` · ${filedCount} filed` : ''})</span></h1>
             <p>For each line: promote (📄/🗺️), defer (⏳), or delete (🗑️). Click the text to edit it inline.</p>
           </div>
-          <div style="display:flex;gap:6px;">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            ${filedCount ? `<button class="triage-filed-toggle" data-act="toggle-filed">${triageShowFiled ? `Hide filed (${filedCount})` : `Show filed (${filedCount})`}</button>` : ''}
             <button class="triage-capture" data-act="add">＋ Capture</button>
             <button class="triage-back" data-act="back">← Back to dashboard</button>
           </div>
         </div>
-        ${lines.length
+        ${visible.length
           ? `<div class="triage-list">${rows}</div>`
-          : `<div class="triage-empty">Inbox is empty. Press <strong>Alt+I</strong> to capture something, or click <strong>＋ Capture</strong> above.</div>`}
+          : (allLines.length
+              ? `<div class="triage-empty">All ${allLines.length} captures are filed. Click <strong>Show filed</strong> to review them.</div>`
+              : `<div class="triage-empty">Inbox is empty. Press <strong>Alt+I</strong> to capture something, or click <strong>＋ Capture</strong> above.</div>`)}
       </div>`;
 
     // Top-level buttons
@@ -1061,6 +1083,8 @@ Things outside UltraNote that compound. Adopt one at a time.
       await openInboxCapture();
       renderTriage();
     };
+    const toggleBtn = content.querySelector('[data-act="toggle-filed"]');
+    if (toggleBtn) toggleBtn.onclick = () => { triageShowFiled = !triageShowFiled; renderTriage(); };
 
     // Row buttons + inline edits
     content.querySelectorAll('.triage-row').forEach(row => {
@@ -1075,22 +1099,31 @@ Things outside UltraNote that compound. Adopt one at a time.
             deferInboxLine(idx);
             renderTriage();
           } else if (act === 'paper') {
-            const text = stripDeferPrefix(lines[idx].text);
+            const text = stripFiledPrefix(stripDeferPrefix(allLines[idx].text));
             await newPaperNote(text);
             removeInboxLineByIdx(idx);
             renderTriage();
           } else if (act === 'topic') {
-            const text = stripDeferPrefix(lines[idx].text);
-            await newOrOpenTopicMap(text);
+            const text = stripFiledPrefix(stripDeferPrefix(allLines[idx].text));
+            const result = await newOrOpenTopicMap(text);
+            if (result) {
+              appendTopicMapSource(result.page, text);
+              markInboxLineFiled(idx, result.name);
+              window.save();
+            }
             renderTriage();
           }
         };
       });
       const textEl = row.querySelector('.triage-text');
       textEl.addEventListener('blur', () => {
-        const newText = textEl.textContent.trim();
-        if (!newText) { removeInboxLineByIdx(idx); renderTriage(); return; }
-        if (newText !== lines[idx].text) {
+        const newBody = textEl.textContent.trim();
+        if (!newBody) { removeInboxLineByIdx(idx); renderTriage(); return; }
+        // Re-attach the filed-tag prefix (if any) so inline editing doesn't drop it.
+        const original = allLines[idx].text;
+        const topic = extractFiledTopic(original);
+        const newText = topic ? `🗺️ ${topic} · ${newBody}` : newBody;
+        if (newText !== original) {
           updateInboxLineText(idx, newText);
         }
       });
@@ -1254,6 +1287,12 @@ Things outside UltraNote that compound. Adopt one at a time.
   }
 
   function stripDeferPrefix(s){ return (s || '').replace(/^later:\s*/i, '').trim(); }
+  // Filed marker prefix: `🗺️ <topic> · <text>` — applied to an inbox line
+  // after it's been promoted to a topic map so the source capture stays
+  // visible in the queue without re-prompting you on the next triage pass.
+  function stripFiledPrefix(s){ return (s || '').replace(/^🗺️\s+[^·\n]+·\s*/, '').trim(); }
+  function isFiledLine(s){ return /^🗺️\s+[^·\n]+·/.test(s || ''); }
+  function extractFiledTopic(s){ const m = String(s||'').match(/^🗺️\s+([^·\n]+?)\s*·/); return m ? m[1].trim() : ''; }
 
   function _withInboxLines(fn){
     const inbox = findNote(n => n.title === '📥 Inbox');
@@ -1289,6 +1328,53 @@ Things outside UltraNote that compound. Adopt one at a time.
       if (i !== target) return raw;
       return raw.replace(/^(\s*-\s*\[[^\]]*\]\s*(?:\[[^\]]+\]\s*)?).*$/, `$1${newText}`);
     });
+  }
+
+  // Stamp an inbox line as filed to a topic map. Replaces an existing filed
+  // tag if one is present (so re-filing under a different topic is clean),
+  // and preserves any leading `later:` defer marker.
+  function markInboxLineFiled(target, topicName){
+    const safe = String(topicName || '').replace(/[\r\n·]+/g, ' ').trim();
+    if (!safe) return;
+    _withInboxLines((raw, i) => {
+      if (i !== target) return raw;
+      return raw.replace(
+        /^(\s*-\s*\[[^\]]*\]\s*(?:\[[^\]]+\]\s*)?)(later:\s*)?(?:🗺️\s+[^·\n]+·\s*)?(.*)$/,
+        (_m, prefix, later, body) => `${prefix}${later || ''}🗺️ ${safe} · ${body}`
+      );
+    });
+  }
+
+  // Append a captured inbox-line source under a topic map's "Related paper
+  // notes" section. Idempotent: skips duplicates and consumes the empty
+  // `- [[ ]]` placeholder on first insertion. Leaves the page untouched if
+  // the section isn't found (user may have customised the template).
+  function appendTopicMapSource(page, sourceText){
+    if (!page) return;
+    const clean = stripFiledPrefix(stripDeferPrefix(String(sourceText || ''))).trim();
+    if (!clean) return;
+    const lines = (page.content || '').split('\n');
+    const hdrIdx = lines.findIndex(l => /^##\s*🔗\s*Related paper notes/i.test(l));
+    if (hdrIdx < 0) return;
+    let endIdx = lines.length;
+    for (let i = hdrIdx + 1; i < lines.length; i++) {
+      if (/^##\s/.test(lines[i])) { endIdx = i; break; }
+    }
+    for (let i = hdrIdx + 1; i < endIdx; i++) {
+      if (lines[i].includes(clean)) return; // dedupe
+    }
+    const bullet = `- ${clean}`;
+    let replaced = false;
+    for (let i = hdrIdx + 1; i < endIdx; i++) {
+      if (lines[i].trim() === '- [[ ]]') { lines[i] = bullet; replaced = true; break; }
+    }
+    if (!replaced) {
+      let ins = endIdx;
+      while (ins > hdrIdx + 1 && lines[ins - 1].trim() === '') ins--;
+      lines.splice(ins, 0, bullet);
+    }
+    page.content = lines.join('\n');
+    page.updatedAt = nowISO();
   }
 
   // ------------------------------------------------------------------
