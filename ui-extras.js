@@ -180,7 +180,7 @@
         });
       });
       (db.tasks || [])
-        .filter((t) => t.status !== 'DONE' && !t.deletedAt)
+        .filter((t) => t.status !== 'DONE' && !t.deletedAt && !(typeof window.isUndivergedRecurringTask === 'function' && window.isUndivergedRecurringTask(t)))
         .slice(0, 300)
         .forEach((t) => {
           items.push({

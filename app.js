@@ -1866,6 +1866,35 @@ function _recurringTitlesForMonth(dateKey){
   return titles;
 }
 
+// Broader version: titles of ALL non-deleted recurring monthly entries
+// regardless of month. Used to hide legacy materialized duplicates from
+// any cross-time task listing (Pending, Upcoming, Ctrl+K palette).
+function _allRecurringTitles(){
+  const titles = new Set();
+  (db.monthly || []).forEach(m => {
+    if(m.deletedAt) return;
+    titles.add((m.title || '').toLowerCase());
+  });
+  return titles;
+}
+
+// Shared dedup predicate: true if `t` is an undiverged materialized copy
+// of a recurring monthly task (same title, no user customization). Used
+// to hide such rows from listings while preserving the underlying data.
+function isUndivergedRecurringTask(t, titles){
+  titles = titles || _allRecurringTitles();
+  if(!t || !titles.has((t.title || '').toLowerCase())) return false;
+  if(t.status !== 'TODO') return false;
+  if(t.due) return false;
+  if(t.description) return false;
+  if(Array.isArray(t.subtasks) && t.subtasks.length) return false;
+  if(t.priority && t.priority !== 'medium') return false;
+  if(t.projectId) return false;
+  return true;
+}
+window.isUndivergedRecurringTask = isUndivergedRecurringTask;
+window._allRecurringTitles = _allRecurringTitles;
+
 // Dead code from the old materialize-on-render path; kept commented for
 // reference until the trial is accepted or reverted.
 function _OLD_syncMonthlyTasksToDaily_DISABLED(daily, dateKey){
@@ -2966,7 +2995,7 @@ function renderReview(){
     const completed = tasks.filter(t=> t.status === 'DONE').length;
     return { project: p, total: tasks.length, completed, progress: tasks.length ? Math.round(completed/tasks.length*100) : 0 };
   }).filter(s=> s.total > 0);
-  const pendingAll = db.tasks.filter(t=> t.status==='TODO' && t.status!=='BACKLOG' && !t.deletedAt);
+  const pendingAll = db.tasks.filter(t=> t.status==='TODO' && t.status!=='BACKLOG' && !t.deletedAt && !isUndivergedRecurringTask(t));
   const backlogAll = db.tasks.filter(t=> t.status==='BACKLOG' && !t.deletedAt);
   const pPriority = {high:3,medium:2,low:1};
   pendingAll.sort((a,b)=> (pPriority[b.priority]||2)-(pPriority[a.priority]||2));
@@ -2975,7 +3004,7 @@ function renderReview(){
   // Upcoming tasks: tasks with a due date within next 7 days and still pending (TODO)
   const today = new Date();
   const in7 = new Date(); in7.setDate(today.getDate()+7);
-  const upcoming = db.tasks.filter(t => t.status==='TODO' && t.due && !t.deletedAt && new Date(t.due) >= today && new Date(t.due) <= in7);
+  const upcoming = db.tasks.filter(t => t.status==='TODO' && t.due && !t.deletedAt && !isUndivergedRecurringTask(t) && new Date(t.due) >= today && new Date(t.due) <= in7);
   upcoming.sort((a,b)=> new Date(a.due) - new Date(b.due));
 
   // Precompute HTML for completed tasks history. Sort by completion date (latest first).
