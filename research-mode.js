@@ -121,7 +121,8 @@
     return tag === 'input' || tag === 'textarea' || el.isContentEditable;
   }
 
-  function toast(msg){
+  function toast(msg, opts){
+    opts = opts || {};
     let t = document.getElementById('research-toast');
     if (!t) {
       t = document.createElement('div'); t.id = 'research-toast';
@@ -129,14 +130,33 @@
         position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
         background: 'rgba(0,0,0,0.82)', color: '#fff', padding: '9px 16px',
         borderRadius: '10px', zIndex: 99999, fontSize: '13px',
-        fontFamily: 'system-ui, sans-serif', pointerEvents: 'none',
-        opacity: '0', transition: 'opacity .18s'
+        fontFamily: 'system-ui, sans-serif',
+        opacity: '0', transition: 'opacity .18s',
+        display: 'flex', alignItems: 'center', gap: '12px'
       });
       document.body.appendChild(t);
     }
-    t.textContent = msg;
+    t.innerHTML = '';
+    t.style.pointerEvents = opts.actionLabel ? 'auto' : 'none';
+    const span = document.createElement('span');
+    span.textContent = msg;
+    t.appendChild(span);
+    if (opts.actionLabel && typeof opts.onAction === 'function') {
+      const btn = document.createElement('button');
+      btn.textContent = opts.actionLabel;
+      Object.assign(btn.style, {
+        background: 'transparent', color: '#7fb3ff', border: 'none',
+        padding: '2px 6px', fontWeight: '600', fontSize: '13px', cursor: 'pointer',
+        textTransform: 'uppercase', letterSpacing: '0.04em'
+      });
+      btn.onclick = () => {
+        try { opts.onAction(); } finally { t.style.opacity = '0'; clearTimeout(t._h); }
+      };
+      t.appendChild(btn);
+    }
     t.style.opacity = '1';
-    clearTimeout(t._h); t._h = setTimeout(() => { t.style.opacity = '0'; }, 1800);
+    clearTimeout(t._h);
+    t._h = setTimeout(() => { t.style.opacity = '0'; }, opts.duration || 1800);
   }
 
   // ------------------------------------------------------------------
@@ -569,7 +589,7 @@
     if (typeof window.openNote === 'function') window.openNote(p.id);
     else if (typeof window.render === 'function') window.render();
     toast(existed ? 'Opened topic map: ' + name : 'New topic map: ' + name);
-    return { name, page: p };
+    return { name, page: p, existed };
   }
 
   async function newOrOpenSynthesis(prefill = ''){
@@ -1136,6 +1156,7 @@ Things outside UltraNote that compound. Adopt one at a time.
         <div class="triage-meta">${esc(l.stamp || '')}</div>
         <div class="triage-body">${tag}<div class="triage-text" contenteditable="true" spellcheck="false" data-line-idx="${l.idx}">${esc(body)}</div></div>
         <div class="triage-actions">
+          ${filed ? `<button data-act="unfile" title="Unfile — remove topic tag, return to triage">↩︎</button>` : ''}
           <button data-act="paper" title="Promote to a paper note">📄</button>
           <button data-act="topic" title="${filed ? 'Re-file to a different topic map' : 'Open / create topic map'}">🗺️</button>
           <button data-act="defer" title="Defer (prepend 'later: ')">⏳</button>
@@ -1226,7 +1247,30 @@ Things outside UltraNote that compound. Adopt one at a time.
               appendTopicMapSource(result.page, text);
               markInboxLineFiled(idx, result.name);
               window.save();
+              const wasCreated = !result.existed;
+              const mapId = result.page.id;
+              const filedIdx = idx;
+              const filedName = result.name;
+              const sourceText = text;
+              toast(`Filed to ${filedName}`, {
+                actionLabel: 'Undo',
+                duration: 9000,
+                onAction: () => {
+                  unfileInboxLine(filedIdx);
+                  const page = (window.db.notes || []).find(n => n.id === mapId);
+                  if (page) removeTopicMapSource(page, sourceText);
+                  if (wasCreated && page) { page.deletedAt = nowISO(); page.updatedAt = page.deletedAt; }
+                  window.save();
+                  toast('Undone' + (wasCreated ? ' — topic map removed' : ''));
+                  researchView = 'triage';
+                  renderTriage();
+                }
+              });
             }
+            renderTriage();
+          } else if (act === 'unfile') {
+            unfileInboxLine(idx);
+            toast('Unfiled — back in triage');
             renderTriage();
           }
         };
@@ -1461,6 +1505,19 @@ Things outside UltraNote that compound. Adopt one at a time.
     });
   }
 
+  // Remove the filed-tag prefix from an inbox line, restoring it to the
+  // unsorted triage queue. Inverse of markInboxLineFiled. Preserves any
+  // leading `later:` defer marker.
+  function unfileInboxLine(target){
+    _withInboxLines((raw, i) => {
+      if (i !== target) return raw;
+      return raw.replace(
+        /^(\s*-\s*\[[^\]]*\]\s*(?:\[[^\]]+\]\s*)?)(later:\s*)?🗺️\s+[^·\n]+·\s*(.*)$/,
+        (_m, prefix, later, body) => `${prefix}${later || ''}${body}`
+      );
+    });
+  }
+
   // Append a captured inbox-line source under a topic map's "Related paper
   // notes" section. Idempotent: skips duplicates and consumes the empty
   // `- [[ ]]` placeholder on first insertion. Leaves the page untouched if
@@ -1488,6 +1545,38 @@ Things outside UltraNote that compound. Adopt one at a time.
       let ins = endIdx;
       while (ins > hdrIdx + 1 && lines[ins - 1].trim() === '') ins--;
       lines.splice(ins, 0, bullet);
+    }
+    page.content = lines.join('\n');
+    page.updatedAt = nowISO();
+  }
+
+  // Inverse of appendTopicMapSource: remove the bullet that matches the
+  // given source text from the page's Related section. If removing leaves
+  // the section bullet-less, restore the `- [[ ]]` placeholder so the
+  // template stays well-formed.
+  function removeTopicMapSource(page, sourceText){
+    if (!page) return;
+    const clean = stripFiledPrefix(stripDeferPrefix(String(sourceText || ''))).trim();
+    if (!clean) return;
+    const lines = (page.content || '').split('\n');
+    const hdrIdx = lines.findIndex(l => /^##\s*🔗\s*Related paper notes/i.test(l));
+    if (hdrIdx < 0) return;
+    let endIdx = lines.length;
+    for (let i = hdrIdx + 1; i < lines.length; i++) {
+      if (/^##\s/.test(lines[i])) { endIdx = i; break; }
+    }
+    let removed = false;
+    for (let i = endIdx - 1; i > hdrIdx; i--) {
+      if (lines[i].includes(clean) && /^\s*-\s/.test(lines[i])) {
+        lines.splice(i, 1); removed = true; endIdx--; break;
+      }
+    }
+    if (!removed) return;
+    const anyBullet = lines.slice(hdrIdx + 1, endIdx).some(l => /^\s*-\s/.test(l));
+    if (!anyBullet) {
+      let ins = endIdx;
+      while (ins > hdrIdx + 1 && lines[ins - 1].trim() === '') ins--;
+      lines.splice(ins, 0, '- [[ ]]');
     }
     page.content = lines.join('\n');
     page.updatedAt = nowISO();
