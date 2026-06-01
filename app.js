@@ -683,7 +683,11 @@ async function initApp(){
   // Draw initial UI
   drawProjectsSidebar();
   applyTheme();
-  render();
+  // Restore last route/note from sessionStorage so reload doesn't always land
+  // on Today. Falls back to render() (Today) when nothing was saved.
+  if (!_navRestoreSession()) {
+    render();
+  }
   
   // Start auto-sync for real-time cross-session updates
   if (typeof startAutoSync === 'function') {
@@ -713,6 +717,7 @@ async function initApp(){
       window.__originalRender.apply(this, arguments);
   window.db = db; // keep global pointer current
       bindTypingGuards();
+      try { _navSaveSession(); } catch(_) {}
     };
   }
   // Bind Sync Now button if present
@@ -1313,6 +1318,7 @@ function _navPush() {
   if (window._navPopping) return;
   window._navHistory.push(_navSnapshot());
   if (window._navHistory.length > 80) window._navHistory.shift(); // cap memory
+  try { history.pushState({ _unNav: true }, ''); } catch(_) {}
 }
 function _navPop() {
   if (!window._navHistory || !window._navHistory.length) {
@@ -1338,6 +1344,56 @@ function _navPop() {
   window._navPopping = false;
 }
 // --- End navigation history ---
+
+// --- Browser-history + reload persistence ---
+// Without this the Android back button leaves the PWA, and reloading any
+// page drops you back on Today. We push a marker on each in-app navigation
+// so back maps to _navPop(), and persist the current view to sessionStorage
+// so a hard reload restores it.
+if (!window._unNavWired) {
+  window._unNavWired = true;
+  try { history.replaceState({ _unBase: true }, ''); } catch(_) {}
+  window.addEventListener('popstate', (e) => {
+    if (e && e.state && e.state._unNav) { _navPop(); return; }
+    // Returned to the base history entry. If our in-app stack still has the
+    // pre-navigation snapshot, restore it so back lands the user on the
+    // initial view (not a stale one). When the stack is also empty the
+    // browser's next back press will leave the app, which is correct.
+    if (e && e.state && e.state._unBase && window._navHistory && window._navHistory.length) {
+      _navPop();
+      // Re-establish the base marker so the user can keep navigating without
+      // immediately exiting on the next back press.
+      try { history.replaceState({ _unBase: true }, ''); } catch(_) {}
+    }
+  });
+}
+function _navSaveSession() {
+  try { sessionStorage.setItem('un_view', JSON.stringify(_navSnapshot())); } catch(_) {}
+}
+function _navRestoreSession() {
+  try {
+    const raw = sessionStorage.getItem('un_view');
+    if (!raw) return false;
+    const st = JSON.parse(raw);
+    if (!st || !st.route) return false;
+    route              = st.route;
+    currentProjectId   = st.projectId   || null;
+    currentNotebookId  = st.notebookId  || null;
+    currentPageId      = st.pageId      || null;
+    if (st.dailyDate)  selectedDailyDate = st.dailyDate;
+    if (st.noteId && (db.notes||[]).some(n => n.id === st.noteId && !n.deletedAt)) {
+      window._openNoteId = st.noteId;
+      try { openNote(st.noteId); } catch(_) { render(); }
+    } else if (st.route === 'notebooks' && st.notebookId) {
+      try { renderNotebookDetail(st.notebookId); } catch(_) { render(); }
+    } else {
+      render();
+    }
+    return true;
+  } catch(_) { return false; }
+}
+window._navSaveSession    = _navSaveSession;
+window._navRestoreSession = _navRestoreSession;
 
 function renderNav(){
   nav.innerHTML = sections.map(s => `<button data-route="${s.id}" class="${route===s.id?'active':''}">${s.label}</button>`).join("");
@@ -5161,6 +5217,7 @@ function openNote(id){
   // Record which note is open and reset dirty flag when opening.
   window._openNoteId = n.id;
   window._editorDirty = false;
+  try { if(typeof _navSaveSession === 'function') _navSaveSession(); } catch(_) {}
   content.innerHTML = `
     <div class="card">
       ${(() => {
@@ -6435,13 +6492,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   const menuBtn = document.getElementById('menuToggle');
   if(menuBtn && !menuBtn.dataset.bound){
-    menuBtn.onclick = ()=>{ document.body.classList.toggle('drawer-open'); };
+    menuBtn.onclick = (e)=>{ e.stopPropagation(); document.body.classList.toggle('drawer-open'); };
     menuBtn.dataset.bound='1';
   }
-  // Close drawer when navigating (desktop or mobile)
+  // Close drawer when: (a) clicking the backdrop / anywhere outside the
+  // sidebar, or (b) tapping an actionable element inside the sidebar so
+  // navigation closes the drawer automatically.
   document.addEventListener('click', e=>{
-    if(document.body.classList.contains('drawer-open')){
-      if(e.target.matches('main, main *')){ document.body.classList.remove('drawer-open'); }
+    if(!document.body.classList.contains('drawer-open')) return;
+    const inAside = e.target.closest('aside');
+    const onMenuBtn = e.target.closest('#menuToggle');
+    if(onMenuBtn) return; // handled by the toggle above
+    if(!inAside){
+      document.body.classList.remove('drawer-open');
+      return;
+    }
+    // Inside aside: close when user taps a button/link/note item so the
+    // selected view becomes visible. Plain clicks on whitespace stay open.
+    if(e.target.closest('button, a, [data-note-id], .projBtn, [role="button"]')){
+      document.body.classList.remove('drawer-open');
     }
   });
   // Await initialization to avoid race conditions on first user actions.

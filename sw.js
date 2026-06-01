@@ -1,4 +1,4 @@
-const CACHE = 'ultranote-lite-v105-capture-restore';
+const CACHE = 'ultranote-lite-v108-nav-history';
 const ASSETS = ['/', '/index.html', '/manifest.json', '/styles.css', '/app.js', '/autosync.js', '/ui-polish.js', '/ui-extras.js', '/editor-extras.js', '/power-features.js', '/research-mode.js', '/fonts/fonts.css'];
 self.addEventListener('install', e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
