@@ -307,6 +307,114 @@
     });
   }
 
+  // Topic-map picker. Combines "open existing" + "create new" into one modal:
+  // a search box at the top, a filtered list of existing maps, and a pinned
+  // "＋ Create new: <search>" row that appears when the search text doesn't
+  // exactly match anything. ↑/↓ navigate, Enter picks, Esc cancels. When
+  // invoked from triage we also show the source line as context so the user
+  // remembers which capture they're filing.
+  function showTopicMapPicker({ existing = [], initial = '', sourceText = '' } = {}){
+    return new Promise((resolve) => {
+      let overlay = document.getElementById('research-modal');
+      if (overlay) overlay.remove();
+      overlay = document.createElement('div');
+      overlay.id = 'research-modal';
+      overlay.innerHTML = `
+        <style>
+          #research-modal{position:fixed;inset:0;z-index:99998;display:flex;align-items:flex-start;justify-content:center;
+            padding-top:14vh;background:rgba(0,0,0,0.42);backdrop-filter:blur(2px);animation:rmfade .12s ease-out;}
+          @keyframes rmfade{from{opacity:0}to{opacity:1}}
+          #research-modal .rm-box{background:var(--card,#1a1a1a);color:var(--text,inherit);border:1px solid var(--border,#333);
+            border-radius:14px;padding:18px 20px;min-width:min(560px, 92vw);max-width:92vw;box-shadow:0 18px 60px rgba(0,0,0,0.55);}
+          #research-modal .rm-title{font-weight:700;font-size:15px;margin-bottom:6px;}
+          #research-modal .rm-context{font-size:11px;color:var(--muted,#999);margin-bottom:10px;padding:6px 9px;
+            background:rgba(127,127,127,0.10);border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+          #research-modal .rm-input{width:100%;box-sizing:border-box;background:rgba(127,127,127,0.10);
+            color:var(--text,inherit);border:1px solid var(--border,#333);border-radius:8px;padding:10px 12px;font-size:14px;
+            font-family:inherit;outline:none;}
+          #research-modal .rm-input:focus{border-color:var(--accent,#4a90e2);}
+          #research-modal .rm-list{margin-top:10px;max-height:260px;overflow-y:auto;border:1px solid var(--border,#333);
+            border-radius:8px;background:rgba(127,127,127,0.04);}
+          #research-modal .rm-item{padding:8px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;
+            border-bottom:1px solid rgba(127,127,127,0.08);}
+          #research-modal .rm-item:last-child{border-bottom:none;}
+          #research-modal .rm-item.active,#research-modal .rm-item:hover{background:rgba(74,144,226,0.18);}
+          #research-modal .rm-item-icon{opacity:0.7;font-size:12px;width:16px;text-align:center;}
+          #research-modal .rm-item-create{color:var(--accent,#4a90e2);font-weight:600;}
+          #research-modal .rm-empty{padding:18px;text-align:center;color:var(--muted,#999);font-size:12px;}
+          #research-modal .rm-hint{font-size:11px;color:var(--muted,#999);margin-top:10px;display:flex;justify-content:space-between;gap:8px;}
+          #research-modal .rm-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;}
+          #research-modal .rm-actions button{padding:8px 14px;border-radius:8px;border:1px solid var(--border,#333);
+            background:transparent;color:var(--text,inherit);font-size:13px;cursor:pointer;}
+          #research-modal .rm-actions button:hover{filter:brightness(1.1);}
+        </style>
+        <div class="rm-box" role="dialog" aria-modal="true">
+          <div class="rm-title">🗺️ File to topic map</div>
+          ${sourceText ? `<div class="rm-context" title="${esc(sourceText)}">Filing: ${esc(sourceText)}</div>` : ''}
+          <input class="rm-input" type="text" placeholder="Search or type a new topic name…" value="${esc(initial || '')}" />
+          <div class="rm-list" role="listbox"></div>
+          <div class="rm-hint">
+            <span>↑/↓ navigate · Enter pick · Esc cancel</span>
+            <span class="rm-counter"></span>
+          </div>
+          <div class="rm-actions"><button class="rm-cancel">Cancel</button></div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const field = overlay.querySelector('.rm-input');
+      const listEl = overlay.querySelector('.rm-list');
+      const counter = overlay.querySelector('.rm-counter');
+      let activeIdx = 0;
+      let items = []; // [{name, isNew}]
+      const done = (val) => { overlay.remove(); resolve(val); };
+
+      function render(){
+        const q = (field.value || '').trim();
+        const ql = q.toLowerCase();
+        const matches = q
+          ? existing.filter(n => n.toLowerCase().includes(ql))
+          : existing.slice();
+        const exact = q && existing.some(n => n.toLowerCase() === ql);
+        items = matches.map(n => ({ name: n, isNew: false }));
+        if (q && !exact) items.push({ name: q, isNew: true });
+        if (activeIdx >= items.length) activeIdx = items.length - 1;
+        if (activeIdx < 0) activeIdx = 0;
+        if (!items.length) {
+          listEl.innerHTML = `<div class="rm-empty">No topic maps yet — type a name above to create your first one.</div>`;
+          counter.textContent = '';
+          return;
+        }
+        listEl.innerHTML = items.map((it, i) => `
+          <div class="rm-item${i === activeIdx ? ' active' : ''}${it.isNew ? ' rm-item-create' : ''}" data-idx="${i}">
+            <span class="rm-item-icon">${it.isNew ? '＋' : '🗺️'}</span>
+            <span>${it.isNew ? `Create new: ${esc(it.name)}` : esc(it.name)}</span>
+          </div>`).join('');
+        counter.textContent = `${matches.length}/${existing.length}`;
+        const active = listEl.querySelector('.rm-item.active');
+        if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+      }
+
+      field.addEventListener('input', () => { activeIdx = 0; render(); });
+      field.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); done(null); }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); if (items.length){ activeIdx = (activeIdx + 1) % items.length; render(); } }
+        else if (e.key === 'ArrowUp')   { e.preventDefault(); if (items.length){ activeIdx = (activeIdx - 1 + items.length) % items.length; render(); } }
+        else if (e.key === 'Enter') {
+          e.preventDefault();
+          if (items[activeIdx]) done(items[activeIdx].name);
+        }
+      });
+      listEl.addEventListener('click', (e) => {
+        const row = e.target.closest('.rm-item');
+        if (!row) return;
+        const i = +row.dataset.idx;
+        if (items[i]) done(items[i].name);
+      });
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) done(null); });
+      overlay.querySelector('.rm-cancel').onclick = () => done(null);
+      setTimeout(() => { field.focus(); field.select(); render(); }, 10);
+    });
+  }
+
   async function openInboxCapture(initialText = ''){
     const text = await showInputModal({
       title: '📥 Capture to research inbox',
@@ -431,15 +539,23 @@
   }
 
   async function newOrOpenTopicMap(prefill = ''){
-    const name = await showInputModal({
-      title: '🗺️ New / open topic map',
-      placeholder: 'e.g. shared autonomy · diffusion policies · social robot trust',
-      initial: stripFiledPrefix(prefill),
-      confirmLabel: 'Open map',
-    });
-    if (!name) return null;
     const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research' && !x.deletedAt);
     if (!nb) { toast('🔬 Research notebook missing'); return null; }
+    const existing = (window.db.notes || [])
+      .filter(n => !n.deletedAt && n.notebookId === nb.id && typeof n.title === 'string'
+        && n.title.startsWith('🗺️ Topic Map — ') && n.title !== '🗺️ Topic Maps — Index')
+      .map(n => n.title.replace('🗺️ Topic Map — ', ''))
+      .sort((a, b) => a.localeCompare(b));
+    const cleanPrefill = stripFiledPrefix(prefill);
+    const name = await showTopicMapPicker({
+      existing,
+      // If the prefill looks like a captured line (long, has URL), leave search empty
+      // and surface it as context instead — the user almost never wants a topic map
+      // literally named after a paper title.
+      initial: (cleanPrefill && cleanPrefill.length <= 60 && !/https?:\/\//i.test(cleanPrefill)) ? cleanPrefill : '',
+      sourceText: cleanPrefill || '',
+    });
+    if (!name) return null;
     const title = `🗺️ Topic Map — ${name}`;
     const existed = !!findNote(n => n.notebookId === nb.id && n.title === title);
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
