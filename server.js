@@ -426,6 +426,28 @@ app.get('/api/db', (req, res) => {
   res.json(data);
 });
 
+// arXiv metadata proxy. arXiv's Atom API doesn't send CORS headers, so the
+// browser can't call it directly — we proxy through this endpoint. Strictly
+// limited to a single ID per request; the upstream URL is constructed from a
+// validated ID so we can't be tricked into proxying arbitrary URLs.
+app.get('/api/arxiv', async (req, res) => {
+  const id = String(req.query.id || '').trim();
+  if (!/^([a-z\-]+\/\d{7}|\d{4}\.\d{4,5})(v\d+)?$/i.test(id)) {
+    return res.status(400).json({ error: 'Invalid arXiv id' });
+  }
+  try {
+    const url = `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(id)}`;
+    const upstream = await fetch(url, { headers: { 'User-Agent': 'UltraNote-Lite/1.0 (local research tool)' } });
+    if (!upstream.ok) return res.status(502).json({ error: 'arxiv upstream ' + upstream.status });
+    const xml = await upstream.text();
+    res.set('Content-Type', 'application/atom+xml; charset=utf-8');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(xml);
+  } catch (e) {
+    res.status(502).json({ error: 'arxiv fetch failed: ' + String(e && e.message || e) });
+  }
+});
+
 app.post('/api/db', (req, res) => {
   const incoming = req.body;
   if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {

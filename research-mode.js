@@ -42,7 +42,7 @@
     window.renderResearch = renderResearch;
     // Expose actions so the command palette (ui-extras.js) can offer them.
     window.researchCapture       = () => openInboxCapture();
-    window.researchNewPaper      = () => newPaperNote();
+    window.researchNewPaper      = (prefill) => newPaperNote(prefill || '');
     window.researchNewTopicMap   = () => newOrOpenTopicMap();
     window.researchNewSynthesis  = () => newOrOpenSynthesis();
     // Manual re-seed for users who deleted a core page and want it back.
@@ -341,25 +341,93 @@
   }
 
   async function newPaperNote(prefill = ''){
+    // If the prefill looks like it contains an arXiv link/ID, try to fetch the
+    // canonical title + authors + abstract from arXiv's API (CORS-enabled).
+    // Failure is silent — we just fall back to the raw prefill so this never
+    // blocks the user from creating a paper note.
+    let arxivMeta = null;
+    const aid = extractArxivId(prefill);
+    if (aid) {
+      try { arxivMeta = await fetchArxivMetaWithTimeout(aid, 3500); }
+      catch (e) { console.warn('[research-mode] arxiv fetch failed', e); }
+    }
+    const initial = arxivMeta?.title || prefill;
     const title = await showInputModal({
-      title: '📄 New paper note',
+      title: arxivMeta ? `📄 New paper note · arXiv:${aid}` : '📄 New paper note',
       placeholder: 'Paper title (or paste a citation — we keep just the title)',
-      initial: prefill,
+      initial,
       confirmLabel: 'Create note',
     });
     if (!title) return;
     const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research' && !x.deletedAt);
     if (!nb) { toast('🔬 Research notebook missing'); return; }
+    let content = PAPER_TEMPLATE.replace('{TITLE}', title).replace('{DATE}', todayStr());
+    if (arxivMeta) {
+      const authorsLine = arxivMeta.authors.join(', ');
+      const abs = arxivMeta.abstract.length > 600 ? arxivMeta.abstract.slice(0, 600) + '…' : arxivMeta.abstract;
+      content = content
+        .replace('- **Authors:**', `- **Authors:** ${authorsLine}`)
+        .replace('- **Venue / Year:**', `- **Venue / Year:** arXiv ${arxivMeta.year}`)
+        .replace('- **Link:**', `- **Link:** ${arxivMeta.link}`)
+        .replace('- **DOI / arXiv id:**', `- **DOI / arXiv id:** arXiv:${aid}`)
+        .replace(
+          '## TL;DR (3 lines, in your own words)\n-',
+          `## TL;DR (3 lines, in your own words)\n- _(paraphrase the arXiv abstract below — don't just paste it in your synthesis)_\n\n> ${abs.replace(/\n+/g, ' ')}`
+        );
+    }
     const p = ensurePage({
       title,
       notebookId: nb.id,
-      content: PAPER_TEMPLATE.replace('{TITLE}', title).replace('{DATE}', todayStr()),
+      content,
       tags: ['paper', 'research']
     });
     window.save();
     if (typeof window.openNote === 'function') window.openNote(p.id);
     else if (typeof window.render === 'function') window.render();
-    toast('New paper note: ' + p.title);
+    toast(arxivMeta ? 'New paper note (arXiv autofilled): ' + p.title : 'New paper note: ' + p.title);
+  }
+
+  // --- arXiv metadata helpers --------------------------------------
+  // Recognise both new-style IDs (2303.04137, with optional v2) and the old
+  // pre-2007 scheme (cs/0601001). Matches the most common URL shapes the
+  // bookmarklet captures: arxiv.org/abs/ID, /pdf/ID, /pdf/ID.pdf.
+  function extractArxivId(text){
+    if (!text) return null;
+    const s = String(text);
+    const m1 = s.match(/arxiv\.org\/(?:abs|pdf)\/([a-z\-]+\/\d{7}|\d{4}\.\d{4,5})(?:v\d+)?/i);
+    if (m1) return m1[1];
+    // Bare ID at the start of the line or after "arXiv:" / "arxiv "
+    const m2 = s.match(/\barxiv[:\s]+(\d{4}\.\d{4,5})\b/i);
+    if (m2) return m2[1];
+    return null;
+  }
+
+  function fetchArxivMetaWithTimeout(id, ms){
+    return new Promise((resolve, reject) => {
+      const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const timer = setTimeout(() => { if (ctl) ctl.abort(); reject(new Error('arxiv fetch timeout')); }, ms);
+      // Route through our own /api/arxiv proxy — arXiv's Atom endpoint doesn't
+      // set Access-Control-Allow-Origin, so a direct browser fetch fails.
+      const init = { headers: { 'X-Requested-With': 'XMLHttpRequest' } };
+      if (ctl) init.signal = ctl.signal;
+      fetch(`/api/arxiv?id=${encodeURIComponent(id)}`, init)
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(xml => {
+          clearTimeout(timer);
+          const doc = new DOMParser().parseFromString(xml, 'application/xml');
+          if (doc.querySelector('parsererror')) return resolve(null);
+          const entry = doc.querySelector('entry');
+          if (!entry) return resolve(null);
+          const title = (entry.querySelector('title')?.textContent || '').trim().replace(/\s+/g, ' ');
+          if (!title) return resolve(null);
+          const authors = Array.from(entry.querySelectorAll('author > name')).map(n => n.textContent.trim()).filter(Boolean);
+          const published = (entry.querySelector('published')?.textContent || '').slice(0, 4);
+          const abstract = (entry.querySelector('summary')?.textContent || '').trim().replace(/\s+/g, ' ');
+          const link = (entry.querySelector('id')?.textContent || '').trim() || `https://arxiv.org/abs/${id}`;
+          resolve({ id, title, authors, year: published, abstract, link });
+        })
+        .catch(err => { clearTimeout(timer); reject(err); });
+    });
   }
 
   async function newOrOpenTopicMap(prefill = ''){
