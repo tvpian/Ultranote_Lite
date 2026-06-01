@@ -3135,6 +3135,8 @@ function renderReview(){
     const _daysSinceSynth = _lastSynth ? Math.floor((Date.now() - new Date(_lastSynth.updatedAt||_lastSynth.createdAt).getTime())/86400000) : null;
     const _synthColor = _daysSinceSynth == null ? '#64748b' : _daysSinceSynth > 35 ? '#ff6b6b' : _daysSinceSynth > 21 ? '#f0c040' : '#4caf9e';
     const _synthLabel = _daysSinceSynth == null ? 'no synthesis yet' : `${_daysSinceSynth}d since last synthesis`;
+    const _openFollowups = (db.tasks||[]).filter(t => !t.deletedAt && t.status !== 'DONE' && (t.tags||[]).includes('paper-followup')).length;
+    const _followupColor = _openFollowups === 0 ? '#4caf9e' : _openFollowups > 15 ? '#ff6b6b' : _openFollowups > 6 ? '#f0c040' : '#8b6dff';
     researchHtml = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
         <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
@@ -3152,6 +3154,10 @@ function renderReview(){
         <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;">
           <div style="font-size:20px;font-weight:700;color:${_synthColor};">${_synths.length}</div>
           <div style="font-size:11px;color:var(--muted);">📊 ${_synthLabel}</div>
+        </div>
+        <div style="background:var(--btn-bg);border-radius:8px;padding:8px 10px;grid-column:1 / -1;">
+          <div style="font-size:20px;font-weight:700;color:${_followupColor};">${_openFollowups}</div>
+          <div style="font-size:11px;color:var(--muted);">📌 open follow-ups (from paper checklists)</div>
         </div>
       </div>
       <div style="margin-top:8px;"><button class="btn" data-goto-research="1" style="font-size:11px;width:100%;">Open Research dashboard →</button></div>`;

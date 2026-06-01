@@ -699,6 +699,28 @@ Things outside UltraNote that compound. Adopt one at a time.
     const totalInbox = allInboxLines.length;
     const previewLines = allInboxLines.slice(0, 5);
 
+    // --- Follow-ups: open tasks promoted from any note's "- [ ]" checklist.
+    // Grouped by source note so you can see which paper still has loose ends.
+    const allNotesById = new Map((db.notes || []).filter(n => !n.deletedAt).map(n => [n.id, n]));
+    const followups = (db.tasks || []).filter(t => !t.deletedAt && t.status !== 'DONE' && (t.tags || []).includes('paper-followup'));
+    const followupsByNote = new Map();
+    followups.forEach(t => {
+      const arr = followupsByNote.get(t.noteId) || [];
+      arr.push(t);
+      followupsByNote.set(t.noteId, arr);
+    });
+    // Sort groups by most recent task creation; ungrouped (orphaned) bucket last.
+    const followupGroups = Array.from(followupsByNote.entries())
+      .map(([nid, ts]) => ({
+        note: allNotesById.get(nid) || null,
+        tasks: ts.sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''))
+      }))
+      .sort((a,b) => {
+        const aT = a.tasks[0]?.createdAt || '';
+        const bT = b.tasks[0]?.createdAt || '';
+        return bT.localeCompare(aT);
+      });
+
     const card = (title, body, footer='') => `
       <div class="research-card">
         <div class="research-card-title">${title}</div>
@@ -792,7 +814,31 @@ Things outside UltraNote that compound. Adopt one at a time.
              ${papers.length ? `<button class="research-chip" data-action="manage-papers">Manage all →</button>` : ''}`
           )}
 
-          ${card(`📊 Monthly synthesis<span class="research-count">${synths.length}</span>`,
+          ${card(`� Follow-ups<span class="research-count">${followups.length}</span>`,
+            followups.length
+              ? `<div class="research-scrollbox">${followupGroups.map(g => {
+                  const noteTitle = g.note ? esc(g.note.title || '(untitled)') : '<span class="research-empty" style="font-style:normal;">(source note deleted)</span>';
+                  const openAttr = g.note ? `data-open-id="${g.note.id}"` : '';
+                  const head = g.note
+                    ? `<button class="research-link" ${openAttr} style="font-weight:600;font-size:12px;">${noteTitle}</button>`
+                    : `<span style="font-weight:600;font-size:12px;color:var(--muted);">${noteTitle}</span>`;
+                  const rows = g.tasks.map(t => {
+                    const colors = { high: '#ff6b6b', medium: '#8b6dff', low: '#64748b' };
+                    const col = colors[t.priority || 'medium'];
+                    return `<label class="row" style="gap:8px;align-items:flex-start;padding:3px 0 3px 14px;cursor:pointer;border-left:3px solid ${col};margin-left:4px;">
+                      <input type="checkbox" data-followup-toggle="${esc(t.id)}">
+                      <span style="flex:1;font-size:12px;">${esc(t.title)}${t.due ? ` <span class="research-meta">· due ${esc(t.due)}</span>` : ''}</span>
+                    </label>`;
+                  }).join('');
+                  return `<div style="padding:6px 0;border-bottom:1px dashed var(--border,#444);">${head}<div>${rows}</div></div>`;
+                }).join('')}</div>`
+              : `<div class="research-empty">No open follow-ups. Inside any note, type <code>- [ ]</code> tasks then click <strong>→ Task</strong> in the "Checklist in this note" panel to track them here.</div>`,
+            followups.length
+              ? `Tick a box to mark done. Click a note title to open the source.`
+              : ''
+          )}
+
+          ${card(`�📊 Monthly synthesis<span class="research-count">${synths.length}</span>`,
             scrollList(synths, 'No synthesis notes yet. One is auto-suggested on the 1st of each month — or start one now.'),
             `<button class="research-chip" data-action="synth">＋ New</button>
              ${synths.length ? `<button class="research-chip" data-action="manage-synthesis">Manage all →</button>` : ''}
@@ -838,6 +884,17 @@ Things outside UltraNote that compound. Adopt one at a time.
       el.onclick = () => {
         const id = el.dataset.openId;
         if (typeof window.openNote === 'function') window.openNote(id);
+      };
+    });
+    // Follow-up checkbox: mark task DONE (or back to TODO) and re-render the dashboard
+    // so the row drops out of the list immediately.
+    content.querySelectorAll('[data-followup-toggle]').forEach(cb => {
+      cb.onchange = () => {
+        const id = cb.dataset.followupToggle;
+        if (typeof window.setTaskStatus === 'function') {
+          window.setTaskStatus(id, cb.checked ? 'DONE' : 'TODO');
+        }
+        renderDashboard();
       };
     });
     // Stop the bookmarklet from being followed when clicked from the app
