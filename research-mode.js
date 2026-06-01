@@ -316,11 +316,17 @@
       confirmLabel: 'Capture',
     });
     if (!text) return;
+    appendCaptureToInbox(text, /*silent*/ false);
+  }
+
+  // Silent capture path used by the bookmarklet handoff — no modal, no extra
+  // click. Returns true on success.
+  function appendCaptureToInbox(text, silent){
+    if (!text) return false;
     const inbox = findNote(n => n.title === '📥 Inbox');
-    if (!inbox) { toast('Inbox missing — reload page'); return; }
+    if (!inbox) { if (!silent) toast('Inbox missing — reload page'); return false; }
     const stamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
-    // Each non-empty line becomes its own captured row.
-    const newLines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+    const newLines = String(text).split(/\r?\n/).map(s => s.trim()).filter(Boolean)
       .map(line => `- [ ] [${stamp}] ${line}`).join('\n') + '\n';
     if (inbox.content.includes('## Captures')) {
       inbox.content = inbox.content.replace('## Captures\n', '## Captures\n' + newLines);
@@ -329,8 +335,9 @@
     }
     inbox.updatedAt = nowISO();
     window.save();
-    toast('Captured to 📥 Inbox');
+    toast(silent ? '📥 Captured (from bookmarklet)' : 'Captured to 📥 Inbox');
     if (window.route === 'research' && typeof window.render === 'function') window.render();
+    return true;
   }
 
   async function newPaperNote(prefill = ''){
@@ -1235,11 +1242,12 @@ Things outside UltraNote that compound. Adopt one at a time.
       _captureChannel = new BroadcastChannel('ultranote-capture');
       _captureChannel.onmessage = (ev) => {
         const msg = ev.data || {};
-        // Another tab is handing us a capture. Handle it locally + ack.
+        // Another tab is handing us a capture. Append silently + ack so the
+        // sender (the new bookmarklet tab) can close itself. No modal click
+        // needed — the user already typed the source URL via the bookmarklet.
         if (msg.type === 'capture' && typeof msg.text === 'string' && msg.token) {
           try { _captureChannel.postMessage({ type: 'ack', token: msg.token }); } catch(_) {}
-          try { window.focus(); } catch(_) {}
-          setTimeout(() => openInboxCapture(msg.text), 50);
+          appendCaptureToInbox(msg.text, /*silent*/ true);
         }
       };
     } catch(_) {}
@@ -1255,8 +1263,8 @@ Things outside UltraNote that compound. Adopt one at a time.
       history.replaceState(null, '', url.pathname + (url.search ? url.search : '') + url.hash);
       const ch = _ensureCaptureChannel();
       if (!ch) {
-        // No BroadcastChannel support — fall back to handling locally.
-        setTimeout(() => openInboxCapture(cap), 300);
+        // No BroadcastChannel support — silently append in this tab.
+        setTimeout(() => appendCaptureToInbox(cap, /*silent*/ true), 200);
         return;
       }
       // Try to hand off to an existing tab.
@@ -1272,11 +1280,12 @@ Things outside UltraNote that compound. Adopt one at a time.
       };
       ch.addEventListener('message', handler);
       try { ch.postMessage({ type: 'capture', text: cap, token }); } catch(_) {}
-      // If no sibling answers in time, become the primary handler ourselves.
+      // If no sibling answers in time, this tab is the only UltraNote instance —
+      // append silently here (same UX as the handoff path).
       setTimeout(() => {
         if (acked) return;
         ch.removeEventListener('message', handler);
-        openInboxCapture(cap);
+        appendCaptureToInbox(cap, /*silent*/ true);
       }, 450);
     } catch(_) {}
   }
