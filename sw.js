@@ -1,4 +1,4 @@
-const CACHE = 'ultranote-lite-v94-bookmarklet-singleton-research-scope';
+const CACHE = 'ultranote-lite-v95-capture-broadcast-handoff';
 const ASSETS = ['/', '/index.html', '/manifest.json', '/styles.css', '/app.js', '/autosync.js', '/ui-polish.js', '/ui-extras.js', '/editor-extras.js', '/power-features.js', '/research-mode.js', '/fonts/fonts.css'];
 self.addEventListener('install', e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));

@@ -65,6 +65,9 @@
     }
     // Handle ?capture=... from bookmarklet
     try { handleUrlCapture(); } catch(e){ console.error('[research-mode] urlCapture', e); }
+    // Listen for sibling-tab captures even when this tab wasn't the one opened
+    // by the bookmarklet — this is what lets us reuse a single instance.
+    try { _ensureCaptureChannel(); } catch(_){}
     // If we're already sitting on the route (e.g. SW reload), repaint now.
     if (window.route === 'research' && typeof window.render === 'function') {
       try { window.render(); } catch(_){}
@@ -1216,9 +1219,33 @@ Things outside UltraNote that compound. Adopt one at a time.
   // ------------------------------------------------------------------
   // URL capture handler (bookmarklet entry point)
   // ------------------------------------------------------------------
-  // The bookmarklet opens `https://<app>/?capture=<encoded>`. On boot we
-  // detect that param, prefill the capture modal, strip the param from the
-  // URL so reloads don't re-trigger it.
+  // The bookmarklet opens `https://<app>/?capture=<encoded>`. Browsers don't
+  // reliably honor a named window.open target across origins, so a fresh tab
+  // usually spawns even if UltraNote is already open elsewhere. To collapse
+  // back to a single instance we use a same-origin BroadcastChannel:
+  //   1. Every UltraNote tab listens on 'ultranote-capture'.
+  //   2. A newly-spawned capture tab broadcasts the captured text and waits
+  //      ~450ms for an ack from a sibling tab.
+  //   3. If a sibling acks, this tab closes itself; the sibling handles it.
+  //   4. If no ack arrives, this tab handles the capture itself.
+  let _captureChannel = null;
+  function _ensureCaptureChannel(){
+    if (_captureChannel || typeof BroadcastChannel === 'undefined') return _captureChannel;
+    try {
+      _captureChannel = new BroadcastChannel('ultranote-capture');
+      _captureChannel.onmessage = (ev) => {
+        const msg = ev.data || {};
+        // Another tab is handing us a capture. Handle it locally + ack.
+        if (msg.type === 'capture' && typeof msg.text === 'string' && msg.token) {
+          try { _captureChannel.postMessage({ type: 'ack', token: msg.token }); } catch(_) {}
+          try { window.focus(); } catch(_) {}
+          setTimeout(() => openInboxCapture(msg.text), 50);
+        }
+      };
+    } catch(_) {}
+    return _captureChannel;
+  }
+
   function handleUrlCapture(){
     try {
       const url = new URL(location.href);
@@ -1226,8 +1253,31 @@ Things outside UltraNote that compound. Adopt one at a time.
       if (!cap) return;
       url.searchParams.delete('capture');
       history.replaceState(null, '', url.pathname + (url.search ? url.search : '') + url.hash);
-      // Defer so the rest of the app finishes booting first.
-      setTimeout(() => openInboxCapture(cap), 300);
+      const ch = _ensureCaptureChannel();
+      if (!ch) {
+        // No BroadcastChannel support — fall back to handling locally.
+        setTimeout(() => openInboxCapture(cap), 300);
+        return;
+      }
+      // Try to hand off to an existing tab.
+      const token = 'cap-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
+      let acked = false;
+      const handler = (ev) => {
+        if (ev.data && ev.data.type === 'ack' && ev.data.token === token) {
+          acked = true;
+          ch.removeEventListener('message', handler);
+          // Hand-off complete — close this duplicate tab.
+          setTimeout(() => { try { window.close(); } catch(_) {} }, 80);
+        }
+      };
+      ch.addEventListener('message', handler);
+      try { ch.postMessage({ type: 'capture', text: cap, token }); } catch(_) {}
+      // If no sibling answers in time, become the primary handler ourselves.
+      setTimeout(() => {
+        if (acked) return;
+        ch.removeEventListener('message', handler);
+        openInboxCapture(cap);
+      }, 450);
     } catch(_) {}
   }
 
