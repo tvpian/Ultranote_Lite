@@ -4518,6 +4518,37 @@ input[type="datetime-local"] {
   font-style: italic;
 }
 
+/* Mobile-only floating quick-capture button.
+   Hidden by default; revealed at <=900px (matches #mobileBar breakpoint). */
+#mbCaptureFab {
+  display: none;
+  position: fixed;
+  right: 16px;
+  bottom: 86px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--acc);
+  color: #fff;
+  border: none;
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 300;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 8px 24px rgba(139,109,255,0.45),
+    0 2px 6px rgba(0,0,0,0.4);
+  cursor: pointer;
+  z-index: 130;
+  transition: transform 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+#mbCaptureFab:active { transform: scale(0.92); }
+@media (max-width: 900px) {
+  #mbCaptureFab { display: flex; }
+}
+
 #qcToast {
   position: fixed; left: 50%; bottom: 32px;
   transform: translateX(-50%) translateY(20px);

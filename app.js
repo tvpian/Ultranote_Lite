@@ -6449,6 +6449,58 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Begin checking for due task notifications after the app has been
   // initialized. This ensures db is loaded and available.
   startDueTaskNotifications();
+
+  // ----------------------------------------------------------------
+  // Mobile floating quick-capture button. Hidden on desktop via CSS.
+  // Bound here (rather than inside initApp) because the FAB lives in
+  // the static page body and only needs a single one-time wire-up.
+  // ----------------------------------------------------------------
+  const fab = document.getElementById('mbCaptureFab');
+  if(fab && !fab.dataset.bound){
+    fab.addEventListener('click', () => {
+      if(typeof openQuickCapture === 'function') openQuickCapture();
+    });
+    fab.dataset.bound = '1';
+  }
+
+  // ----------------------------------------------------------------
+  // External capture entry-point. Lets a bookmarklet, iOS Shortcut,
+  // Android intent, or the Web Share Target API (manifest.json) drop
+  // straight into the quick-capture panel pre-filled.
+  //
+  // Supported query params:
+  //   ?capture=<text>            Preferred, used by bookmarklets.
+  //   ?title=&text=&url=         Web Share Target format.
+  //
+  // The prefill is built as "<text-or-title> <url>" (trimmed) so the
+  // default "idea" route preserves the link inside the note title. The
+  // params are stripped from the URL after launch so a refresh does
+  // not re-trigger the capture panel.
+  // ----------------------------------------------------------------
+  try {
+    const p = new URLSearchParams(location.search);
+    const cap = p.get('capture');
+    const title = p.get('title') || '';
+    const text  = p.get('text')  || '';
+    const url   = p.get('url')   || '';
+    let prefill = null;
+    if(cap) prefill = cap;
+    else if(title || text || url){
+      prefill = [text || title, url].filter(Boolean).join(' ').trim();
+    }
+    if(prefill){
+      // Strip the trigger params so reload / share back doesn't replay.
+      const u = new URL(location.href);
+      ['capture','title','text','url','share'].forEach(k => u.searchParams.delete(k));
+      history.replaceState(null, '', u.pathname + (u.search ? '?'+u.searchParams.toString() : '') + u.hash);
+      // Give the app one paint to render before opening the panel.
+      setTimeout(() => {
+        if(typeof openQuickCapture === 'function') openQuickCapture(prefill);
+      }, 150);
+    }
+  } catch(err){
+    console.warn('capture URL param parse failed', err);
+  }
 });
 
 // ------------------------------------------------------------------

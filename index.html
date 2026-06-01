@@ -78,7 +78,7 @@
 </head>
 <body>
   <header>
-    <button id="menuToggle" class="btn" style="display:none;">☰</button>
+    <button id="menuToggle" class="btn" aria-label="Open menu">☰</button>
     <div class="title">UltraNote Lite</div>
     <div class="search"><input id="q" type="text" placeholder="Search · Ctrl+K palette · Alt+N quick capture" /></div>
     <div class="row hide-mobile" id="desktopActions">
@@ -171,6 +171,10 @@
     <button data-nav="assistant" class="btn" style="flex:1;">Assistant</button>
     <!-- <button id="mbNew" class="btn acc" style="flex:1;">New</button> -->
   </div>
+
+  <!-- Mobile-only floating quick-capture button.
+       Hidden on desktop (Alt+N is the keyboard equivalent there). -->
+  <button id="mbCaptureFab" type="button" aria-label="Quick capture" title="Quick capture">+</button>
 
   <!-- Sketch modal -->
   <div id="sketchModal" class="hidden">
