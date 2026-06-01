@@ -68,7 +68,8 @@ If Notion feels too heavy, Obsidian too plugin-laden, and Markdown-in-VS-Code to
   - `!` high-priority task · `.` normal task · `>` full note · `j` today's journal · `#tag` idea with tag · _(no prefix)_ → idea
 - **🔬 Research mode**: silent inbox capture from a bookmarklet, **arXiv auto-parsing**, **topic-map picker** to file straight into the right project, and one-click undo.
 - **📓 Notebooks** with multi-page markdown editing, **`[[wiki-links]]`** between notes (with alias support), and a **Map** view of the knowledge graph.
-- **🔍 Vault** — fast global search across notes, tasks, projects, links, and tags.
+- **� Monthly recurring habits + streak grid** — define a habit once (every day, weekdays only, Sundays, custom set), toggle it on Today, and the **Review** page renders a calendar heatmap of every ✅ / ❌ for the current month.
+- **�🔍 Vault** — fast global search across notes, tasks, projects, links, and tags.
 - **Command palette** (`Ctrl+K`) for instant fuzzy navigation, with materialized-recurring-task dedup so the list stays readable.
 - **Mobile-first PWA** — install to home screen, bottom nav bar, side-drawer tools, browser back-button works in-app, share-target capture from any other Android app via [HTTP Shortcuts](#mobile--phone-capture).
 - **100% local-first** — all data lives in a single `data.json` on _your_ machine. No cloud, no telemetry, no account.
@@ -163,13 +164,23 @@ A capture-first inbox for things you stumble on while reading.
 ### 📖 Journal, 🗓 Monthly, 📊 Review
 
 - **Journal** — chronological history view of every `## Journal` block from every daily note, with mood emoji, word count, search, and date filters.
-- **Monthly** — plan tasks across a month, grid or list view, drag/drop scheduling.
-- **Review** — an analytics dashboard: completion %, day streak, pending-by-priority chart, top project, most productive day, per-project progress bars, habit-streak heatmap, and a Research Pulse panel. Soft-deleted notes &amp; tasks live in **Review → Trash** with one-click restore — nothing is ever truly lost until you explicitly purge.
+- **Monthly** — the **recurring-task planner**. Define habits or rituals once (every day, weekdays only, specific weekdays, or a single weekday like Sunday) and they materialise as virtual tasks on every matching daily note. Toggling them complete on Today writes a `completions[YYYY-MM-DD] = true` flag straight onto the recurring entry — not a new task per day — which keeps Pending lists clean and lets the Review page reconstruct the full streak.
+- **Review** — an analytics dashboard: completion %, day streak, pending-by-priority chart, top project, most productive day, per-project progress bars, **a per-habit ✅ / ❌ / – grid for the current month** (driven by those `completions` flags), and a Research Pulse panel. Soft-deleted notes &amp; tasks live in **Review → Trash** with one-click restore — nothing is ever truly lost until you explicitly purge.
 
 <p align="center">
-  <img src="docs/screenshots/14-journal-history.png" width="410" alt="Journal history view with mood emoji and expanded entries">
-  <img src="docs/screenshots/15-review.png" width="410" alt="Review analytics with streaks, project progress, and habit grid"><br/>
-  <em>Left: <strong>Journal</strong> aggregates every daily `## Journal` block with mood, word count, and date filters.&nbsp; Right: <strong>Review</strong> is a real analytics page — streaks, per-project progress, habit heatmap, research pulse.</em>
+  <img src="docs/screenshots/08-monthly.png" width="410" alt="Monthly planning view with five recurring habits">
+  <img src="docs/screenshots/14-journal-history.png" width="410" alt="Journal history view with mood emoji and expanded entries"><br/>
+  <em>Left: <strong>Monthly</strong> — define each habit once with a schedule (every day, Weekdays, Sun-only, …).&nbsp; Right: <strong>Journal</strong> aggregates every daily `## Journal` block with mood, word count, and date filters.</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/18-habit-streaks.png" width="820" alt="Habit Streaks grid for the current month"><br/>
+  <em>The <strong>Habit Streaks</strong> grid on Review walks every recurring entry across the month: ✅ done, ❌ missed, – not scheduled today, · no daily note yet. Skim a row to spot the streak you don't want to break.</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/15-review.png" width="820" alt="Review analytics with streaks, project progress, and habit grid"><br/>
+  <em><strong>Review</strong> in full: completion %, day streak, pending-by-priority, top project / most productive day, per-project progress, the same habit heatmap inline, and Research Pulse.</em>
 </p>
 
 ### 🔍 Vault & 🔗 Links
