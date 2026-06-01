@@ -123,32 +123,40 @@
 
   function toast(msg, opts){
     opts = opts || {};
+    const interactive = !!(opts.actionLabel && typeof opts.onAction === 'function');
     let t = document.getElementById('research-toast');
     if (!t) {
       t = document.createElement('div'); t.id = 'research-toast';
       Object.assign(t.style, {
-        position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
-        background: 'rgba(0,0,0,0.82)', color: '#fff', padding: '9px 16px',
-        borderRadius: '10px', zIndex: 99999, fontSize: '13px',
+        position: 'fixed', bottom: '32px', left: '50%', transform: 'translateX(-50%)',
+        background: '#1a1f2e', color: '#fff',
+        padding: '14px 18px',
+        borderRadius: '12px', zIndex: 99999, fontSize: '14px',
         fontFamily: 'system-ui, sans-serif',
-        opacity: '0', transition: 'opacity .18s',
-        display: 'flex', alignItems: 'center', gap: '12px'
+        opacity: '0', transition: 'opacity .18s, transform .18s',
+        display: 'flex', alignItems: 'center', gap: '16px',
+        boxShadow: '0 10px 32px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.08)',
+        minWidth: '280px', maxWidth: '70vw'
       });
       document.body.appendChild(t);
     }
     t.innerHTML = '';
-    t.style.pointerEvents = opts.actionLabel ? 'auto' : 'none';
+    t.style.pointerEvents = interactive ? 'auto' : 'none';
+    t.style.borderLeft = interactive ? '4px solid #4a90e2' : 'none';
     const span = document.createElement('span');
     span.textContent = msg;
+    span.style.flex = '1';
     t.appendChild(span);
-    if (opts.actionLabel && typeof opts.onAction === 'function') {
+    if (interactive) {
       const btn = document.createElement('button');
       btn.textContent = opts.actionLabel;
       Object.assign(btn.style, {
-        background: 'transparent', color: '#7fb3ff', border: 'none',
-        padding: '2px 6px', fontWeight: '600', fontSize: '13px', cursor: 'pointer',
-        textTransform: 'uppercase', letterSpacing: '0.04em'
+        background: '#4a90e2', color: '#fff', border: 'none',
+        padding: '7px 14px', fontWeight: '700', fontSize: '13px', cursor: 'pointer',
+        textTransform: 'uppercase', letterSpacing: '0.06em', borderRadius: '8px'
       });
+      btn.onmouseenter = () => { btn.style.background = '#5fa0f0'; };
+      btn.onmouseleave = () => { btn.style.background = '#4a90e2'; };
       btn.onclick = () => {
         try { opts.onAction(); } finally { t.style.opacity = '0'; clearTimeout(t._h); }
       };
@@ -156,7 +164,7 @@
     }
     t.style.opacity = '1';
     clearTimeout(t._h);
-    t._h = setTimeout(() => { t.style.opacity = '0'; }, opts.duration || 1800);
+    t._h = setTimeout(() => { t.style.opacity = '0'; }, opts.duration || (interactive ? 12000 : 2000));
   }
 
   // ------------------------------------------------------------------
@@ -1269,8 +1277,17 @@ Things outside UltraNote that compound. Adopt one at a time.
             }
             renderTriage();
           } else if (act === 'unfile') {
+            const raw = allLines[idx].text;
+            const topic = extractFiledTopic(raw);
+            const body = stripFiledPrefix(raw);
             unfileInboxLine(idx);
-            toast('Unfiled — back in triage');
+            if (topic) {
+              const nb = (window.db.notebooks || []).find(x => x.title === '🔬 Research' && !x.deletedAt);
+              const mapTitle = `🗺️ Topic Map — ${topic}`;
+              const page = nb ? (window.db.notes || []).find(n => !n.deletedAt && n.notebookId === nb.id && n.title === mapTitle) : null;
+              if (page) { removeTopicMapSource(page, body); window.save(); }
+            }
+            toast(topic ? `Unfiled from ${topic}` : 'Unfiled — back in triage');
             renderTriage();
           }
         };
