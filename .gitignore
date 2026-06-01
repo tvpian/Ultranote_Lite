@@ -20,3 +20,4 @@ data.json.tmp.*
 .sessions/
 .session-secret
 attachments/
+backups/

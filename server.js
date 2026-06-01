@@ -8,6 +8,9 @@ const FileStore = require('session-file-store')(session);
 const app      = express();
 const PORT     = process.env.PORT || 3366;
 const DATA_FILE = path.join(__dirname, 'data.json');
+const BACKUPS_DIR = path.join(__dirname, 'backups');
+const BACKUP_BASE = path.join(BACKUPS_DIR, 'data.json.bak');
+try { fs.mkdirSync(BACKUPS_DIR, { recursive: true }); } catch (_) {}
 const SESSIONS_DIR = path.join(__dirname, '.sessions');
 const ATTACHMENTS_DIR = path.join(__dirname, 'attachments');
 try { fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true }); } catch (_) {}
@@ -374,21 +377,16 @@ function readData() {
 
 function writeData(obj) {
   try {
-    // Rotate daily backups: .bak (most recent) → .bak.1 → .bak.2 → … → .bak.7.
-    // This way a single bad write can be recovered from any of the last 7 known-good
-    // snapshots instead of just one. The shift is best-effort: a failure to rotate
-    // never blocks the actual write.
+    // Rotate save backups inside backups/: data.json.bak (most recent) → .bak.1 → .bak.2.
+    // Ring depth is intentionally small — real disaster recovery lives in the private
+    // git backup repo via backup.sh. The ring is only for "oops I just clicked save"
+    // recovery. Rotation is best-effort; failure never blocks the actual write.
     if (fs.existsSync(DATA_FILE)) {
       try {
-        for (let i = 6; i >= 1; i--) {
-          const src = `${DATA_FILE}.bak.${i}`;
-          const dst = `${DATA_FILE}.bak.${i + 1}`;
-          if (fs.existsSync(src)) fs.renameSync(src, dst);
-        }
-        if (fs.existsSync(`${DATA_FILE}.bak`)) {
-          fs.renameSync(`${DATA_FILE}.bak`, `${DATA_FILE}.bak.1`);
-        }
-        fs.copyFileSync(DATA_FILE, `${DATA_FILE}.bak`);
+        // Shift the ring: .bak.1 -> .bak.2, then .bak -> .bak.1, then copy current -> .bak.
+        if (fs.existsSync(`${BACKUP_BASE}.1`)) fs.renameSync(`${BACKUP_BASE}.1`, `${BACKUP_BASE}.2`);
+        if (fs.existsSync(BACKUP_BASE))        fs.renameSync(BACKUP_BASE, `${BACKUP_BASE}.1`);
+        fs.copyFileSync(DATA_FILE, BACKUP_BASE);
       } catch (rotErr) {
         console.warn('Backup rotation warning:', rotErr.message);
       }
