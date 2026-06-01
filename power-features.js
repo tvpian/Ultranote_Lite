@@ -360,6 +360,125 @@
   }
 
   // ====================================================================
+  //  3b. Checklist promoter — turn markdown "- [ ]" lines into real tasks
+  // ====================================================================
+  // Scans the open note for markdown task-list lines and renders a panel that
+  // lets you promote any of them into a real db.tasks entry linked to the note
+  // (noteId set, tag 'paper-followup' added). Promoted lines are detected by
+  // matching task title + noteId, so re-opening the note shows them as ✓ tracked
+  // instead of offering the button again.
+  function renderFollowupsPanel() {
+    const noteId = window._openNoteId;
+    if (!noteId) return;
+    const db = window.db; if (!db) return;
+    const note = (db.notes || []).find(n => n.id === noteId);
+    if (!note) return;
+
+    // Skip daily notes — they already have their own task UI; we don't want
+    // every Top-3 checkbox prompting promotion.
+    if (note.type === 'daily') return;
+
+    const linked = document.getElementById('linkedNotesSection');
+    if (!linked) return;
+
+    let panel = document.getElementById('noteFollowupsSection');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'noteFollowupsSection';
+      panel.style.marginTop = '8px';
+      // Place above the Tasks panel so the flow reads: checklist -> promoted tasks.
+      const tasksPanel = document.getElementById('noteTasksSection');
+      if (tasksPanel) tasksPanel.parentNode.insertBefore(panel, tasksPanel);
+      else {
+        const bl = document.getElementById('backlinksSection');
+        if (bl) bl.parentNode.insertBefore(panel, bl);
+        else linked.parentNode.insertBefore(panel, linked.nextSibling);
+      }
+    }
+
+    // Read live editor content if present (so typing new checkboxes shows up
+    // before saving); otherwise fall back to the saved note body.
+    const box = document.getElementById('contentBox');
+    const src = (box ? box.value : (note.content || '')) || '';
+
+    const items = [];
+    src.split('\n').forEach((line, idx) => {
+      const m = line.match(/^\s*-\s*\[\s*([ xX])\s*\]\s*(.+?)\s*$/);
+      if (!m) return;
+      const text = m[2].trim();
+      if (!text) return;
+      items.push({ idx, checked: m[1] !== ' ', text });
+    });
+
+    if (!items.length) { panel.innerHTML = ''; panel.dataset.sig = ''; return; }
+
+    const noteTasks = (db.tasks || []).filter(t => t.noteId === noteId && !t.deletedAt);
+    const norm = (s) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const matchTask = (text) => noteTasks.find(t => norm(t.title) === norm(text));
+
+    const sig = noteId + '\u0000' + items.length + '\u0000' +
+      items.map(it => (it.checked ? 'x' : 'o') + ':' + it.text).join('|') + '\u0000' +
+      noteTasks.map(t => t.id + ':' + t.status).join('|');
+    if (panel.dataset.sig === sig) return;
+    panel.dataset.sig = sig;
+
+    const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    const untracked = items.filter(it => !matchTask(it.text)).length;
+
+    panel.innerHTML = `
+      <div class="row" style="justify-content:space-between;align-items:center;">
+        <h3 style="margin:0;font-size:16px;">Checklist in this note (${items.length})</h3>
+        <span class="muted" style="font-size:11px;">${untracked} untracked · click → Task to promote</span>
+      </div>
+      <div class="list" style="margin-top:6px;">
+        ${items.map(it => {
+          const t = matchTask(it.text);
+          const tracked = !!t;
+          const done = tracked && t.status === 'DONE';
+          const badge = tracked
+            ? `<span class="pill" style="background:${done?'#4caf9e':'#8b6dff'};color:#fff;font-size:10px;margin-left:6px;">${done?'\u2713 done':'\u2192 tracked'}</span>`
+            : '';
+          const rowStyle = it.checked ? 'opacity:.55;text-decoration:line-through;' : '';
+          return `<div class="row" style="justify-content:space-between;gap:8px;align-items:flex-start;padding:4px 0;border-bottom:1px solid var(--btn-border);">
+            <span style="flex:1;font-size:13px;${rowStyle}">
+              ${it.checked ? '\u2611' : '\u2610'} ${esc(it.text)} ${badge}
+            </span>
+            ${tracked
+              ? ''
+              : `<button class="btn" data-fup-promote="${it.idx}" style="font-size:11px;flex-shrink:0;" title="Create a tracked task for this line">\u2192 Task</button>`
+            }
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+
+    panel.querySelectorAll('[data-fup-promote]').forEach(btn => {
+      btn.onclick = () => {
+        const idx = +btn.dataset.fupPromote;
+        const it = items.find(x => x.idx === idx);
+        if (!it) return;
+        if (typeof window.createTask !== 'function') return;
+        // Inherit project if the note is attached to one — keeps Review filters honest.
+        const projectId = (note.projectId || null);
+        window.createTask({
+          title: it.text,
+          noteId,
+          projectId,
+          priority: 'medium',
+          tags: ['paper-followup'],
+        });
+        if (typeof window.save === 'function') window.save();
+        flashToast('Promoted to tracked task');
+        // Re-render this panel and the tasks panel below.
+        panel.dataset.sig = '';
+        renderFollowupsPanel();
+        renderNoteTasksPanel();
+      };
+    });
+  }
+
+  // ====================================================================
   //  4. Daily review prompt — yesterday's open tasks
   // ====================================================================
   function maybeShowDailyReview() {
@@ -462,6 +581,19 @@
     // Defer to next tick so editor DOM exists.
     setTimeout(() => {
       renderNoteTasksPanel();
+      renderFollowupsPanel();
+      // Live-refresh the checklist promoter while the user types new "- [ ]" lines.
+      // Debounced via rAF; bound once per editor open (the wrapped DOM element handles
+      // its own listener lifecycle when the editor is rebuilt by openNote).
+      const box = document.getElementById('contentBox');
+      if (box && !box.__fupBound) {
+        box.__fupBound = true;
+        let raf = 0;
+        box.addEventListener('input', () => {
+          if (raf) cancelAnimationFrame(raf);
+          raf = requestAnimationFrame(() => { raf = 0; renderFollowupsPanel(); });
+        });
+      }
       const note = (window.db && window.db.notes || []).find(n => n.id === id);
       // Read status from the dropdown if present (unsaved choices count too),
       // otherwise fall back to the saved value on the note.
@@ -496,7 +628,8 @@
 
   // Expose for debugging.
   window._powerFeatures = {
-    renderTodayBar, renderNoteTasksPanel, stopReadingTimer, startReadingTimer,
+    renderTodayBar, renderNoteTasksPanel, renderFollowupsPanel,
+    stopReadingTimer, startReadingTimer,
     showBar: () => { LS.set(BAR_HIDDEN_KEY, '0'); renderTodayBar(); },
   };
 })();
