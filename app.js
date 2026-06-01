@@ -6519,42 +6519,38 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ----------------------------------------------------------------
-  // External capture entry-point. Lets a bookmarklet, iOS Shortcut,
-  // Android intent, or the Web Share Target API (manifest.json) drop
-  // straight into the quick-capture panel pre-filled.
+  // External quick-capture entry point.
   //
-  // Supported query params:
-  //   ?capture=<text>            Preferred, used by bookmarklets.
-  //   ?title=&text=&url=         Web Share Target format.
+  // History: v103 attempted to handle ?capture=<text> here as well, but
+  // research-mode.js already owns ?capture= (silent append into the
+  // 🔬 Research Inbox via appendCaptureToInbox — the long-standing
+  // bookmarklet contract). The v103 handler raced research-mode and
+  // sometimes stripped the param first, routing to the idea/quick-
+  // capture panel instead. That regression is reverted.
   //
-  // The prefill is built as "<text-or-title> <url>" (trimmed) so the
-  // default "idea" route preserves the link inside the note title. The
-  // params are stripped from the URL after launch so a refresh does
-  // not re-trigger the capture panel.
+  // Reserved param now:
+  //   ?qc=<text>       Explicitly open the quick-capture (idea) panel
+  //                    pre-filled. Use this when you DO want the idea
+  //                    flow rather than research inbox.
+  //
+  // Web Share Target (?title=&text=&url=) is left alone; without a PWA
+  // install over HTTPS browsers won't dispatch it anyway. When that
+  // lights up later we can decide where to route it (inbox vs idea)
+  // without further breaking the bookmarklet contract.
   // ----------------------------------------------------------------
   try {
     const p = new URLSearchParams(location.search);
-    const cap = p.get('capture');
-    const title = p.get('title') || '';
-    const text  = p.get('text')  || '';
-    const url   = p.get('url')   || '';
-    let prefill = null;
-    if(cap) prefill = cap;
-    else if(title || text || url){
-      prefill = [text || title, url].filter(Boolean).join(' ').trim();
-    }
-    if(prefill){
-      // Strip the trigger params so reload / share back doesn't replay.
+    const qc = p.get('qc');
+    if(qc){
       const u = new URL(location.href);
-      ['capture','title','text','url','share'].forEach(k => u.searchParams.delete(k));
+      u.searchParams.delete('qc');
       history.replaceState(null, '', u.pathname + (u.search ? '?'+u.searchParams.toString() : '') + u.hash);
-      // Give the app one paint to render before opening the panel.
       setTimeout(() => {
-        if(typeof openQuickCapture === 'function') openQuickCapture(prefill);
+        if(typeof openQuickCapture === 'function') openQuickCapture(qc);
       }, 150);
     }
   } catch(err){
-    console.warn('capture URL param parse failed', err);
+    console.warn('qc URL param parse failed', err);
   }
 });
 
