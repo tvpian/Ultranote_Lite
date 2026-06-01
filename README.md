@@ -13,6 +13,28 @@ If Notion feels too heavy, Obsidian too plugin-laden, and Markdown-in-VS-Code to
 
 ---
 
+## A quick look
+
+<p align="center">
+  <img src="docs/screenshots/01-today.png" width="820" alt="Today view — daily note, tasks, journal, projects"><br/>
+  <em>The Today view: daily note (with template), pending tasks with overdue badges, scratchpad, journal, sidebar projects.</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/04-quick-capture.png" width="410" alt="Quick capture with prefix legend">
+  <img src="docs/screenshots/05-command-palette.png" width="410" alt="Ctrl+K command palette"><br/>
+  <em>Left: <code>Alt+N</code> quick capture — the prefix decides where it lands.&nbsp; Right: <code>Ctrl+K</code> fuzzy palette across everything.</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/09-mobile-today.png" width="230" alt="Mobile Today">
+  <img src="docs/screenshots/10-mobile-fab-capture.png" width="230" alt="Mobile FAB capture">
+  <img src="docs/screenshots/11-mobile-drawer.png" width="230" alt="Mobile drawer"><br/>
+  <em>Mobile: Today view with bottom nav + FAB,&nbsp; tap-the-+ capture (full prefix legend),&nbsp; side drawer for the rest.</em>
+</p>
+
+---
+
 ## Contents
 
 - [Highlights](#highlights)
@@ -53,6 +75,10 @@ If Notion feels too heavy, Obsidian too plugin-laden, and Markdown-in-VS-Code to
 
 ### Today — your one rolling page
 
+<p align="center">
+  <img src="docs/screenshots/01-today.png" width="780" alt="Today view">
+</p>
+
 The **Today** view is the front page of the app. Open it and you see, in one scroll:
 
 - The current daily note — created from a customizable template (meeting notes, weekly review, course notes, etc.)
@@ -64,6 +90,10 @@ The **Today** view is the front page of the app. Open it and you see, in one scr
 Incomplete tasks roll over automatically when you cross midnight (toggleable). Per-project tasks can auto-carry between days too.
 
 ### Quick capture (the killer feature)
+
+<p align="center">
+  <img src="docs/screenshots/04-quick-capture.png" width="640" alt="Alt+N quick capture with prefix legend">
+</p>
 
 Hit `Alt+N` on desktop or tap the purple `+` FAB on mobile. A focused input pops up with a tiny legend below it:
 
@@ -80,6 +110,10 @@ No mode switching, no menus. One keystroke decides everything.
 
 ### 🔬 Research mode
 
+<p align="center">
+  <img src="docs/screenshots/07-research.png" width="780" alt="Research dashboard">
+</p>
+
 A capture-first inbox for things you stumble on while reading.
 
 - **Bookmarklet**: drag to your browser's bookmark bar — clicking it on any page silently appends `[timestamp] page title — URL` to your **📥 Research Inbox**. The same tab is reused so you don't pile up windows.
@@ -91,11 +125,19 @@ A capture-first inbox for things you stumble on while reading.
 
 ### Notebooks, wiki-links, and the Map
 
+<p align="center">
+  <img src="docs/screenshots/03-notebook-wikilinks.png" width="780" alt="Notebook page with wiki-links, LaTeX, and code">
+</p>
+
 - **Notebooks** are folders of pages — useful for course notes, books, project journals.
 - Anywhere in markdown you can write `[[Another Note]]` or `[[Another Note|shown text]]` and it renders as a real link. Missing notes render in a distinct style so dead links are visible.
 - The **🗺️ Map** view shows the graph of `[[wiki-links]]` between notes — collapsible, filterable, with an orphan section.
 
 ### Projects
+
+<p align="center">
+  <img src="docs/screenshots/02-projects.png" width="780" alt="Projects view — tasks, notes, progress">
+</p>
 
 - Each project gets its own task list and notes pile.
 - Custom **templates per project** for new notes.
@@ -109,6 +151,10 @@ A capture-first inbox for things you stumble on while reading.
 - **Review** — trash bin for soft-deleted notes & tasks with one-click restore. Nothing is ever truly lost until you explicitly purge.
 
 ### 🔍 Vault & 🔗 Links
+
+<p align="center">
+  <img src="docs/screenshots/06-vault-search.png" width="780" alt="Vault search results">
+</p>
 
 - **Vault**: a single search box that ranks across all notes, tasks, projects, and links. Tag-aware (`#research`).
 - **Links**: bookmarks with tags, pinning, and notes. A lightweight "everything I saved" catalog separate from Research Inbox.
@@ -136,6 +182,12 @@ A capture-first inbox for things you stumble on while reading.
 UltraNote has a real mobile story, not just a "yes it scales down" story.
 
 ### What you get on phone
+
+<p align="center">
+  <img src="docs/screenshots/09-mobile-today.png" width="240" alt="Mobile Today">
+  <img src="docs/screenshots/10-mobile-fab-capture.png" width="240" alt="Mobile FAB capture">
+  <img src="docs/screenshots/11-mobile-drawer.png" width="240" alt="Mobile drawer">
+</p>
 
 - **Bottom nav bar** for the 7 most-used views (Today, Projects, Ideas, Vault, Monthly, Review, Assistant).
 - **Side drawer** (☰ top-left) for the full notes list, projects, and tools — auto-closes when you tap outside or pick something.
