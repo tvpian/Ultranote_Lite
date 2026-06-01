@@ -6278,7 +6278,15 @@ function openQuickCapture(prefill=''){
       <div class="qc-backdrop"></div>
       <div class="qc-panel" role="dialog" aria-label="Quick capture">
         <input id="qcInput" type="text" autocomplete="off" spellcheck="false"
-          placeholder="Capture anything…  (! task,  . normal task,  > full note,  j journal,  default = idea)" />
+          placeholder="Capture anything…" />
+        <div class="qc-legend" aria-hidden="true">
+          <span><kbd>!</kbd> high-priority task</span>
+          <span><kbd>.</kbd> task</span>
+          <span><kbd>&gt;</kbd> full note</span>
+          <span><kbd>j</kbd> journal</span>
+          <span><kbd>#tag</kbd> idea + tag</span>
+          <span class="qc-legend-default">(default → idea)</span>
+        </div>
         <div class="qc-hint" id="qcHint">Idea</div>
       </div>`;
     document.body.appendChild(panel);
@@ -6344,16 +6352,26 @@ function submitQuickCapture(raw){
   if(s.startsWith('j ') || s.startsWith('J ')){
     const daily = ensureToday();
     const stamp = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    const line = `\n- ${stamp} — ${s.slice(2).trim()}`;
-    if(/^|\n## Journal\b/m.test(daily.content)){
-      // Insert after "## Journal" heading
-      daily.content = daily.content.replace(/(^|\n)(##\s+Journal[^\n]*\n)/, (m,p1,p2)=> `${p1}${p2}${line}\n`);
+    const line = `- ${stamp} — ${s.slice(2).trim()}`;
+    // Detect an existing "## Journal" heading. The previous regex
+    // /^|\n## Journal\b/m was buggy (the `^|` alternation matches the start
+    // of any line and is always true), so when no heading existed the entry
+    // was silently dropped. Use a clean anchored test instead.
+    if(/^##\s+Journal\b/m.test(daily.content)){
+      // Insert immediately after the "## Journal" heading line.
+      daily.content = daily.content.replace(
+        /(^|\n)(##\s+Journal[^\n]*)(\n?)/,
+        (_m, p1, p2)=> `${p1}${p2}\n${line}\n`
+      );
     } else {
-      daily.content = (daily.content || '') + `\n\n## Journal${line}\n`;
+      // No heading yet — append a fresh Journal section so the entry is
+      // guaranteed to land somewhere visible on today's daily.
+      const sep = (daily.content || '').endsWith('\n') ? '\n' : '\n\n';
+      daily.content = (daily.content || '') + `${sep}## Journal\n${line}\n`;
     }
     daily.updatedAt = nowISO();
     save();
-    showQuickToast('📓 Added to Journal');
+    showQuickToast('📓 Added to today\'s Journal');
     if(route === 'today') render();
     return;
   }
