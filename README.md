@@ -33,6 +33,12 @@ If Notion feels too heavy, Obsidian too plugin-laden, and Markdown-in-VS-Code to
   <em>Mobile: Today view with bottom nav + FAB,&nbsp; tap-the-+ capture (full prefix legend),&nbsp; side drawer for the rest.</em>
 </p>
 
+<p align="center">
+  <img src="docs/screenshots/12-map.png" width="410" alt="Knowledge Map of wiki-linked notes">
+  <img src="docs/screenshots/15-review.png" width="410" alt="Review analytics dashboard"><br/>
+  <em>Left: the <strong>Map</strong> walks the <code>[[wiki-link]]</code> graph between your notes.&nbsp; Right: <strong>Review</strong> turns your task &amp; note history into actual analytics — streaks, project progress, weekly throughput.</em>
+</p>
+
 ---
 
 ## Contents
@@ -89,6 +95,11 @@ The **Today** view is the front page of the app. Open it and you see, in one scr
 
 Incomplete tasks roll over automatically when you cross midnight (toggleable). Per-project tasks can auto-carry between days too.
 
+<p align="center">
+  <img src="docs/screenshots/17-backlog.png" width="820" alt="Today view with Unfinished from previous days and Backlog sections expanded"><br/>
+  <em>Below the active task list: <strong>📋 Unfinished from previous days</strong> (with FROM-date chips and overdue badges) and a per-day <strong>Backlog</strong> parking lot — nothing slips through the crack between days.</em>
+</p>
+
 ### Quick capture (the killer feature)
 
 <p align="center">
@@ -133,6 +144,11 @@ A capture-first inbox for things you stumble on while reading.
 - Anywhere in markdown you can write `[[Another Note]]` or `[[Another Note|shown text]]` and it renders as a real link. Missing notes render in a distinct style so dead links are visible.
 - The **🗺️ Map** view shows the graph of `[[wiki-links]]` between notes — collapsible, filterable, with an orphan section.
 
+<p align="center">
+  <img src="docs/screenshots/12-map.png" width="780" alt="Note Map showing wiki-link connections between notes"><br/>
+  <em>The <strong>Map</strong> resolves every <code>[[wiki-link]]</code> into a real edge — root notes at the top, project-colour chips, connection badges, and an Unlinked section so orphans don't hide.</em>
+</p>
+
 ### Projects
 
 <p align="center">
@@ -146,9 +162,15 @@ A capture-first inbox for things you stumble on while reading.
 
 ### 📖 Journal, 🗓 Monthly, 📊 Review
 
-- **Journal** — chronological history view of every `## Journal` block from every daily note.
+- **Journal** — chronological history view of every `## Journal` block from every daily note, with mood emoji, word count, search, and date filters.
 - **Monthly** — plan tasks across a month, grid or list view, drag/drop scheduling.
-- **Review** — trash bin for soft-deleted notes & tasks with one-click restore. Nothing is ever truly lost until you explicitly purge.
+- **Review** — an analytics dashboard: completion %, day streak, pending-by-priority chart, top project, most productive day, per-project progress bars, habit-streak heatmap, and a Research Pulse panel. Soft-deleted notes &amp; tasks live in **Review → Trash** with one-click restore — nothing is ever truly lost until you explicitly purge.
+
+<p align="center">
+  <img src="docs/screenshots/14-journal-history.png" width="410" alt="Journal history view with mood emoji and expanded entries">
+  <img src="docs/screenshots/15-review.png" width="410" alt="Review analytics with streaks, project progress, and habit grid"><br/>
+  <em>Left: <strong>Journal</strong> aggregates every daily `## Journal` block with mood, word count, and date filters.&nbsp; Right: <strong>Review</strong> is a real analytics page — streaks, per-project progress, habit heatmap, research pulse.</em>
+</p>
 
 ### 🔍 Vault & 🔗 Links
 
@@ -158,6 +180,11 @@ A capture-first inbox for things you stumble on while reading.
 
 - **Vault**: a single search box that ranks across all notes, tasks, projects, and links. Tag-aware (`#research`).
 - **Links**: bookmarks with tags, pinning, and notes. A lightweight "everything I saved" catalog separate from Research Inbox.
+
+<p align="center">
+  <img src="docs/screenshots/13-links.png" width="780" alt="Links page with tags, pinned items, and per-link notes"><br/>
+  <em>The <strong>Links</strong> page: pin the ones you reread, tag for quick filtering, jot a note on why you saved it — inline Edit / Pin / Delete on every row.</em>
+</p>
 
 ### Editor niceties
 
