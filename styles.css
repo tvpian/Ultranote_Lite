@@ -4549,6 +4549,18 @@ input[type="datetime-local"] {
   #mbCaptureFab { display: flex; }
 }
 
+/* Mobile-only "Tools" card surfaces desktop header actions inside the
+   sidebar drawer on small screens. Hidden on desktop where #desktopActions
+   already shows them inline in the header. */
+.mobile-tools { display: none; }
+@media (max-width: 900px) {
+  .mobile-tools { display: block; }
+}
+.mobile-tools .btn.danger {
+  border-color: rgba(255,107,107,0.45);
+  color: #ff9a9a;
+}
+
 #qcToast {
   position: fixed; left: 50%; bottom: 32px;
   transform: translateX(-50%) translateY(20px);

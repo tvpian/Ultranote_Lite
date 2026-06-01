@@ -6464,6 +6464,61 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ----------------------------------------------------------------
+  // Mobile "Tools" card inside the sidebar drawer. Each button has a
+  // data-proxy="<selector>" attribute pointing at the original desktop
+  // control; clicking the mobile button forwards .click() to the
+  // original so handlers stay single-source. Each settings checkbox
+  // has a data-mirror="<selector>" attribute; we keep .checked in sync
+  // both directions and dispatch 'change' on the original so its
+  // existing onchange handler runs (writes to db.settings, saves).
+  // ----------------------------------------------------------------
+  const mobileTools = document.getElementById('mobileTools');
+  if(mobileTools && !mobileTools.dataset.bound){
+    // Proxy buttons.
+    mobileTools.addEventListener('click', e => {
+      const btn = e.target.closest('[data-proxy]');
+      if(!btn) return;
+      const target = document.querySelector(btn.dataset.proxy);
+      if(target) target.click();
+      // Close the drawer so the user sees the result of the action.
+      document.body.classList.remove('drawer-open');
+    });
+    // Mirror checkboxes (run once at boot; render() may later reassign
+    // the originals' .onchange, but dispatching 'change' invokes whichever
+    // handler is currently attached, so the mirror keeps working).
+    const syncMirror = (mirror, orig) => {
+      mirror.checked = !!orig.checked;
+    };
+    mobileTools.querySelectorAll('[data-mirror]').forEach(mirror => {
+      const orig = document.querySelector(mirror.dataset.mirror);
+      if(!orig) return;
+      syncMirror(mirror, orig);
+      // Re-sync whenever the desktop control changes (e.g. via render()).
+      orig.addEventListener('change', () => syncMirror(mirror, orig));
+      // Mobile -> desktop: push the new value and fire the change event
+      // so the existing handler (set inside render()) runs.
+      mirror.addEventListener('change', () => {
+        orig.checked = mirror.checked;
+        orig.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
+    // Re-sync every time the drawer is opened, since render() may have
+    // refreshed the desktop checkbox states in between opens.
+    const menuBtn = document.getElementById('menuToggle');
+    if(menuBtn){
+      menuBtn.addEventListener('click', () => {
+        setTimeout(() => {
+          mobileTools.querySelectorAll('[data-mirror]').forEach(mirror => {
+            const orig = document.querySelector(mirror.dataset.mirror);
+            if(orig) syncMirror(mirror, orig);
+          });
+        }, 0);
+      });
+    }
+    mobileTools.dataset.bound = '1';
+  }
+
+  // ----------------------------------------------------------------
   // External capture entry-point. Lets a bookmarklet, iOS Shortcut,
   // Android intent, or the Web Share Target API (manifest.json) drop
   // straight into the quick-capture panel pre-filled.

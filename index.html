@@ -119,6 +119,32 @@
           <button id="manageTemplates" class="btn" style="width:100%;font-size:12px;">Manage Templates</button>
         </div>
       </div>
+
+      <!-- Mobile-only "Tools" card. Mirrors the desktop header toolbar
+           (#desktopActions) that's hidden on small screens. Buttons
+           proxy clicks to the original desktop controls so handlers
+           remain single-source. -->
+      <div class="card mobile-tools" id="mobileTools">
+        <div class="muted">Tools</div>
+        <div class="list" style="margin-top:8px;gap:6px;">
+          <button class="btn" data-proxy="#newNoteBtn">✏️ New Note</button>
+          <label class="btn" for="importFile" style="display:block;text-align:center;">⬇️ Import backup</label>
+          <button class="btn acc" data-proxy="#exportBtn">📦 Export backup</button>
+          <button class="btn" data-proxy="#syncNowBtn">🔄 Sync now</button>
+          <button class="btn" data-proxy="#themeToggle">🌓 Toggle theme</button>
+          <button class="btn danger" data-proxy="#logoutBtn">Logout</button>
+        </div>
+        <div class="muted" style="margin-top:12px;">Settings</div>
+        <label class="muted" style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+          <input type="checkbox" data-mirror="#dailyRollover"> Rollover incomplete tasks daily
+        </label>
+        <label class="muted" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+          <input type="checkbox" data-mirror="#autoCarryTasks"> Auto-carry project tasks
+        </label>
+        <label class="muted" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+          <input type="checkbox" data-mirror="#autoReload"> Auto-sync
+        </label>
+      </div>
     </aside>
 
     <section id="content" aria-live="polite" aria-busy="true">
