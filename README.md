@@ -11,6 +11,13 @@ UltraNote is the notebook I wanted but couldn't find: **all my notes in one plac
 
 If Notion feels too heavy, Obsidian too plugin-laden, and Markdown-in-VS-Code too sparse — this lives in that middle space.
 
+> **Status & scope.** UltraNote is **single-user, local-first, and self-hosted**. There is no multi-tenant auth, no cloud sync, and no "team" mode. It runs on one Node process; you own the `data.json`. It was built for me and put in the open in case it's useful for you. PRs welcome — SaaS-style feature requests probably aren't.
+
+<p align="center">
+  <img src="docs/screenshots/00-hero.gif" width="720" alt="UltraNote in action: quick capture, journal entry, command palette"><br/>
+  <em><code>Alt+N</code> to capture a task, then a journal line, then <code>Ctrl+K</code> to jump to a note — no menus, no mode switches.</em>
+</p>
+
 ---
 
 ## A quick look
@@ -492,9 +499,9 @@ All endpoints require an authenticated session, or a whitelisted IP.
 
 ## Contributing
 
-This started as a personal project, but PRs and ideas are welcome.
+PRs and issues are welcome — see the [Status & scope](#ultranote) note above for the kinds of changes that fit.
 
-If you want to hack on it:
+This started as a personal project. If you want to hack on it:
 
 1. Fork and clone
 2. `npm install`
@@ -502,7 +509,25 @@ If you want to hack on it:
 4. Edit `app.js` / `styles.css` / `index.html` — refresh browser (no build step)
 5. After any front-end change, **bump `CACHE` in `sw.js`** so the service worker picks it up
 
-Notes for would-be contributors:
+### Reproducing the docs
+
+The repo ships two helper scripts so the screenshots and hero GIF are reproducible:
+
+```bash
+cp data.json /tmp/data.json.bak           # back up your real data
+node scripts/seed-demo.js                 # write a rich demo data.json
+node scripts/capture-screenshots.js       # regenerate every PNG + 00-hero.gif
+cp /tmp/data.json.bak data.json           # restore
+```
+
+First-time prereqs:
+
+```bash
+npm install --no-save playwright ffmpeg-static
+npx playwright install chromium
+```
+
+### House rules
 
 - The codebase deliberately avoids frameworks and build steps — please keep that property. PRs that introduce React, bundlers, transpilers, or design systems will be politely declined.
 - Vanilla DOM is fine. Long files are fine. Keep features small and self-contained where possible.
