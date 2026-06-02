@@ -208,68 +208,88 @@ async function recordHeroGif(browser) {
   const tmpDir = path.join(ROOT, 'docs', 'screenshots', '_tmp_video');
   fs.mkdirSync(tmpDir, { recursive: true });
 
+  // Capture at high resolution so the downscaled GIF stays crisp.
+  const CAPTURE_W = 1600, CAPTURE_H = 900;
+
   const ctx = await browser.newContext({
-    viewport: { width: 1280, height: 720 },
-    recordVideo: { dir: tmpDir, size: { width: 1280, height: 720 } },
+    viewport: { width: CAPTURE_W, height: CAPTURE_H },
+    deviceScaleFactor: 1,
+    recordVideo: { dir: tmpDir, size: { width: CAPTURE_W, height: CAPTURE_H } },
   });
   const p = await newPage(ctx);
 
-  // Sequence: Today → Alt+N task → Alt+N journal → Ctrl+K → open note
-  await p.goto(URL, { waitUntil: 'networkidle' });
-  await settle(p, 1200);
+  // Helper: type slowly enough to read on playback
+  const slowType = async (text) => p.keyboard.type(text, { delay: 70 });
 
-  // Quick-capture a task
+  await p.goto(URL, { waitUntil: 'networkidle' });
+  await settle(p, 1600);                          // 1. Land on Today
+
+  // 2. Quick-capture a task
+  await p.keyboard.press('Alt+n');
+  await settle(p, 700);
+  await slowType('.reply to PR review comments');
+  await settle(p, 800);
+  await p.keyboard.press('Enter');
+  await settle(p, 1800);                          //    Pause so viewer sees the task land
+
+  // 3. Quick-capture a journal line
   await p.keyboard.press('Alt+n');
   await settle(p, 600);
-  await p.keyboard.type('.finish OSS launch checklist', { delay: 60 });
-  await settle(p, 500);
-  await p.keyboard.press('Enter');
-  await settle(p, 1200);
-
-  // Quick-capture a journal entry
-  await p.keyboard.press('Alt+n');
-  await settle(p, 500);
-  await p.keyboard.type('j shipped the OSS docs — feeling great about the launch', { delay: 45 });
-  await settle(p, 500);
-  await p.keyboard.press('Enter');
-  await settle(p, 1200);
-
-  // Command palette → jump to a note
-  await p.keyboard.press('Control+k');
-  await settle(p, 500);
-  await p.keyboard.type('diffu', { delay: 100 });
+  await slowType('j shipped the OSS docs today — feeling great about the launch');
   await settle(p, 700);
   await p.keyboard.press('Enter');
-  await settle(p, 2000);
+  await settle(p, 1800);
+
+  // 4. Command palette → fuzzy jump to a note
+  await p.keyboard.press('Control+k');
+  await settle(p, 700);
+  await slowType('diffu');
+  await settle(p, 900);
+  await p.keyboard.press('Enter');
+  await settle(p, 2200);                          //    Linger on the wiki-linked note
+
+  // 5. Jump to the Map view to show the graph
+  await p.evaluate(() => {
+    const btn = document.querySelector('button[data-route="map"]');
+    if (btn) btn.click();
+  });
+  await settle(p, 2200);
+
+  // 6. Jump to Review for the habit-streak grid finale
+  await p.evaluate(() => {
+    const btn = document.querySelector('button[data-route="review"]');
+    if (btn) btn.click();
+  });
+  await settle(p, 2400);
 
   await p.close();
   await ctx.close();
 
-  // Find the produced webm
   const webm = fs.readdirSync(tmpDir).find(f => f.endsWith('.webm'));
   if (!webm) throw new Error('No video produced');
   const webmPath = path.join(tmpDir, webm);
   const gifPath  = path.join(OUT, '00-hero.gif');
   const palette  = path.join(tmpDir, 'palette.png');
 
-  // 2-pass GIF: palettegen for quality, then paletteuse with floyd-steinberg dither.
-  // 12 fps, scaled to 720px wide — good balance of size vs. clarity.
-  const FPS = 12;
-  const W   = 720;
+  // Two-pass GIF with a per-frame palette for crisp text. Output 1000px wide @
+  // 15fps — good legibility on README hero, ~5–8 MB depending on motion.
+  const FPS = 15;
+  const W   = 1000;
   const filters = `fps=${FPS},scale=${W}:-1:flags=lanczos`;
   const run = (args) => {
-    const r = spawnSync(ffmpegPath, args, { stdio: 'inherit' });
-    if (r.status !== 0) throw new Error('ffmpeg failed: ' + args.join(' '));
+    const r = spawnSync(ffmpegPath, args, { stdio: ['ignore', 'inherit', 'inherit'] });
+    if (r.status !== 0) throw new Error('ffmpeg failed');
   };
-  run(['-y', '-i', webmPath, '-vf', `${filters},palettegen=stats_mode=diff`, palette]);
+  // stats_mode=full + max_colors=192 keeps text edges sharp at the cost of size.
+  run(['-y', '-i', webmPath, '-vf',
+       `${filters},palettegen=stats_mode=full:max_colors=192`, palette]);
   run(['-y', '-i', webmPath, '-i', palette, '-lavfi',
-       `${filters} [x]; [x][1:v] paletteuse=dither=floyd_steinberg`,
+       `${filters} [x]; [x][1:v] paletteuse=dither=floyd_steinberg:diff_mode=rectangle`,
        gifPath]);
 
   const sizeMB = (fs.statSync(gifPath).size / 1024 / 1024).toFixed(2);
-  console.log('  → 00-hero.gif (' + sizeMB + ' MB)');
+  console.log('  → 00-hero.gif (' + sizeMB + ' MB, ' + W + 'px @ ' + FPS + 'fps)');
 
-  // Cleanup intermediate files
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
 
