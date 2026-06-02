@@ -2503,7 +2503,10 @@ function renderToday(){
               <input type='checkbox' data-pid='${t.id}'/>
               <span style='font-size:13px;border-left:2px dashed var(--btn-border);padding-left:8px;'>${htmlesc(t.title)} ${dp}${source ? `<span class='pill' style='font-size:10px;opacity:0.6;'>from ${htmlesc(source)}</span>` : ''}</span>
             </label>
-            <button class='btn' data-pdel='${t.id}' style='font-size:11px;' title='Dismiss'>✕</button>
+            <div class='row' style='gap:4px;flex-shrink:0;'>
+              <button class='btn' data-pbacklog='${t.id}' style='font-size:11px;' title='Move to backlog — revisit later'>📦</button>
+              <button class='btn' data-pdel='${t.id}' style='font-size:11px;' title='Dismiss'>✕</button>
+            </div>
           </div>`;
         }).join('');
         prevList.innerHTML =
@@ -2519,6 +2522,11 @@ function renderToday(){
         // Mark done → task disappears immediately on re-render
         prevList.querySelectorAll('[data-pid]').forEach(cb => cb.onchange = () => {
           setTaskStatus(cb.dataset.pid, 'DONE');
+          drawTasks();
+        });
+        prevList.querySelectorAll('[data-pbacklog]').forEach(b => b.onclick = () => {
+          moveToBacklog(b.dataset.pbacklog);
+          showQuickToast('📦 Moved to backlog');
           drawTasks();
         });
         prevList.querySelectorAll('[data-pdel]').forEach(b => b.onclick = () => { deleteTask(b.dataset.pdel); drawTasks(); });
