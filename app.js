@@ -1295,6 +1295,9 @@ const sections = [
   {id:"journal", label:"📖 Journal"},
 ];
 let route = "today";
+// Mirror to window so deferred modules (e.g. research-mode.js) can read the
+// current route without hitting the script-scope `let` they can't see.
+window.route = route;
 let currentProjectId = null; // NEW: selected project
 let currentNotebookId = null; // which notebook is open
 let currentPageId = null;     // which page is open within a notebook
@@ -5861,12 +5864,38 @@ function render(){
   // Apply current theme before rendering UI elements
   applyTheme();
   renderNav();
+  // Keep the window-mirrored route in sync for deferred modules.
+  window.route = route;
   if(route==='today') renderToday();
   else if(route==='projects') renderProjects();
   else if(route==='ideas') renderIdeas();
   else if(route==='links') renderLinks(); // NEW
   else if(route==='notebooks') renderNotebooks();
-  else if(route==='research') { if(typeof window.renderResearch === 'function') window.renderResearch(); else { content.innerHTML = '<p style="padding:24px;">Research module loading…</p>'; } }
+  else if(route==='research') {
+    if (typeof window.renderResearch === 'function') {
+      window.renderResearch();
+    } else {
+      // research-mode.js is loaded with `defer` and its init() polls for
+      // window.db. On a hard reload that lands on this route, render() can
+      // run before the module registers window.renderResearch — previously
+      // we painted a static "loading…" placeholder and never retried, so
+      // the view hung forever. Poll until the module appears, then render.
+      content.innerHTML = '<p style="padding:24px;">Research module loading…</p>';
+      let _tries = 0;
+      (function _retry(){
+        if (route !== 'research') return;            // user navigated away
+        if (typeof window.renderResearch === 'function') {
+          try { window.renderResearch(); } catch(e){ console.error('renderResearch', e); }
+          return;
+        }
+        if (++_tries > 50) {                         // ~10s ceiling
+          content.innerHTML = '<p style="padding:24px;color:#f88;">Research module failed to load. Reload the page or check the console.</p>';
+          return;
+        }
+        setTimeout(_retry, 200);
+      })();
+    }
+  }
   else if(route==='vault') renderVault();
   else if(route==='monthly') renderMonthly();
   else if(route==='review') renderReview();
