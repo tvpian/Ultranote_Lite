@@ -2499,10 +2499,10 @@ function renderToday(){
           const ds = dueStatus(t.due);
           let dp = t.due ? (ds==='overdue' ? `<span class='pill' style='background:#ff4444;color:#fff;font-size:10px;'>OVERDUE</span>` : `<span class='pill' style='font-size:10px;'>${formatDateString(t.due)}</span>`) : '';
           return `<div class='row' style='justify-content:space-between;'>
-            <label class='row' style='gap:8px;cursor:pointer;'>
-              <input type='checkbox' data-pid='${t.id}'/>
-              <span style='font-size:13px;border-left:2px dashed var(--btn-border);padding-left:8px;'>${htmlesc(t.title)} ${dp}${source ? `<span class='pill' style='font-size:10px;opacity:0.6;'>from ${htmlesc(source)}</span>` : ''}</span>
-            </label>
+            <div class='row' style='gap:8px;align-items:center;'>
+              <input type='checkbox' data-pid='${t.id}' style='cursor:pointer;flex-shrink:0;' title='Mark done'/>
+              <span style='font-size:13px;border-left:2px dashed var(--btn-border);padding-left:8px;user-select:text;'>${htmlesc(t.title)} ${dp}${source ? `<span class='pill' style='font-size:10px;opacity:0.6;'>from ${htmlesc(source)}</span>` : ''}</span>
+            </div>
             <div class='row' style='gap:4px;flex-shrink:0;'>
               <button class='btn' data-ppull='${t.id}' style='font-size:11px;' title='Pull to today — re-attach to today&apos;s daily'>➡️</button>
               <button class='btn' data-pbacklog='${t.id}' style='font-size:11px;' title='Move to backlog — revisit later'>📦</button>
