@@ -2551,8 +2551,11 @@ function renderToday(){
   function drawBacklog(){
     const list = $("#backlogList");
     if(!list || list.style.display==='none') return;
-    const tasks = db.tasks.filter(t=> t.noteId===daily.id && (!t.projectId || t.carriedToNoteId===daily.id) && t.status==='BACKLOG' && !t.deletedAt);
-    // Compose a header showing backlog count styled like the project page
+    // Show ALL non-project backlog tasks regardless of which daily they
+    // originally lived on — backlog is a cross-day pile of "revisit later"
+    // items, so scoping it to today's daily.id was hiding tasks moved to
+    // backlog from the Unfinished-from-previous-days panel.
+    const tasks = db.tasks.filter(t=> t.status==='BACKLOG' && !t.deletedAt && (!t.projectId || t.carriedToNoteId));
     let html = `<div class='muted' style='font-size:12px;margin-bottom:4px;'>Backlog (${tasks.length})</div>`;
     if (tasks.length) {
       html += tasks
@@ -2570,7 +2573,12 @@ function renderToday(){
       html += `<div class='muted' style='font-size:12px;'>No backlog tasks</div>`;
     }
     list.innerHTML = html;
-    list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=>{ setTaskStatus(b.dataset.r,'TODO'); drawTasks(); drawBacklog(); });
+    list.querySelectorAll('[data-r]').forEach(b=> b.onclick = ()=>{
+      const t = db.tasks.find(x=> x.id===b.dataset.r);
+      if(t){ t.noteId = daily.id; t.updatedAt = nowISO(); }
+      setTaskStatus(b.dataset.r,'TODO');
+      drawTasks(); drawBacklog();
+    });
     list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawBacklog(); });
   }
   function drawProjectTasks(){
