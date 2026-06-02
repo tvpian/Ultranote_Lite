@@ -1039,15 +1039,18 @@ function emptyTrash() {
   // re-prompt here so that the single Review-page confirm isn't shown twice.
   const tasksBefore = db.tasks.length;
   const notesBefore = db.notes.length;
+  const linksBefore = (db.links || []).length;
   // Track all IDs being wiped so sync cannot revive them from the server
   db.tasks.filter(x => x.deletedAt).forEach(t => window._hardDeletedIds.add(t.id));
   db.notes.filter(x => x.deletedAt).forEach(n => {
     window._hardDeletedIds.add(n.id);
     db.tasks.filter(t => t.noteId === n.id).forEach(t => window._hardDeletedIds.add(t.id));
   });
+  (db.links || []).filter(x => x.deletedAt).forEach(l => window._hardDeletedIds.add(l.id));
   db.tasks = db.tasks.filter(x => !x.deletedAt);
   db.notes = db.notes.filter(x => !x.deletedAt);
-  if(db.tasks.length !== tasksBefore || db.notes.length !== notesBefore) persistDB();
+  db.links = (db.links || []).filter(x => !x.deletedAt);
+  if(db.tasks.length !== tasksBefore || db.notes.length !== notesBefore || db.links.length !== linksBefore) persistDB();
   if(route==='review') renderReview();
 }
 function createProject(name){
@@ -1078,7 +1081,7 @@ function getAllTags(){
   // Inline hashtags inside note content (e.g. "#research")
   const inlineContentTags = db.notes.filter(isUserNote).flatMap(n => extractTags(n.content || ''));
   // Tags stored on links
-  const linkTags = db.links ? db.links.flatMap(l => l.tags || []) : [];
+  const linkTags = db.links ? db.links.filter(l => !l.deletedAt).flatMap(l => l.tags || []) : [];
   // Tags on tasks, templates, monthly tasks and notebooks (forward-compatible, agent-queryable)
   const taskTags     = (db.tasks     || []).filter(t => !t.deletedAt).flatMap(t => t.tags || []);
   const templateTags = (db.templates || []).flatMap(t => t.tags || []);
@@ -1107,7 +1110,13 @@ function isSystemManagedNote(n){
 // --- Links helpers ---
 function createLink({title,url,tags=[],pinned=false,status="NEW",description=''}){ const l={id:uid(), title, url, description, tags, pinned, status, createdAt:nowISO(), updatedAt:nowISO()}; db.links.push(l); save(); return l; }
 function updateLink(id, patch){ const l=db.links.find(x=>x.id===id); if(!l) return; Object.assign(l, patch, {updatedAt:nowISO()}); save(); return l; }
-function deleteLink(id){ db.links = db.links.filter(l=> l.id!==id); save(); }
+// Soft-delete — moves the link to trash so it can be restored from Review.
+// Pre-2026-06-02 this hard-deleted via `db.links = db.links.filter(...)`,
+// which silently lost links and bypassed the trash entirely.
+function deleteLink(id){ const l=db.links.find(x=>x.id===id); if(!l) return; const ts=nowISO(); l.deletedAt=ts; l.updatedAt=ts; save(); }
+function restoreLink(id){ const l=db.links.find(x=>x.id===id); if(!l) return; delete l.deletedAt; l.updatedAt=nowISO(); save(); }
+function hardDeleteLink(id){ window._hardDeletedIds.add(id); db.links = db.links.filter(l=> l.id!==id); persistDB(); }
+function getTrashedLinks(){ return (db.links||[]).filter(l=> l.deletedAt); }
 
 // ---------------------------------------------------------------------------
 // logActivity — append a structured event to db.activity[]. Called by the
@@ -3136,6 +3145,17 @@ function renderReview(){
       </div>
     </div>`;
   }
+  function trashLinkRow(l){
+    const label = htmlesc(l.title || l.url);
+    const deletedDate = l.deletedAt ? new Date(l.deletedAt).toLocaleDateString() : '';
+    return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>
+      <span class='muted' style='flex:1;min-width:0;word-break:break-word;padding-left:6px;'>🔗 ${label} <span class='pill muted-pill'>Link</span> <span class='pill'>Deleted: ${deletedDate}</span></span>
+      <div class='row' style='gap:4px;flex-shrink:0;'>
+        <button class='btn' data-restore-link='${l.id}' style='font-size:11px;'>Restore</button>
+        <button class='btn' data-hard-delete-link='${l.id}' style='font-size:11px;color:#ff6b6b;'>Delete</button>
+      </div>
+    </div>`;
+  }
 
   // --- Habit streak grid ---
   const habitMonthKey = todayKey().slice(0, 7);
@@ -3459,7 +3479,7 @@ function renderReview(){
       <summary style="cursor:pointer;list-style:none;"><strong>🏷️ Tag Cloud</strong></summary>
   <div style="margin-top:8px;">${getAllTags().map(tag=>{
         const noteCount = db.notes.filter(n=> (n.tags||[]).includes(tag)).length;
-        const linkCount = db.links ? db.links.filter(l=> (l.tags||[]).includes(tag)).length : 0;
+        const linkCount = db.links ? db.links.filter(l=> !l.deletedAt && (l.tags||[]).includes(tag)).length : 0;
         const count = noteCount + linkCount;
         return `<button class='pill' data-tag='${tag}' style='cursor:pointer;margin:2px;'>#${htmlesc(tag)} (${count})</button>`;
       }).join('') || '<div class="muted">No tags yet</div>'}</div>
@@ -3468,14 +3488,15 @@ function renderReview(){
     <details class="card">
       <summary style="cursor:pointer;list-style:none;">
         <div class="row" style="justify-content:space-between;align-items:center;">
-          <strong>🗑️ Trash (${getTrashedTasks().length + getTrashedNotes().length})</strong>
+          <strong>🗑️ Trash (${getTrashedTasks().length + getTrashedNotes().length + getTrashedLinks().length})</strong>
           <button id="emptyTrashBtn" class="btn" style="font-size:12px;">Empty Trash</button>
         </div>
       </summary>
       <div class="list" style="margin-top:8px;max-height:320px;overflow:auto;">
   ${getTrashedTasks().map(t=>trashTaskRow(t)).join('')}
   ${getTrashedNotes().map(n=>trashNoteRow(n)).join('')}
-  ${(getTrashedTasks().length + getTrashedNotes().length) === 0 ? '<div class="muted" style="text-align:center;padding:12px;">Trash is empty</div>' : ''}
+  ${getTrashedLinks().map(l=>trashLinkRow(l)).join('')}
+  ${(getTrashedTasks().length + getTrashedNotes().length + getTrashedLinks().length) === 0 ? '<div class="muted" style="text-align:center;padding:12px;">Trash is empty</div>' : ''}
       </div>
     </details>
     </div>`;
@@ -3537,6 +3558,12 @@ function renderReview(){
     const ok = await showConfirm(`Permanently delete note "${note?.title || 'this note'}"? This cannot be undone.`, 'Delete Forever', 'Cancel');
     if(ok) { hardDeleteNote(b.dataset.hardDeleteNote); renderReview(); }
   });
+  content.querySelectorAll('[data-restore-link]').forEach(b=> b.onclick=()=>{ restoreLink(b.dataset.restoreLink); renderReview(); });
+  content.querySelectorAll('[data-hard-delete-link]').forEach(b=> b.onclick=async ()=>{
+    const link = db.links.find(l => l.id === b.dataset.hardDeleteLink);
+    const ok = await showConfirm(`Permanently delete link "${link?.title || link?.url || 'this link'}"? This cannot be undone.`, 'Delete Forever', 'Cancel');
+    if(ok) { hardDeleteLink(b.dataset.hardDeleteLink); renderReview(); }
+  });
 
   // Empty trash handler
   const emptyTrashBtn = document.getElementById('emptyTrashBtn');
@@ -3546,7 +3573,8 @@ function renderReview(){
       e.preventDefault(); e.stopPropagation();
       const deletedTasks = getTrashedTasks();
       const deletedNotes = getTrashedNotes();
-      const total = deletedTasks.length + deletedNotes.length;
+      const deletedLinks = getTrashedLinks();
+      const total = deletedTasks.length + deletedNotes.length + deletedLinks.length;
       if(total === 0) return;
       const ok = await showConfirm(`Permanently delete all ${total} item${total!==1?'s':''} from trash? This cannot be undone.`, 'Empty Trash', 'Cancel');
       if(ok) { emptyTrash(); renderReview(); }
@@ -4597,6 +4625,7 @@ function renderVault(){
   if(query){
     // Links: filter by tag filters (tags array) and text in title or URL
     linkMatches = db.links.filter(l=>{
+      if(l.deletedAt) return false;
       if(tagFilters.length && !tagFilters.every(t=> (l.tags||[]).map(x=>x.toLowerCase()).includes(t))) return false;
       if(text && !(l.title.toLowerCase().includes(text) || l.url.toLowerCase().includes(text))) return false;
       return true;
@@ -5109,7 +5138,7 @@ function renderLinks(){
     const q = (filterEl.value||'').trim();
     const tagFilters = (q.match(/#[\w-]+/g)||[]).map(t=>t.slice(1).toLowerCase());
     const text = q.replace(/#[\w-]+/g,'').trim().toLowerCase();
-    let links = db.links.slice();
+    let links = db.links.filter(l => !l.deletedAt);
     if(tagFilters.length){ links = links.filter(l=> tagFilters.every(t=> (l.tags||[]).map(x=>x.toLowerCase()).includes(t))); }
     if(text){ links = links.filter(l=> l.title.toLowerCase().includes(text) || l.url.toLowerCase().includes(text)); }
     links.sort((a,b)=> (b.pinned?1:0)-(a.pinned?1:0) || b.updatedAt.localeCompare(a.updatedAt));

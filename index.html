@@ -412,7 +412,7 @@ function extractTags(text){ return (text.match(/#[\w-]+/g) || []).map(tag => tag
 // --- Links helpers ---
 function createLink({title,url,tags=[],pinned=false,status="NEW"}){ const l={id:uid(), title, url, tags, pinned, status, createdAt:nowISO(), updatedAt:nowISO()}; db.links.push(l); save(); return l; }
 function updateLink(id, patch){ const l=db.links.find(x=>x.id===id); if(!l) return; Object.assign(l, patch, {updatedAt:nowISO()}); save(); return l; }
-function deleteLink(id){ db.links = db.links.filter(l=> l.id!==id); save(); }
+function deleteLink(id){ const l=db.links.find(x=>x.id===id); if(!l) return; const ts=new Date().toISOString(); l.deletedAt=ts; l.updatedAt=ts; save(); }
 
 // --- UI helpers ---
 const $ = sel => document.querySelector(sel);

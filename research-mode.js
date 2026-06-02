@@ -1141,6 +1141,7 @@ Things outside UltraNote that compound. Adopt one at a time.
     const db = window.db;
     const inbox = findNote(n => n.title === '📥 Inbox');
     const allLines = parseInboxLines(inbox);
+    const trashedLines = parseTrashedInboxLines(inbox);
     const filedCount = allLines.filter(l => isFiledLine(l.text)).length;
     const unsortedCount = allLines.length - filedCount;
     const visible = triageShowFiled
@@ -1210,6 +1211,21 @@ Things outside UltraNote that compound. Adopt one at a time.
           : (allLines.length
               ? `<div class="triage-empty">All ${allLines.length} captures are filed. Click <strong>Show filed</strong> to review them.</div>`
               : `<div class="triage-empty">Inbox is empty. Press <strong>Alt+I</strong> to capture something, or click <strong>＋ Capture</strong> above.</div>`)}
+        ${trashedLines.length ? `
+          <details class="triage-trash" style="margin-top:14px;border:1px dashed var(--border,#444);border-radius:10px;padding:8px 12px;">
+            <summary style="cursor:pointer;font-size:12px;color:var(--muted);user-select:none;">🗑️ Trashed captures (${trashedLines.length}) — click to expand</summary>
+            <div class="triage-list" style="margin-top:8px;">
+              ${trashedLines.map((l, i) => `
+                <div class="triage-row" data-trash-idx="${i}" style="opacity:0.78;">
+                  <div class="triage-meta">${esc(l.stamp || (l.deletedAt||'').slice(0,16))}</div>
+                  <div class="triage-body"><div class="triage-text" style="text-decoration:line-through;">${esc(l.text)}</div></div>
+                  <div class="triage-actions">
+                    <button data-act="restore" title="Restore to inbox">↩︎</button>
+                    <button data-act="purge" title="Delete forever — cannot be undone">✕</button>
+                  </div>
+                </div>`).join('')}
+            </div>
+          </details>` : ''}
       </div>`;
 
     // Top-level buttons
@@ -1231,8 +1247,21 @@ Things outside UltraNote that compound. Adopt one at a time.
         btn.onclick = async () => {
           const act = btn.dataset.act;
           if (act === 'delete') {
-            removeInboxLineByIdx(idx);
+            const sourceText = allLines[idx].text;
+            const trashedRaw = removeInboxLineByIdx(idx);
             renderTriage();
+            if (trashedRaw) {
+              toast('Deleted from inbox', {
+                actionLabel: 'Undo',
+                duration: 9000,
+                onAction: () => {
+                  if (restoreTrashedInboxLine(trashedRaw)) {
+                    toast('Restored');
+                    renderTriage();
+                  }
+                }
+              });
+            }
           } else if (act === 'defer') {
             deferInboxLine(idx);
             renderTriage();
@@ -1299,6 +1328,32 @@ Things outside UltraNote that compound. Adopt one at a time.
       });
       textEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); textEl.blur(); }
+      });
+    });
+
+    // Trashed-captures expander handlers
+    content.querySelectorAll('[data-trash-idx]').forEach(row => {
+      const tIdx = +row.dataset.trashIdx;
+      const item = trashedLines[tIdx];
+      if (!item) return;
+      row.querySelectorAll('.triage-actions button').forEach(btn => {
+        btn.onclick = async () => {
+          const act = btn.dataset.act;
+          if (act === 'restore') {
+            if (restoreTrashedInboxLine(item.raw)) {
+              toast('Restored to inbox');
+              renderTriage();
+            }
+          } else if (act === 'purge') {
+            const ok = await (typeof window.showConfirm === 'function'
+              ? window.showConfirm(`Permanently delete "${item.text.slice(0, 60)}…"? Cannot be undone.`, 'Delete Forever', 'Cancel')
+              : Promise.resolve(confirm('Permanently delete? Cannot be undone.')));
+            if (ok && hardRemoveTrashedInboxLine(item.raw)) {
+              toast('Deleted forever');
+              renderTriage();
+            }
+          }
+        };
       });
     });
   }
@@ -1470,6 +1525,8 @@ Things outside UltraNote that compound. Adopt one at a time.
     const splitter = inbox.content.split('\n');
     let i = 0;
     const newLines = splitter.map(raw => {
+      // Skip already-trashed lines so their indices don't collide with active ones.
+      if (/^<!--trashed:/.test(raw)) return raw;
       if (/^\s*-\s*\[[^\]]*\]/.test(raw)) {
         const r = fn(raw, i);
         i++;
@@ -1482,8 +1539,55 @@ Things outside UltraNote that compound. Adopt one at a time.
     window.save();
   }
 
+  // Soft-delete an inbox line by prefixing a trashed marker. The line stays
+  // in the markdown so it can be restored, but parseInboxLines / triage views
+  // ignore it because the leading `<!--trashed:...-->` makes it no longer
+  // match the `^- [ ]` pattern.
   function removeInboxLineByIdx(target){
-    _withInboxLines((raw, i) => (i === target ? null : raw));
+    let trashedRaw = null;
+    _withInboxLines((raw, i) => {
+      if (i !== target) return raw;
+      trashedRaw = `<!--trashed:${nowISO()}--> ${raw}`;
+      return trashedRaw;
+    });
+    return trashedRaw;
+  }
+
+  function parseTrashedInboxLines(inbox){
+    if (!inbox) return [];
+    const out = [];
+    inbox.content.split('\n').forEach(raw => {
+      const m = raw.match(/^<!--trashed:([^>]+)-->\s*(-\s*\[[^\]]*\]\s*(?:\[([^\]]+)\]\s*)?(.*))$/);
+      if (!m) return;
+      out.push({ raw, deletedAt: m[1], stamp: m[3] || '', text: m[4] || '' });
+    });
+    return out;
+  }
+
+  function restoreTrashedInboxLine(rawTrashed){
+    const inbox = findNote(n => n.title === '📥 Inbox');
+    if (!inbox) return false;
+    const lines = inbox.content.split('\n');
+    const k = lines.indexOf(rawTrashed);
+    if (k === -1) return false;
+    lines[k] = rawTrashed.replace(/^<!--trashed:[^>]+-->\s*/, '');
+    inbox.content = lines.join('\n');
+    inbox.updatedAt = nowISO();
+    window.save();
+    return true;
+  }
+
+  function hardRemoveTrashedInboxLine(rawTrashed){
+    const inbox = findNote(n => n.title === '📥 Inbox');
+    if (!inbox) return false;
+    const lines = inbox.content.split('\n');
+    const k = lines.indexOf(rawTrashed);
+    if (k === -1) return false;
+    lines.splice(k, 1);
+    inbox.content = lines.join('\n');
+    inbox.updatedAt = nowISO();
+    window.save();
+    return true;
   }
 
   function deferInboxLine(target){

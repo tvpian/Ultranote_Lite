@@ -377,15 +377,22 @@ function readData() {
 
 function writeData(obj) {
   try {
-    // Rotate save backups inside backups/: data.json.bak (most recent) → .bak.1 → .bak.2.
-    // Ring depth is intentionally small — real disaster recovery lives in the private
-    // git backup repo via backup.sh. The ring is only for "oops I just clicked save"
-    // recovery. Rotation is best-effort; failure never blocks the actual write.
+    // Rotate save backups inside backups/: data.json.bak (most recent) → .bak.1 → .bak.N.
+    // Ring depth bumped from 3 → 30 on 2026-06-02 after a phone-side rapid-delete
+    // sequence overflowed the original 3-slot buffer in seconds and made the
+    // accidentally-deleted captures unrecoverable. Real disaster recovery still
+    // lives in the private git backup repo via backup.sh; this ring is for the
+    // "oops I just clicked save" near-term recovery window.
+    const BACKUP_RING_DEPTH = 30;
     if (fs.existsSync(DATA_FILE)) {
       try {
-        // Shift the ring: .bak.1 -> .bak.2, then .bak -> .bak.1, then copy current -> .bak.
-        if (fs.existsSync(`${BACKUP_BASE}.1`)) fs.renameSync(`${BACKUP_BASE}.1`, `${BACKUP_BASE}.2`);
-        if (fs.existsSync(BACKUP_BASE))        fs.renameSync(BACKUP_BASE, `${BACKUP_BASE}.1`);
+        // Shift the ring: .bak.(N-1) -> .bak.N, …, .bak.1 -> .bak.2, then .bak -> .bak.1, then copy current -> .bak.
+        for (let i = BACKUP_RING_DEPTH - 1; i >= 1; i--) {
+          const from = `${BACKUP_BASE}.${i}`;
+          const to   = `${BACKUP_BASE}.${i + 1}`;
+          if (fs.existsSync(from)) fs.renameSync(from, to);
+        }
+        if (fs.existsSync(BACKUP_BASE)) fs.renameSync(BACKUP_BASE, `${BACKUP_BASE}.1`);
         fs.copyFileSync(DATA_FILE, BACKUP_BASE);
       } catch (rotErr) {
         console.warn('Backup rotation warning:', rotErr.message);
