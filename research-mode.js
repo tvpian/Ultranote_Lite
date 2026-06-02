@@ -1736,8 +1736,12 @@ Things outside UltraNote that compound. Adopt one at a time.
       history.replaceState(null, '', url.pathname + (url.search ? url.search : '') + url.hash);
       const ch = _ensureCaptureChannel();
       if (!ch) {
-        // No BroadcastChannel support — silently append in this tab.
-        setTimeout(() => appendCaptureToInbox(cap, /*silent*/ true), 200);
+        // No BroadcastChannel support — silently append in this tab, then
+        // close so we don't pile up duplicate windows on every click.
+        setTimeout(() => {
+          appendCaptureToInbox(cap, /*silent*/ true);
+          setTimeout(() => { try { window.close(); } catch(_) {} }, 600);
+        }, 200);
         return;
       }
       // Try to hand off to an existing tab.
@@ -1754,11 +1758,15 @@ Things outside UltraNote that compound. Adopt one at a time.
       ch.addEventListener('message', handler);
       try { ch.postMessage({ type: 'capture', text: cap, token }); } catch(_) {}
       // If no sibling answers in time, this tab is the only UltraNote instance —
-      // append silently here (same UX as the handoff path).
+      // append silently here AND close the duplicate tab anyway. The capture
+      // is already persisted via save() inside appendCaptureToInbox, so the
+      // user can re-open UltraNote later and see it. Leaving the tab open
+      // was the source of "every bookmarklet click stacks a new window".
       setTimeout(() => {
         if (acked) return;
         ch.removeEventListener('message', handler);
         appendCaptureToInbox(cap, /*silent*/ true);
+        setTimeout(() => { try { window.close(); } catch(_) {} }, 600);
       }, 450);
     } catch(_) {}
   }
