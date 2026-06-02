@@ -2504,6 +2504,7 @@ function renderToday(){
               <span style='font-size:13px;border-left:2px dashed var(--btn-border);padding-left:8px;'>${htmlesc(t.title)} ${dp}${source ? `<span class='pill' style='font-size:10px;opacity:0.6;'>from ${htmlesc(source)}</span>` : ''}</span>
             </label>
             <div class='row' style='gap:4px;flex-shrink:0;'>
+              <button class='btn' data-ppull='${t.id}' style='font-size:11px;' title='Pull to today — re-attach to today&apos;s daily'>➡️</button>
               <button class='btn' data-pbacklog='${t.id}' style='font-size:11px;' title='Move to backlog — revisit later'>📦</button>
               <button class='btn' data-pdel='${t.id}' style='font-size:11px;' title='Dismiss'>✕</button>
             </div>
@@ -2527,6 +2528,15 @@ function renderToday(){
         prevList.querySelectorAll('[data-pbacklog]').forEach(b => b.onclick = () => {
           moveToBacklog(b.dataset.pbacklog);
           showQuickToast('📦 Moved to backlog');
+          drawTasks();
+        });
+        prevList.querySelectorAll('[data-ppull]').forEach(b => b.onclick = () => {
+          const task = db.tasks.find(t => t.id === b.dataset.ppull);
+          if (!task) return;
+          task.noteId = daily.id;
+          task.updatedAt = nowISO();
+          save();
+          showQuickToast('➡️ Pulled to today');
           drawTasks();
         });
         prevList.querySelectorAll('[data-pdel]').forEach(b => b.onclick = () => { deleteTask(b.dataset.pdel); drawTasks(); });
