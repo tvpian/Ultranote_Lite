@@ -129,5 +129,6 @@
   if(typeof window!=='undefined'){
     window.startAutoSync = startAutoSync;
     window.manualSync = manualSync;
+    window.runAutoSyncOnce = _runOnce;
   }
 })();

@@ -1715,12 +1715,21 @@ Things outside UltraNote that compound. Adopt one at a time.
       _captureChannel = new BroadcastChannel('ultranote-capture');
       _captureChannel.onmessage = (ev) => {
         const msg = ev.data || {};
-        // Another tab is handing us a capture. Append silently + ack so the
-        // sender (the new bookmarklet tab) can close itself. No modal click
-        // needed — the user already typed the source URL via the bookmarklet.
-        if (msg.type === 'capture' && typeof msg.text === 'string' && msg.token) {
-          try { _captureChannel.postMessage({ type: 'ack', token: msg.token }); } catch(_) {}
-          appendCaptureToInbox(msg.text, /*silent*/ true);
+        // Protocol (post-2026-06-03): the spawned bookmarklet tab is the sole
+        // writer for any new capture. It fetched fresh server state before
+        // appending, so it has the most up-to-date inbox content. Other tabs
+        // listening on this channel must NOT append on its behalf — doing so
+        // could overwrite the freshly-saved server copy with their own stale
+        // local snapshot. They just refresh their UI to pick up the change.
+        if (msg.type === 'captured') {
+          if (window.route === 'research' && typeof window.render === 'function') {
+            try { window.render(); } catch(_){}
+          }
+          // Nudge autosync to fetch the latest server state so the sibling's
+          // db catches up to what the spawned tab just wrote.
+          if (typeof window.runAutoSyncOnce === 'function') {
+            try { window.runAutoSyncOnce({ bypassTyping: true }); } catch(_){}
+          }
         }
       };
     } catch(_) {}
@@ -1734,40 +1743,43 @@ Things outside UltraNote that compound. Adopt one at a time.
       if (!cap) return;
       url.searchParams.delete('capture');
       history.replaceState(null, '', url.pathname + (url.search ? url.search : '') + url.hash);
+      // The spawned bookmarklet tab is now the sole writer for this capture.
+      // It re-fetches the freshest server state right before appending so we
+      // never write stale inbox content (no more "stale tab + new line wipes
+      // older lines" race). It then broadcasts a 'captured' notification so
+      // any other open UltraNote tabs refresh their UI, and closes itself.
       const ch = _ensureCaptureChannel();
-      if (!ch) {
-        // No BroadcastChannel support — silently append in this tab, then
-        // close so we don't pile up duplicate windows on every click.
-        setTimeout(() => {
-          appendCaptureToInbox(cap, /*silent*/ true);
-          setTimeout(() => { try { window.close(); } catch(_) {} }, 600);
-        }, 200);
-        return;
-      }
-      // Try to hand off to an existing tab.
-      const token = 'cap-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
-      let acked = false;
-      const handler = (ev) => {
-        if (ev.data && ev.data.type === 'ack' && ev.data.token === token) {
-          acked = true;
-          ch.removeEventListener('message', handler);
-          // Hand-off complete — close this duplicate tab.
-          setTimeout(() => { try { window.close(); } catch(_) {} }, 80);
-        }
-      };
-      ch.addEventListener('message', handler);
-      try { ch.postMessage({ type: 'capture', text: cap, token }); } catch(_) {}
-      // If no sibling answers in time, this tab is the only UltraNote instance —
-      // append silently here AND close the duplicate tab anyway. The capture
-      // is already persisted via save() inside appendCaptureToInbox, so the
-      // user can re-open UltraNote later and see it. Leaving the tab open
-      // was the source of "every bookmarklet click stacks a new window".
-      setTimeout(() => {
-        if (acked) return;
-        ch.removeEventListener('message', handler);
+      const finish = () => {
         appendCaptureToInbox(cap, /*silent*/ true);
+        try { ch && ch.postMessage({ type: 'captured' }); } catch(_){}
         setTimeout(() => { try { window.close(); } catch(_) {} }, 600);
-      }, 450);
+      };
+      // Best-effort fresh fetch of the server's current state. If it succeeds,
+      // adopt the server's inbox content as our local truth before appending.
+      // If it fails (offline, no auth) we fall back to whatever's in db; the
+      // server-side shrinkage guard still blocks any catastrophic overwrite.
+      if (typeof window.fetchDB === 'function') {
+        window.fetchDB().then(remote => {
+          try {
+            if (remote && Array.isArray(remote.notes)) {
+              const inbox = (window.db.notes || []).find(n => n.title === '📥 Inbox' && !n.deletedAt);
+              const rinb  = remote.notes.find(n => n.title === '📥 Inbox' && !n.deletedAt);
+              if (inbox && rinb) {
+                // Take the longer of the two — protects against a transiently
+                // truncated server copy if one ever lands here.
+                const useRemote = (rinb.content || '').length >= (inbox.content || '').length;
+                if (useRemote) {
+                  inbox.content   = rinb.content;
+                  inbox.updatedAt = rinb.updatedAt;
+                }
+              }
+            }
+          } catch(_){}
+          finish();
+        }).catch(() => finish());
+      } else {
+        finish();
+      }
     } catch(_) {}
   }
 
