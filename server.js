@@ -495,17 +495,40 @@ app.post('/api/db', (req, res) => {
   // client (or directly on disk) after the stale client's last fetch.
   const current = readData() || {};
 
-  function mergeById(serverArr = [], clientArr = []) {
+  function mergeById(serverArr = [], clientArr = [], collection = '') {
     const ts = r => Date.parse(r.updatedAt || r.createdAt || 0);
     const map = new Map();
     // seed with server records
     serverArr.forEach(r => map.set(r.id, r));
+
+    // Content-shrinkage guard. Pure "newer-updatedAt wins" lets a stale tab
+    // silently wipe a large note when it pushes a truncated copy with a fresh
+    // updatedAt (e.g. bookmarklet capture acked into a tab that loaded the
+    // 📥 Inbox hours earlier). On 2026-06-03 this lost 11 capture lines from
+    // the Research Inbox in a 7-second window. Backups recovered them, but
+    // the right fix is to never let a single save erase >50% of a note's
+    // existing content. Edits never shrink notes that violently; this only
+    // ever triggers on bug-induced or stale-state overwrites.
+    const NOTE_SHRINK_FLOOR = 500;       // bytes — only protect non-trivial notes
+    const NOTE_SHRINK_RATIO = 0.5;       // refuse if new < server * ratio
+    function isDangerousNoteShrink(server, client) {
+      if (collection !== 'notes') return false;
+      if (!server || !client) return false;
+      if (client.deletedAt) return false; // explicit deletion is allowed
+      const sLen = (server.content || '').length;
+      const cLen = (client.content || '').length;
+      if (sLen < NOTE_SHRINK_FLOOR) return false;
+      if (cLen >= sLen * NOTE_SHRINK_RATIO) return false;
+      return true;
+    }
+
     // apply client records using these rules (in priority order):
     //  1. New record (server doesn't have it) → always add
     //  2. Client deleted it (deletedAt set, server has non-deleted) → honor delete
     //  3. Server deleted it, client has old non-deleted copy of same age → keep delete
-    //  4. No conflicting delete → newer timestamp wins
-    //  5. Tie or server newer → keep server copy
+    //  4. Dangerous content shrinkage (notes only) → refuse, keep server
+    //  5. No conflicting delete → newer timestamp wins
+    //  6. Tie or server newer → keep server copy
     clientArr.forEach(r => {
       const s = map.get(r.id);
       if (!s) {
@@ -516,6 +539,10 @@ app.post('/api/db', (req, res) => {
       }
       if (s.deletedAt && !r.deletedAt && ts(r) <= ts(s)) {
         return; // server deleted and client copy is same-age or older — keep deletion
+      }
+      if (isDangerousNoteShrink(s, r)) {
+        console.warn(`[merge-guard] refused content shrink on note ${r.id} ("${(s.title||'').slice(0,40)}"): ${(s.content||'').length} → ${(r.content||'').length} bytes; keeping server copy`);
+        return;
       }
       if (ts(r) > ts(s)) {
         map.set(r.id, r); // client's non-conflicting version is strictly newer
@@ -529,7 +556,7 @@ app.post('/api/db', (req, res) => {
   COLLECTIONS.forEach(k => {
     const serverArr  = Array.isArray(current[k])  ? current[k]  : [];
     const clientArr  = Array.isArray(incoming[k]) ? incoming[k] : [];
-    merged[k] = mergeById(serverArr, clientArr);
+    merged[k] = mergeById(serverArr, clientArr, k);
   });
   // Settings: client wins for all keys (settings changes are intentional)
   merged.settings = { ...(current.settings || {}), ...(incoming.settings || {}) };
