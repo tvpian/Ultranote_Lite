@@ -1749,10 +1749,22 @@ Things outside UltraNote that compound. Adopt one at a time.
       // older lines" race). It then broadcasts a 'captured' notification so
       // any other open UltraNote tabs refresh their UI, and closes itself.
       const ch = _ensureCaptureChannel();
-      const finish = () => {
+      const finish = async () => {
         appendCaptureToInbox(cap, /*silent*/ true);
+        // CRITICAL: window.save() is debounced ~400ms; if we close the tab
+        // before that timer fires (or before the resulting POST completes)
+        // the capture is dropped on the floor — which was the HTTP Shortcut
+        // regression on 2026-06-03. Call persistDB() directly so the POST
+        // is in flight before we close, and await it so we don't race the
+        // browser cancelling our network request when the window unloads.
+        try {
+          if (typeof window.persistDB === 'function') {
+            await window.persistDB();
+          }
+        } catch(_) {}
         try { ch && ch.postMessage({ type: 'captured' }); } catch(_){}
-        setTimeout(() => { try { window.close(); } catch(_) {} }, 600);
+        // Tiny grace period so the toast paints and BroadcastChannel flushes.
+        setTimeout(() => { try { window.close(); } catch(_) {} }, 250);
       };
       // Best-effort fresh fetch of the server's current state. If it succeeds,
       // adopt the server's inbox content as our local truth before appending.
