@@ -34,7 +34,7 @@ function req(method, path, body) {
 
 const PAPER_TEMPLATE = {
   id: 'tpl_paper_note',
-  name: '📄 Paper Note',
+  name: 'Paper Note',
   description: 'Structured reading note — TL;DR, method, why-I-care, links to topic maps.',
   tags: ['research', 'paper'],
   updatedAt: nowISO(),
