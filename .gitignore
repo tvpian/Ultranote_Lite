@@ -21,3 +21,5 @@ data.json.tmp.*
 .session-secret
 attachments/
 backups/
+
+data.json.pre-recovery*

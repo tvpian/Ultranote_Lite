@@ -4876,3 +4876,11 @@ body.focus-mode .editor-pane-wrap > #markdownPreview {
 .markdown-preview .katex-error strong,
 .note-preview .katex-error strong,
 .katex-error strong { color: #ff5555 !important; }
+
+
+/* Desktop sidebar collapse — toggled by #sidebarToggle in the header.
+   Mobile drawer behavior (body.drawer-open) is unaffected. */
+body.sidebar-collapsed main { grid-template-columns: 1fr !important; }
+body.sidebar-collapsed aside { display: none !important; }
+#sidebarToggle { transition: transform .2s ease; }
+body.sidebar-collapsed #sidebarToggle { transform: rotate(180deg); }

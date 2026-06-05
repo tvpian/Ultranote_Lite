@@ -1296,6 +1296,7 @@ const sections = [
   {id:"ideas", label:"💡 Ideas"},
   {id:"links", label:"🔗 Links"}, // NEW
   {id:"map", label:"🗺️ Map"},
+  {id:"people", label:"👥 People"},
   {id:"notebooks", label:"📓 Notebooks"},
   {id:"research", label:"🔬 Research"},
   {id:"vault", label:"🔍 Vault"},
@@ -2937,6 +2938,267 @@ function renderProjects(){
     };
   }
 }
+
+// ============================================================================
+// People — researcher dossier directory.
+// Notes live in the "People" notebook. Each note has a bold-key metadata
+// block at the top (Role / Affiliation / Tags / Met / Star) plus structured
+// sections we parse for the table view.
+// ============================================================================
+function _peopleNotebookId() {
+  const nb = (db.notebooks || []).find(n => !n.deletedAt && n.name === 'People');
+  return nb ? nb.id : null;
+}
+
+// Parse a single bold-key line: "**Role:** Professor" → "Professor"
+function _parseField(content, key) {
+  const re = new RegExp('^\\s*\\*\\*' + key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + ':\\*\\*\\s*(.*)$', 'mi');
+  const m = content.match(re);
+  return m ? m[1].trim() : '';
+}
+
+// Pull all `[[Wiki Link]]` targets out of a chunk of markdown.
+function _extractWikilinks(text) {
+  const out = [];
+  const re = /\[\[([^\]]+?)\]\]/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const t = m[1].split('|')[0].trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+// Slice the body of a `## Heading` section until the next `## ` or end.
+function _extractSection(content, heading) {
+  const re = new RegExp('^##\\s+' + heading.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '\\s*$([\\s\\S]*?)(?=^##\\s+|\\Z)', 'mi');
+  const m = content.match(re);
+  return m ? m[1] : '';
+}
+
+function _parsePerson(note) {
+  const c = note.content || '';
+  const tagsRaw = _parseField(c, 'Tags');
+  const tags = tagsRaw ? tagsRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
+  const met  = /^(y|yes|true|1)$/i.test(_parseField(c, 'Met'));
+  const star = /^(y|yes|true|1)$/i.test(_parseField(c, 'Star'));
+  // Topics are wiki-links inside the Topics section (typically "[[🗺️ Topic Map — X]]").
+  const topicsBody = _extractSection(c, 'Topics');
+  const topics = _extractWikilinks(topicsBody);
+  // Collaborators: wiki-links anywhere inside the Lab / team section.
+  const labBody = _extractSection(c, 'Lab \\/ team') || _extractSection(c, 'Lab / team');
+  const collaborators = _extractWikilinks(labBody);
+  // Role bucket — derived from tags first, then from the Role field.
+  const tagsLower = tags.map(t => t.toLowerCase());
+  let bucket = 'Other';
+  if (tagsLower.some(t => t === 'prof' || t === 'pi'))                 bucket = 'Profs / PIs';
+  else if (tagsLower.some(t => t === 'hiring' || t === 'recruiter'))   bucket = 'Hiring / Recruiters';
+  else if (tagsLower.some(t => t === 'engineer' || t === 'founder'))   bucket = 'Engineers / Founders';
+  else if (tagsLower.some(t => t === 'researcher' || t === 'postdoc' || t === 'phd' || t === 'scientist')) bucket = 'Researchers';
+  else {
+    const role = (_parseField(c, 'Role') || '').toLowerCase();
+    if (/prof|principal investigator|\bpi\b/.test(role))                  bucket = 'Profs / PIs';
+    else if (/hiring|recruiter/.test(role))                               bucket = 'Hiring / Recruiters';
+    else if (/engineer|founder|cto|ceo/.test(role))                       bucket = 'Engineers / Founders';
+    else if (/postdoc|phd|researcher|scientist|student/.test(role))       bucket = 'Researchers';
+  }
+  return {
+    id: note.id,
+    title: note.title,
+    role: _parseField(c, 'Role'),
+    affiliation: _parseField(c, 'Affiliation'),
+    location: _parseField(c, 'Location'),
+    tags,
+    met,
+    star,
+    topics,
+    collaborators,
+    bucket,
+    updatedAt: note.updatedAt,
+  };
+}
+
+// Module-scoped UI state for the People view.
+let _peopleFilters = { q: '', role: '', topic: '', metOnly: false, starOnly: false, view: 'group' };
+
+function renderPeople() {
+  const nbId = _peopleNotebookId();
+  if (!nbId) {
+    content.innerHTML = `
+      <div class="card">
+        <strong>People notebook is missing.</strong>
+        <div class="muted" style="margin-top:6px;">Run <code>node scripts/scaffold_people.js</code> from the repo to set it up.</div>
+      </div>`;
+    return;
+  }
+
+  const allPersonNotes = (db.notes || []).filter(n =>
+    !n.deletedAt && n.notebookId === nbId && n.title !== '👥 People — Index'
+  );
+  const people = allPersonNotes.map(_parsePerson);
+
+  // Aggregate filter chip data.
+  const allRoles  = Array.from(new Set(people.map(p => p.bucket))).sort();
+  const allTopics = Array.from(new Set(people.flatMap(p => p.topics))).sort();
+
+  const f = _peopleFilters;
+  const qLower = f.q.trim().toLowerCase();
+  const filtered = people.filter(p => {
+    if (f.metOnly  && !p.met)  return false;
+    if (f.starOnly && !p.star) return false;
+    if (f.role  && p.bucket !== f.role)         return false;
+    if (f.topic && !p.topics.includes(f.topic)) return false;
+    if (qLower) {
+      const hay = (p.title + ' ' + p.affiliation + ' ' + p.role + ' ' + p.tags.join(' ')).toLowerCase();
+      if (!hay.includes(qLower)) return false;
+    }
+    return true;
+  });
+
+  // Sort within group / overall.
+  filtered.sort((a, b) => {
+    if (a.star !== b.star) return a.star ? -1 : 1;
+    return a.title.localeCompare(b.title);
+  });
+
+  const indexNote = (db.notes || []).find(n => !n.deletedAt && n.notebookId === nbId && n.title === '👥 People — Index');
+
+  const filterBarHTML = `
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <strong>👥 People <span class="muted" style="font-weight:normal;">(${filtered.length}/${people.length})</span></strong>
+        <div class="row" style="gap:6px;flex-wrap:wrap;">
+          ${indexNote ? `<button class="btn" id="pplOpenIndex" title="Open the People — Index note">📑 Index</button>` : ''}
+          <button class="btn acc" id="pplAdd" title="Create a new person note from the Person template">➕ Add Person</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px;">
+        <input id="pplSearch" type="text" placeholder="Search name, org, role, tag…" value="${htmlesc(f.q)}" style="flex:1;min-width:180px;" />
+        <select id="pplRole" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
+          <option value="">All roles</option>
+          ${allRoles.map(r => `<option value="${htmlesc(r)}" ${r===f.role?'selected':''}>${htmlesc(r)}</option>`).join('')}
+        </select>
+        <select id="pplTopic" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
+          <option value="">All topics</option>
+          ${allTopics.map(t => `<option value="${htmlesc(t)}" ${t===f.topic?'selected':''}>${htmlesc(t)}</option>`).join('')}
+        </select>
+        <label class="row" style="gap:4px;align-items:center;"><input type="checkbox" id="pplStar" ${f.starOnly?'checked':''}/> ⭐ Stars only</label>
+        <label class="row" style="gap:4px;align-items:center;"><input type="checkbox" id="pplMet" ${f.metOnly?'checked':''}/> Met IRL</label>
+        <select id="pplView" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
+          <option value="group" ${f.view==='group'?'selected':''}>Grouped by topic</option>
+          <option value="flat"  ${f.view==='flat'?'selected':''}>Flat alphabetical</option>
+          <option value="role"  ${f.view==='role'?'selected':''}>Grouped by role</option>
+        </select>
+      </div>
+    </div>`;
+
+  function rowHTML(p) {
+    const star = p.star ? '⭐ ' : '';
+    const met  = p.met  ? '<span title="Met IRL" style="margin-left:4px;">🤝</span>' : '';
+    const tagChips = p.tags.slice(0,4).map(t => `<span class="muted" style="font-size:11px;border:1px solid var(--btn-border);border-radius:10px;padding:1px 6px;margin-right:3px;">${htmlesc(t)}</span>`).join('');
+    const topicChips = p.topics.slice(0,3).map(t => {
+      const short = t.replace(/^🗺️\s*Topic\s*Map\s*[—-]\s*/i, '');
+      return `<span class="muted" style="font-size:11px;border:1px solid var(--btn-border);border-radius:10px;padding:1px 6px;margin-right:3px;">🗺️ ${htmlesc(short)}</span>`;
+    }).join('') + (p.topics.length > 3 ? `<span class="muted" style="font-size:11px;">+${p.topics.length-3}</span>` : '');
+    const collabCount = p.collaborators.length;
+    return `
+      <tr data-ppl-id="${p.id}" style="cursor:pointer;border-bottom:1px solid var(--btn-border);">
+        <td style="padding:8px 6px;"><strong>${star}${htmlesc(p.title)}</strong>${met}<div style="margin-top:2px;">${tagChips}</div></td>
+        <td style="padding:8px 6px;">${htmlesc(p.role || '—')}</td>
+        <td style="padding:8px 6px;">${htmlesc(p.affiliation || '—')}</td>
+        <td style="padding:8px 6px;">${topicChips || '<span class="muted">—</span>'}</td>
+        <td style="padding:8px 6px;">${collabCount ? `<span class="muted">${collabCount} linked</span>` : '<span class="muted">—</span>'}</td>
+      </tr>`;
+  }
+
+  function tableHTML(rows) {
+    if (!rows.length) return `<div class="muted" style="padding:14px;">No people match the current filters.</div>`;
+    return `
+      <table style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr style="text-align:left;border-bottom:2px solid var(--btn-border);">
+            <th style="padding:8px 6px;">Name</th>
+            <th style="padding:8px 6px;">Role</th>
+            <th style="padding:8px 6px;">Affiliation</th>
+            <th style="padding:8px 6px;">Topics</th>
+            <th style="padding:8px 6px;">Collaborators</th>
+          </tr>
+        </thead>
+        <tbody>${rows.map(rowHTML).join('')}</tbody>
+      </table>`;
+  }
+
+  let bodyHTML = '';
+  if (people.length === 0) {
+    bodyHTML = `
+      <div class="card">
+        <strong>No people yet.</strong>
+        <div class="muted" style="margin-top:6px;">Click <em>➕ Add Person</em> above to create your first person note. Each note becomes a researcher dossier — affiliation, lab, key papers, topics they work on. Backlinks from your paper notes will accumulate automatically.</div>
+      </div>`;
+  } else if (f.view === 'flat') {
+    bodyHTML = `<div class="card">${tableHTML(filtered)}</div>`;
+  } else {
+    const groupKey = f.view === 'role' ? 'bucket' : 'topic';
+    const groups = {};
+    filtered.forEach(p => {
+      const keys = groupKey === 'topic'
+        ? (p.topics.length ? p.topics : ['(no topic)'])
+        : [p.bucket];
+      keys.forEach(k => { (groups[k] = groups[k] || []).push(p); });
+    });
+    const keysSorted = Object.keys(groups).sort((a, b) => {
+      if (a === '(no topic)') return 1;
+      if (b === '(no topic)') return -1;
+      return a.localeCompare(b);
+    });
+    bodyHTML = keysSorted.map(k => {
+      const label = groupKey === 'topic' ? k.replace(/^🗺️\s*Topic\s*Map\s*[—-]\s*/i, '🗺️ ') : k;
+      return `<div class="card"><strong>${htmlesc(label)} <span class="muted" style="font-weight:normal;">(${groups[k].length})</span></strong>${tableHTML(groups[k])}</div>`;
+    }).join('');
+  }
+
+  content.innerHTML = filterBarHTML + bodyHTML;
+
+  // --- Wire interactions ---
+  const $get = id => document.getElementById(id);
+  const rerender = () => renderPeople();
+
+  $get('pplSearch').addEventListener('input', e => { _peopleFilters.q = e.target.value; clearTimeout(window._pplDebounce); window._pplDebounce = setTimeout(rerender, 180); });
+  $get('pplRole').onchange  = e => { _peopleFilters.role  = e.target.value; rerender(); };
+  $get('pplTopic').onchange = e => { _peopleFilters.topic = e.target.value; rerender(); };
+  $get('pplStar').onchange  = e => { _peopleFilters.starOnly = e.target.checked; rerender(); };
+  $get('pplMet').onchange   = e => { _peopleFilters.metOnly  = e.target.checked; rerender(); };
+  $get('pplView').onchange  = e => { _peopleFilters.view    = e.target.value; rerender(); };
+
+  $get('pplAdd').onclick = () => {
+    const tpl = (db.templates || []).find(t => !t.deletedAt && t.id === 'tpl_person');
+    const body = tpl ? tpl.content : '# New Person\n\n**Role:** \n**Affiliation:** \n**Tags:** \n';
+    const note = {
+      id: uid(),
+      title: 'New Person',
+      content: body,
+      tags: ['person'],
+      notebookId: nbId,
+      createdAt: nowISO(),
+      updatedAt: nowISO(),
+    };
+    db.notes.push(note);
+    save();
+    _navPush();
+    openNote(note.id);
+  };
+
+  if (indexNote) {
+    const ix = $get('pplOpenIndex');
+    if (ix) ix.onclick = () => { _navPush(); openNote(indexNote.id); };
+  }
+
+  // Row click → open the person note.
+  content.querySelectorAll('tr[data-ppl-id]').forEach(tr => {
+    tr.onclick = () => { _navPush(); openNote(tr.dataset.pplId); };
+  });
+}
+
 function renderIdeas(){
   content.innerHTML = `
   <div class="card">
@@ -5955,6 +6217,7 @@ function render(){
   else if(route==='monthly') renderMonthly();
   else if(route==='review') renderReview();
   else if(route==='map') renderMap(); // handle map view
+  else if(route==='people') renderPeople();
   else if(route==='journal') renderJournalHistory();
   // Update mobile bar active states
   const mb = document.getElementById('mobileBar');
@@ -6578,6 +6841,32 @@ document.addEventListener('DOMContentLoaded', async () => {
   if(menuBtn && !menuBtn.dataset.bound){
     menuBtn.onclick = (e)=>{ e.stopPropagation(); document.body.classList.toggle('drawer-open'); };
     menuBtn.dataset.bound='1';
+  }
+  // Desktop sidebar collapse toggle (#sidebarToggle in the header).
+  // State persists across reloads via localStorage; Ctrl+\ also toggles.
+  const sidebarBtn = document.getElementById('sidebarToggle');
+  const SIDEBAR_KEY = 'ultranote-sidebar-collapsed';
+  const applyCollapsed = (v) => {
+    document.body.classList.toggle('sidebar-collapsed', !!v);
+    if (sidebarBtn) sidebarBtn.setAttribute('aria-pressed', v ? 'true' : 'false');
+  };
+  try { applyCollapsed(localStorage.getItem(SIDEBAR_KEY) === '1'); } catch(_){}
+  if (sidebarBtn && !sidebarBtn.dataset.bound) {
+    sidebarBtn.onclick = () => {
+      const next = !document.body.classList.contains('sidebar-collapsed');
+      applyCollapsed(next);
+      try { localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0'); } catch(_){}
+    };
+    sidebarBtn.dataset.bound = '1';
+  }
+  if (!window._sidebarShortcutBound) {
+    window._sidebarShortcutBound = true;
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\') {
+        e.preventDefault();
+        if (sidebarBtn) sidebarBtn.click();
+      }
+    });
   }
   // Close drawer when: (a) clicking the backdrop / anywhere outside the
   // sidebar, or (b) tapping an actionable element inside the sidebar so
