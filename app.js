@@ -1356,6 +1356,21 @@ function _navPop() {
   }
   window._navPopping = false;
 }
+
+// Pop history if there's somewhere to go back to; otherwise run a caller-
+// supplied fallback. Used by post-action handlers (delete a note, recover
+// from a missing note) so they prefer the user's actual previous view
+// rather than a hardcoded route.
+function _navBackOr(fallback) {
+  if (window._navHistory && window._navHistory.length) {
+    _navPop();
+  } else if (typeof fallback === 'function') {
+    fallback();
+  } else {
+    route = 'today'; render();
+  }
+}
+window._navBackOr = _navBackOr;
 // --- End navigation history ---
 
 // --- Browser-history + reload persistence ---
@@ -3793,8 +3808,8 @@ function renderReview(){
   content.querySelectorAll('[data-view-task]').forEach(b=> b.onclick=()=> openTaskModal(b.dataset.viewTask));
   content.querySelectorAll('[data-open-task]').forEach(b=> b.onclick=()=> openTaskContext(b.dataset.openTask));
   content.querySelectorAll('[data-open-project]').forEach(b=> b.onclick=()=> openProjectContext(b.dataset.openProject));
-  content.querySelectorAll('[data-goto-research]').forEach(b=> b.onclick=()=>{ route='research'; render(); });
-  content.querySelectorAll('[data-open-nb]').forEach(b=> b.onclick=()=>{ currentNotebookId = b.dataset.openNb; currentPageId = null; route='notebooks'; render(); });
+  content.querySelectorAll('[data-goto-research]').forEach(b=> b.onclick=()=>{ _navPush(); route='research'; render(); });
+  content.querySelectorAll('[data-open-nb]').forEach(b=> b.onclick=()=>{ _navPush(); currentNotebookId = b.dataset.openNb; currentPageId = null; route='notebooks'; render(); });
   content.querySelectorAll('[data-done]').forEach(b=> b.onclick=()=>{ setTaskStatus(b.dataset.done,'DONE'); renderReview(); });
   // Virtual recurring undo (Option 2 trial)
   content.querySelectorAll('[data-rec-uncomplete]').forEach(b=> b.onclick=()=>{
@@ -5522,12 +5537,15 @@ function openNote(id){
     // Note was deleted. Find any task referencing this id and clear the orphaned link.
     db.tasks.forEach(t => { if(t.noteId === id) t.noteId = null; });
     save();
-    route='today'; render();
+    // Prefer the previous view (e.g. the list the user clicked from)
+    // rather than dumping them on Today.
+    _navBackOr(() => { route='today'; render(); });
     return;
   }
   if(n.deletedAt){
-    // Note is in trash – redirect to Review so user can restore it
-    route='review'; render();
+    // Note is in trash – go back to where the user came from if possible,
+    // otherwise route to Review so they can restore it.
+    _navBackOr(() => { route='review'; render(); });
     return;
   }
   // Push navigation state BEFORE switching to the note editor so Back returns here.
@@ -5690,10 +5708,16 @@ function openNote(id){
     const ok = await showConfirm(`Delete this note?${taskNote}`, 'Delete', 'Cancel');
     if(!ok) return;
     softDeleteNote(n.id);
-    if(n.type==='daily'){ route='today'; render(); }
-    else if(n.projectId){ route='projects'; render(); }
-    else if(n.type==='idea'){ route='ideas'; render(); }
-    else { route='vault'; render(); }
+    // Prefer the user's actual previous view (e.g. People, Notebooks, Vault
+    // search results). Fall back to a sensible default by note type only
+    // when there's no history (e.g. arrived via deep link).
+    _navBackOr(() => {
+      if (n.type === 'daily')      { route = 'today'; }
+      else if (n.projectId)        { route = 'projects'; }
+      else if (n.type === 'idea')  { route = 'ideas'; }
+      else                         { route = 'vault'; }
+      render();
+    });
   };
   const addSketchBtn = document.getElementById('addSketch');
   if(typeof openSketchModal === 'function') addSketchBtn.onclick = ()=> openSketchModal(n.id);
