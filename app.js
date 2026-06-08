@@ -5655,9 +5655,11 @@ function renderLinks(){
       <div class='row' style='margin-top:8px;gap:8px;flex-wrap:wrap;'>
         <input id='linkTitle' type='text' placeholder='Title' style='flex:1;min-width:140px;' />
         <input id='linkUrl' type='text' placeholder='https://...' style='flex:1;min-width:180px;' />
-        <input id='linkTags' type='text' placeholder='tags (space)' style='flex:1;min-width:120px;' />
+        <input id='linkTags' type='text' placeholder='tags (space)' list='linkTagCorpusList' autocomplete='off' style='flex:1;min-width:120px;' />
+        <datalist id='linkTagCorpusList'>${getAllTags().map(t=>`<option value="#${htmlesc(t)}"></option>`).join('')}</datalist>
         <button id='addLink' class='btn acc'>Add</button>
       </div>
+      <div id='linkTagSuggestRow' class='row' style='margin-top:4px;flex-wrap:wrap;gap:4px;align-items:center;font-size:11px;min-height:0;'></div>
       <div class='row' style='margin-top:8px;gap:8px;flex-wrap:wrap;'>
         <input id='linksFilter' type='text' placeholder='Filter or #tag' style='flex:1;min-width:160px;' value='${htmlesc(prevFilter)}' />
         <button id='exportLinks' class='btn' style='font-size:12px;'>Export</button>
@@ -5737,6 +5739,39 @@ function renderLinks(){
     save();
     draw();
   };
+  // --- Subtle tag suggestions for the new-link form ---
+  // Re-rank against title + url + currently-typed tags. Empty by default;
+  // chips appear only when the corpus has matches. Click to append.
+  {
+    const titleI = document.getElementById('linkTitle');
+    const urlI   = document.getElementById('linkUrl');
+    const tagsI  = document.getElementById('linkTags');
+    const row    = document.getElementById('linkTagSuggestRow');
+    if (tagsI && row) {
+      const used = () => (tagsI.value || '').split(/\s+/)
+        .map(t => t.startsWith('#') ? t.slice(1) : t).map(t => t.trim().toLowerCase()).filter(Boolean);
+      const refresh = () => {
+        const text = ((titleI?.value || '') + ' ' + (urlI?.value || '')).slice(0, 2000);
+        if (!text.trim()) { row.innerHTML = ''; return; }
+        const sugg = suggestTagsFor(text, used(), 8);
+        if (!sugg.length) { row.innerHTML = ''; return; }
+        row.innerHTML = sugg.map(s =>
+          `<button type='button' class='muted' data-suggest='${htmlesc(s.tag)}' title='Used ${s.count}× · click to add' style='font-size:11px;border:1px dashed var(--btn-border);background:transparent;border-radius:10px;padding:1px 8px;cursor:pointer;'>+ #${htmlesc(s.tag)}</button>`
+        ).join('');
+        row.querySelectorAll('[data-suggest]').forEach(b => b.onclick = () => {
+          const tag = b.dataset.suggest;
+          if (used().includes(tag.toLowerCase())) return;
+          const cur = (tagsI.value || '').trim();
+          tagsI.value = (cur ? cur + ' ' : '') + '#' + tag;
+          refresh();
+        });
+      };
+      let _t;
+      const debounced = () => { clearTimeout(_t); _t = setTimeout(refresh, 200); };
+      [titleI, urlI, tagsI].forEach(el => el && el.addEventListener('input', debounced));
+      refresh();
+    }
+  }
   draw();
 }
 // --- End Links view ---
@@ -5870,11 +5905,11 @@ function openNote(id){
       if(contentEl) contentEl.addEventListener(evt, () => { window._editorDirty = true; });
     });
   }
-  // --- Tag suggestion chips ---
-  // Suggests existing tags from the workspace corpus, ranked by relevance
-  // to the current title + content (substring match) with a popularity
-  // tiebreaker. Click a chip to append it to the tags input. Re-ranks
-  // live (debounced) as the user types title or content.
+  // --- Tag suggestion chips (subtle) ---
+  // Renders a quiet row of ghost chips below the tags input — only when
+  // the corpus has relevant matches against title + content. Click to
+  // append. Hidden entirely when nothing relevant is found, so the row
+  // doesn't yell at the user with empty-state messaging.
   {
     const tagsEl  = document.getElementById('tags');
     const titleEl = document.getElementById('title');
@@ -5885,26 +5920,19 @@ function openNote(id){
         .map(t => t.startsWith('#') ? t.slice(1) : t).map(t => t.trim().toLowerCase()).filter(Boolean);
       const refresh = () => {
         const text = ((titleEl?.value || '') + ' ' + (contentEl?.value || '')).slice(0, 4000);
-        const used = currentTagList();
-        const sugg = suggestTagsFor(text, used, 12);
-        if (!sugg.length) {
-          row.innerHTML = `<span class="muted">No tag suggestions — type # in the box for autocomplete from your existing tags.</span>`;
-          return;
-        }
-        row.innerHTML = `<span class="muted" style="margin-right:4px;">Suggested:</span>` +
-          sugg.map(s => `<button type="button" class="btn" data-suggest="${htmlesc(s.tag)}" style="font-size:11px;padding:2px 8px;cursor:pointer;" title="Used ${s.count}× in your notes">+ #${htmlesc(s.tag)}</button>`).join('') +
-          `<button type="button" class="btn" id="tagSuggestRefresh" style="font-size:11px;padding:2px 8px;margin-left:4px;" title="Recompute suggestions">↻</button>`;
+        const sugg = suggestTagsFor(text, currentTagList(), 8);
+        if (!sugg.length) { row.innerHTML = ''; return; }
+        row.innerHTML = sugg.map(s =>
+          `<button type='button' class='muted' data-suggest='${htmlesc(s.tag)}' title='Used ${s.count}× · click to add' style='font-size:11px;border:1px dashed var(--btn-border);background:transparent;border-radius:10px;padding:1px 8px;cursor:pointer;'>+ #${htmlesc(s.tag)}</button>`
+        ).join('');
         row.querySelectorAll('[data-suggest]').forEach(b => b.onclick = () => {
           const tag = b.dataset.suggest;
-          const existing = currentTagList();
-          if (existing.includes(tag.toLowerCase())) return;
+          if (currentTagList().includes(tag.toLowerCase())) return;
           const cur = (tagsEl.value || '').trim();
           tagsEl.value = (cur ? cur + ' ' : '') + '#' + tag;
           window._editorDirty = true;
           refresh();
         });
-        const ref = row.querySelector('#tagSuggestRefresh');
-        if (ref) ref.onclick = refresh;
       };
       let _tagSuggestTimer;
       const debouncedRefresh = () => { clearTimeout(_tagSuggestTimer); _tagSuggestTimer = setTimeout(refresh, 250); };
