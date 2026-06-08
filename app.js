@@ -727,7 +727,7 @@ async function initApp(){
     });
     root.querySelectorAll('select').forEach(sel => {
       if (sel.dataset.fancy === '1') return;
-      if (sel.dataset.noFancy === '1' || sel.id === 'linkSelect') return;
+      if (sel.dataset.noFancy === '1') return;
       if (sel.multiple || sel.size > 1) return;
       sel.dataset.fancy = '1';
 
@@ -833,7 +833,11 @@ async function initApp(){
         window.removeEventListener('resize', positionPopup, true);
       };
       const outsideHandler = (e) => {
-        if (!wrap.contains(e.target) && !popup.contains(e.target)) close();
+        if (wrap.contains(e.target) || popup.contains(e.target)) return;
+        // Allow callers to nominate sibling controls (e.g. linkSearch) that
+        // shouldn't close the popup when interacted with.
+        if (e.target.closest && e.target.closest('[data-fancy-keepopen]')) return;
+        close();
       };
       const keyHandler = (e) => {
         if (e.key === 'Escape') { e.preventDefault(); close(); btn.focus(); }
@@ -885,9 +889,18 @@ async function initApp(){
 
       // If callers replace the option list (linkModal-style search filters,
       // or template-list rebuilds), keep the popup + label fresh.
-      const obs = new MutationObserver(() => syncBtnLabel());
+      const obs = new MutationObserver(() => {
+        syncBtnLabel();
+        if (isOpen) buildPopup();
+      });
       obs.observe(sel, { childList: true, subtree: true });
       sel.addEventListener('change', syncBtnLabel);
+
+      // Expose a tiny imperative API so callers (e.g. the linkSearch input
+      // in openLinkModal) can drive the popup as users type.
+      sel.fancyOpen  = open;
+      sel.fancyClose = close;
+      sel.fancyToggle = () => { isOpen ? close() : open(); };
 
       syncBtnLabel();
     });
@@ -4616,10 +4629,22 @@ function openLinkModal(noteId) {
   // Reset search field and populate options
   if(searchInput) searchInput.value = '';
   populate('');
-  // Filter notes on input
+  // Filter notes on input. The linkSelect is now a .fancy-select, so we
+  // auto-open its popup while the user types — filtered matches appear
+  // immediately without needing a second click. The data-fancy-keepopen
+  // attribute stops the outside-click handler from closing the popup
+  // when the user clicks back into the search box to refine the query.
   if(searchInput) {
+    searchInput.setAttribute('data-fancy-keepopen', '1');
     searchInput.oninput = () => {
       populate(searchInput.value || '');
+      if (typeof select.fancyOpen === 'function') select.fancyOpen();
+    };
+    searchInput.onkeydown = (ev) => {
+      if (ev.key === 'ArrowDown' && typeof select.fancyOpen === 'function') {
+        ev.preventDefault();
+        select.fancyOpen();
+      }
     };
   }
   modal.classList.add('show');
