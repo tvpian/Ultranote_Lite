@@ -719,6 +719,12 @@ async function initApp(){
   // has its own search-and-pick UX inside the link modal).
   window.enhanceSelects = function enhanceSelects(root) {
     root = root || document;
+    // Sweep orphan popups whose wrapper has been removed from the DOM by a
+    // re-render. Keeps document.body clean across navigation.
+    document.body.querySelectorAll('.fancy-select-popup').forEach(p => {
+      const owner = p.__fancyOwner;
+      if (owner && !owner.isConnected) p.remove();
+    });
     root.querySelectorAll('select').forEach(sel => {
       if (sel.dataset.fancy === '1') return;
       if (sel.dataset.noFancy === '1' || sel.id === 'linkSelect') return;
@@ -748,7 +754,11 @@ async function initApp(){
       popup.setAttribute('role', 'listbox');
 
       wrap.appendChild(btn);
-      wrap.appendChild(popup);
+      // Portal the popup to <body> so it isn't clipped by any scrollable
+      // ancestor (e.g. .modal-body with overflow-y:auto). Position is
+      // computed from the button's bounding rect on open and on scroll/resize.
+      document.body.appendChild(popup);
+      popup.__fancyOwner = wrap;
 
       const escapeHTML = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
       const syncBtnLabel = () => {
@@ -774,27 +784,57 @@ async function initApp(){
           };
         });
       };
+      const positionPopup = () => {
+        const r = btn.getBoundingClientRect();
+        const margin = 6;
+        const maxH = 280;
+        // Decide whether to open downward or upward based on available space.
+        const spaceBelow = window.innerHeight - r.bottom - margin;
+        const spaceAbove = r.top - margin;
+        const openUp = spaceBelow < 200 && spaceAbove > spaceBelow;
+        popup.style.position = 'fixed';
+        popup.style.left = r.left + 'px';
+        popup.style.minWidth = r.width + 'px';
+        popup.style.maxHeight = Math.min(maxH, openUp ? spaceAbove : spaceBelow) + 'px';
+        if (openUp) {
+          popup.style.top = '';
+          popup.style.bottom = (window.innerHeight - r.top + margin) + 'px';
+        } else {
+          popup.style.bottom = '';
+          popup.style.top = (r.bottom + margin) + 'px';
+        }
+        popup.style.right = '';
+      };
       let isOpen = false;
       const open = () => {
         if (sel.disabled) return;
         buildPopup();
         wrap.classList.add('is-open');
+        popup.classList.add('is-open');
         btn.setAttribute('aria-expanded', 'true');
         isOpen = true;
+        positionPopup();
         document.addEventListener('mousedown', outsideHandler, true);
         document.addEventListener('keydown', keyHandler, true);
+        window.addEventListener('scroll', positionPopup, true);
+        window.addEventListener('resize', positionPopup, true);
         // Scroll selected into view
         const cur = popup.querySelector('.is-selected');
         if (cur) cur.scrollIntoView({ block: 'nearest' });
       };
       const close = () => {
         wrap.classList.remove('is-open');
+        popup.classList.remove('is-open');
         btn.setAttribute('aria-expanded', 'false');
         isOpen = false;
         document.removeEventListener('mousedown', outsideHandler, true);
         document.removeEventListener('keydown', keyHandler, true);
+        window.removeEventListener('scroll', positionPopup, true);
+        window.removeEventListener('resize', positionPopup, true);
       };
-      const outsideHandler = (e) => { if (!wrap.contains(e.target)) close(); };
+      const outsideHandler = (e) => {
+        if (!wrap.contains(e.target) && !popup.contains(e.target)) close();
+      };
       const keyHandler = (e) => {
         if (e.key === 'Escape') { e.preventDefault(); close(); btn.focus(); }
         else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
