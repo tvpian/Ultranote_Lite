@@ -2625,8 +2625,8 @@ function renderToday(){
       </label>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
-        ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;' title='Send to backlog (optional reason)'>Backlog</button>`:''}
-        ${t.status!=='DONE'?`<button class='btn' data-drop='${t.id}' style='font-size:11px;color:#f88;' title='Drop with required reason'>⊘ Drop</button>`:''}
+        ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:13px;padding:2px 6px;' title='Send to backlog (optional reason)'>📦</button>`:''}
+        ${t.status!=='DONE'?`<button class='btn' data-drop='${t.id}' style='font-size:13px;padding:2px 6px;color:#f88;' title='Drop with required reason'>⊘</button>`:''}
         <button class='btn' data-del='${t.id}' title='Delete'>✕</button>
       </div>
     </div>`;
@@ -2803,8 +2803,8 @@ function renderToday(){
       </label>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
-        ${t.status !== 'DONE' ? `<button class='btn' data-b='${t.id}' style='font-size:11px;' title='Send to backlog (optional reason)'>Backlog</button>` : ''}
-        ${t.status !== 'DONE' ? `<button class='btn' data-drop='${t.id}' style='font-size:11px;color:#f88;' title='Drop with required reason'>⊘ Drop</button>` : ''}
+        ${t.status !== 'DONE' ? `<button class='btn' data-b='${t.id}' style='font-size:13px;padding:2px 6px;' title='Send to backlog (optional reason)'>📦</button>` : ''}
+        ${t.status !== 'DONE' ? `<button class='btn' data-drop='${t.id}' style='font-size:13px;padding:2px 6px;color:#f88;' title='Drop with required reason'>⊘</button>` : ''}
         <button class='btn' data-del='${t.id}'>✕</button>
       </div>
     </div>`;
@@ -3100,8 +3100,8 @@ function renderProjects(){
         </label>
         <div class='row' style='gap:6px;flex-shrink:0;flex-wrap:wrap;'>
           <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
-          ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;' title='Send to backlog (optional reason)'>Backlog</button>`:''}
-          ${t.status!=='DONE'?`<button class='btn' data-drop='${t.id}' style='font-size:11px;color:#f88;' title='Drop with required reason'>⊘ Drop</button>`:''}
+          ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:13px;padding:2px 6px;' title='Send to backlog (optional reason)'>📦</button>`:''}
+          ${t.status!=='DONE'?`<button class='btn' data-drop='${t.id}' style='font-size:13px;padding:2px 6px;color:#f88;' title='Drop with required reason'>⊘</button>`:''}
           <button class='btn' data-del='${t.id}'>✕</button>
         </div>
       </div>`;
