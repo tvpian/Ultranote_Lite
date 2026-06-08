@@ -1527,6 +1527,87 @@ function suggestTagsFor(text, alreadySet = [], max = 10){
 window.suggestTagsFor = suggestTagsFor;
 window.buildTagCorpus = buildTagCorpus;
 
+// --- Keyword extraction (for "intelligent" tag suggestions) ---
+// suggestTagsFor only ranks tags that already exist in the corpus, so a
+// brand-new note about a topic the user hasn't tagged before gets nothing.
+// extractKeywordCandidates pulls likely tag candidates straight from the
+// note text itself: stopword-filtered tokens with frequency >= 1, plus
+// bigrams (e.g. "machine learning" -> "machine-learning") with freq >= 2.
+const TAG_STOPWORDS = new Set([
+  'the','a','an','and','or','but','if','then','else','for','to','of','in','on',
+  'at','by','with','as','is','are','was','were','be','been','being','this',
+  'that','these','those','it','its','i','you','he','she','we','they','my','your',
+  'their','our','his','her','do','does','did','doing','have','has','had','having',
+  'will','would','should','could','can','may','might','must','from','about',
+  'into','over','under','out','up','down','off','more','less','some','any','all',
+  'each','every','no','not','so','than','too','very','just','only','also','well',
+  'much','many','few','one','two','three','first','second','last','new','old',
+  'used','using','use','make','made','get','got','goes','went','come','came',
+  'see','saw','seen','said','say','says','know','knew','want','wanted','need',
+  'needed','like','liked','look','here','there','where','when','why','how',
+  'what','who','whom','which','because','though','although','since','while',
+  'until','before','after','during','between','among','also','etc','via','per',
+  'still','already','really','actually','always','never','often','sometimes',
+  'today','tomorrow','yesterday','soon','later','again','still','yet','now',
+  'thing','things','stuff','way','ways','time','times','part','parts','case',
+  'cases','area','areas','side','sides','kind','kinds','sort','sorts','bit',
+  'bits','lot','lots','rather','quite','seems','seem','looks','sounds'
+]);
+
+window.extractKeywordCandidates = function extractKeywordCandidates(text, max = 12) {
+  if (!text) return [];
+  // Strip noise that can't be a tag: code blocks, inline code, URLs.
+  const cleaned = String(text)
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .toLowerCase();
+  const tokens = cleaned.split(/\s+/)
+    .map(w => w.replace(/^-+|-+$/g, ''))
+    .filter(Boolean);
+  const isCandidate = w =>
+    w.length >= 4 &&
+    !TAG_STOPWORDS.has(w) &&
+    !/^\d+$/.test(w) &&
+    !/^-+$/.test(w);
+  const freq = new Map();
+  for (const t of tokens) {
+    if (isCandidate(t)) freq.set(t, (freq.get(t) || 0) + 1);
+  }
+  // Bigrams: only if both halves are candidates AND the pair appears
+  // multiple times (otherwise we'd suggest a million one-off pairings).
+  const bigramFreq = new Map();
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const a = tokens[i], b = tokens[i + 1];
+    if (!isCandidate(a) || !isCandidate(b)) continue;
+    const k = a + '-' + b;
+    bigramFreq.set(k, (bigramFreq.get(k) || 0) + 1);
+  }
+  for (const [k, n] of bigramFreq) {
+    if (n >= 2) freq.set(k, n + 0.5); // small boost to prefer bigrams over their singletons
+  }
+  return Array.from(freq.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, max)
+    .map(([tag, count]) => ({ tag, count: Math.floor(count) }));
+};
+
+// Combine corpus-driven and text-extracted candidates so suggestions feel
+// genuinely useful even on new topics. Each result carries an `isNew` flag
+// so the UI can distinguish proven tags from fresh keyword extractions.
+window.smartSuggestTags = function smartSuggestTags(text, alreadySet = [], max = 10) {
+  const skip = new Set((alreadySet || []).map(x => (x || '').toLowerCase()));
+  const corpus = suggestTagsFor(text || '', alreadySet, Math.max(max, 8))
+    .map(s => ({ tag: s.tag, count: s.count, isNew: false }));
+  const corpusKeys = new Set(corpus.map(s => s.tag));
+  const fresh = extractKeywordCandidates(text || '', 16)
+    .filter(k => !skip.has(k.tag) && !corpusKeys.has(k.tag))
+    .map(k => ({ tag: k.tag, count: k.count, isNew: true }));
+  // Interleave: corpus first (proven), then fresh extractions.
+  return [...corpus, ...fresh].slice(0, max);
+};
+
 // Option provider for the tag inputs' fancy autocomplete popup.
 // q          — the user's current partial token (no leading #), lowercased
 // fullValue  — the entire input value (used to exclude already-typed tags)
@@ -6123,11 +6204,18 @@ function renderLinks(){
       const refresh = () => {
         const text = ((titleI?.value || '') + ' ' + (urlI?.value || '')).slice(0, 2000);
         if (!text.trim()) { row.innerHTML = ''; return; }
-        const sugg = suggestTagsFor(text, used(), 8);
+        const sugg = smartSuggestTags(text, used(), 8);
         if (!sugg.length) { row.innerHTML = ''; return; }
-        row.innerHTML = sugg.map(s =>
-          `<button type='button' class='muted' data-suggest='${htmlesc(s.tag)}' title='Used ${s.count}× · click to add' style='font-size:11px;border:1px dashed var(--btn-border);background:transparent;border-radius:10px;padding:1px 8px;cursor:pointer;'>+ #${htmlesc(s.tag)}</button>`
-        ).join('');
+        row.innerHTML =
+          `<span class='tag-sugg-label'>Suggested:</span>` +
+          sugg.map(s => {
+            const cls   = 'tag-sugg-chip' + (s.isNew ? ' is-new' : '');
+            const title = s.isNew
+              ? 'New tag extracted from this entry · click to add'
+              : `Used ${s.count}\u00d7 \u00b7 click to add`;
+            const prefix = s.isNew ? '\u2728 ' : '+ ';
+            return `<button type='button' class='${cls}' data-suggest='${htmlesc(s.tag)}' title='${title}'>${prefix}#${htmlesc(s.tag)}</button>`;
+          }).join('');
         row.querySelectorAll('[data-suggest]').forEach(b => b.onclick = () => {
           const tag = b.dataset.suggest;
           if (used().includes(tag.toLowerCase())) return;
@@ -6294,11 +6382,18 @@ function openNote(id){
         .map(t => t.startsWith('#') ? t.slice(1) : t).map(t => t.trim().toLowerCase()).filter(Boolean);
       const refresh = () => {
         const text = ((titleEl?.value || '') + ' ' + (contentEl?.value || '')).slice(0, 4000);
-        const sugg = suggestTagsFor(text, currentTagList(), 8);
+        const sugg = smartSuggestTags(text, currentTagList(), 10);
         if (!sugg.length) { row.innerHTML = ''; return; }
-        row.innerHTML = sugg.map(s =>
-          `<button type='button' class='muted' data-suggest='${htmlesc(s.tag)}' title='Used ${s.count}× · click to add' style='font-size:11px;border:1px dashed var(--btn-border);background:transparent;border-radius:10px;padding:1px 8px;cursor:pointer;'>+ #${htmlesc(s.tag)}</button>`
-        ).join('');
+        row.innerHTML =
+          `<span class='tag-sugg-label'>Suggested:</span>` +
+          sugg.map(s => {
+            const cls   = 'tag-sugg-chip' + (s.isNew ? ' is-new' : '');
+            const title = s.isNew
+              ? 'New tag extracted from this note \u00b7 click to add'
+              : `Used ${s.count}\u00d7 \u00b7 click to add`;
+            const prefix = s.isNew ? '\u2728 ' : '+ ';
+            return `<button type='button' class='${cls}' data-suggest='${htmlesc(s.tag)}' title='${title}'>${prefix}#${htmlesc(s.tag)}</button>`;
+          }).join('');
         row.querySelectorAll('[data-suggest]').forEach(b => b.onclick = () => {
           const tag = b.dataset.suggest;
           if (currentTagList().includes(tag.toLowerCase())) return;

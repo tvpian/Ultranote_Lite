@@ -5317,3 +5317,71 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background: rgba(139, 109, 255, 0.14);
   color: #5b3dd1;
 }
+
+/* ==========================================================
+   Phase 7: Smart tag suggestion chips (.tag-sugg-chip).
+   Styles the row of chips below tag inputs. Existing-corpus tags
+   look "proven" (solid pale-purple); newly-extracted candidates
+   look "tentative" (dashed accent border with sparkle prefix).
+   ========================================================== */
+.tag-sugg-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  opacity: 0.7;
+  margin-right: 4px;
+  flex-shrink: 0;
+  align-self: center;
+}
+.tag-sugg-chip {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: pointer;
+  background: rgba(139, 109, 255, 0.10);
+  border: 1px solid rgba(139, 109, 255, 0.22);
+  color: var(--fg);
+  opacity: 0.85;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.tag-sugg-chip:hover {
+  background: rgba(139, 109, 255, 0.22);
+  border-color: rgba(139, 109, 255, 0.5);
+  color: #efe9ff;
+  opacity: 1;
+  transform: translateY(-1px);
+}
+.tag-sugg-chip.is-new {
+  background: transparent;
+  border: 1px dashed rgba(139, 109, 255, 0.45);
+  color: var(--acc);
+  opacity: 0.78;
+}
+.tag-sugg-chip.is-new:hover {
+  background: rgba(139, 109, 255, 0.14);
+  border-style: solid;
+  color: #efe9ff;
+  opacity: 1;
+}
+[data-theme="light"] .tag-sugg-chip {
+  background: rgba(107, 70, 229, 0.08);
+  border: 1px solid rgba(107, 70, 229, 0.2);
+  color: #334155;
+}
+[data-theme="light"] .tag-sugg-chip:hover {
+  background: rgba(107, 70, 229, 0.18);
+  border-color: rgba(107, 70, 229, 0.45);
+  color: #5b3dd1;
+}
+[data-theme="light"] .tag-sugg-chip.is-new {
+  background: transparent;
+  border: 1px dashed rgba(107, 70, 229, 0.4);
+  color: #5b3dd1;
+}
+[data-theme="light"] .tag-sugg-chip.is-new:hover {
+  background: rgba(107, 70, 229, 0.1);
+  border-style: solid;
+}
