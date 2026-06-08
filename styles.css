@@ -4884,3 +4884,211 @@ body.sidebar-collapsed main { grid-template-columns: 1fr !important; }
 body.sidebar-collapsed aside { display: none !important; }
 #sidebarToggle { transition: transform .2s ease; }
 body.sidebar-collapsed #sidebarToggle { transform: rotate(180deg); }
+
+/* ==========================================================
+   VISUAL REFRESH — Phase 4: Modals + native dropdowns
+   Goal: less bulky, more cohesive, no dull-black option lists.
+   All additive — no layout changes.
+   ========================================================== */
+
+/* --- Soft, modern overlay + entrance animation --- */
+.modal-overlay {
+  background: rgba(8, 6, 18, 0.55) !important;
+  backdrop-filter: blur(6px) saturate(140%);
+  -webkit-backdrop-filter: blur(6px) saturate(140%);
+  animation: modalFadeIn 0.18s ease-out;
+}
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes modalPopIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+/* --- Modal card: airier padding, refined radius --- */
+.modal {
+  max-width: 440px !important;
+  padding: 20px 22px !important;
+  border-radius: 18px !important;
+  animation: modalPopIn 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  border-color: rgba(139, 109, 255, 0.18) !important;
+  box-shadow:
+    0 20px 60px rgba(0,0,0,0.55),
+    0 2px 8px  rgba(0,0,0,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.06) !important;
+}
+.modal-body {
+  font-size: 14.5px !important;
+  line-height: 1.5 !important;
+  margin-bottom: 14px !important;
+  color: var(--fg);
+}
+.modal-footer {
+  margin-top: 14px !important;
+  gap: 10px !important;
+}
+.modal input[type="text"],
+.modal input[type="date"],
+.modal textarea {
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-size: 14px !important;
+}
+.modal .btn {
+  padding: 8px 16px !important;
+  border-radius: 10px !important;
+  font-size: 13px !important;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  transition: transform .12s ease, border-color .12s ease, background .12s ease, box-shadow .12s ease;
+}
+.modal .btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.modal .btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+.modal .btn.acc {
+  background: linear-gradient(135deg, rgba(139,109,255,0.28) 0%, rgba(107,70,229,0.18) 100%) !important;
+  border-color: rgba(139,109,255,0.55) !important;
+  color: #efe9ff !important;
+  box-shadow: 0 2px 10px rgba(139,109,255,0.22), inset 0 1px 0 rgba(255,255,255,0.10) !important;
+}
+.modal .btn.acc:hover {
+  background: linear-gradient(135deg, rgba(139,109,255,0.42) 0%, rgba(107,70,229,0.28) 100%) !important;
+  border-color: #8b6dff !important;
+}
+.modal .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Big modals (taskModal/linkModal etc) — slightly larger but consistent --- */
+#taskModal .sketchInner,
+#linkModal .sketchInner,
+[id$="Modal"] .sketchInner {
+  border-radius: 18px !important;
+  padding: 22px 24px !important;
+  animation: modalPopIn 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow:
+    0 24px 80px rgba(0,0,0,0.6),
+    0 2px 8px  rgba(0,0,0,0.4),
+    inset 0 1px 0 rgba(255,255,255,0.06) !important;
+}
+#taskModal .sketchInner h3,
+#linkModal .sketchInner h3 {
+  margin: 0 0 14px 0 !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.2px;
+}
+
+/* --- Native <select> dropdowns: stop looking like flat black blocks --- */
+/* The chevron is the visual giveaway that this is a dropdown. Strip the
+   browser default and draw a small one via background-image. */
+select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  padding: 8px 32px 8px 12px !important;
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgba(139,109,255,0.7) 50%),
+    linear-gradient(135deg, rgba(139,109,255,0.7) 50%, transparent 50%) !important;
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px)  50% !important;
+  background-size: 5px 5px, 5px 5px !important;
+  background-repeat: no-repeat !important;
+  cursor: pointer;
+}
+/* Native option list — the dull-black surface — colored to match theme.
+   Browsers honour color + background-color on <option>; everything else
+   is ignored. Keep it minimal and high-contrast. */
+select option,
+datalist option {
+  background-color: #1a1330 !important;
+  color: #e8eef7 !important;
+  padding: 6px 10px !important;
+}
+select option:checked,
+select option:hover {
+  background-color: #2a1d52 !important;
+  color: #ffffff !important;
+}
+
+/* --- Light theme modal: white surface, no dark glass --- */
+[data-theme="light"] .modal-overlay {
+  background: rgba(15, 23, 42, 0.32) !important;
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
+}
+[data-theme="light"] .modal {
+  background: #ffffff !important;
+  border-color: rgba(107, 70, 229, 0.16) !important;
+  color: #0f172a !important;
+  box-shadow:
+    0 24px 60px rgba(15, 23, 42, 0.18),
+    0 2px 6px  rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+[data-theme="light"] .modal-body { color: #1e293b !important; }
+[data-theme="light"] .modal input[type="text"],
+[data-theme="light"] .modal input[type="date"],
+[data-theme="light"] .modal textarea {
+  background: #f9f9fd !important;
+  border: 1px solid #d8d0f0 !important;
+  color: #0f172a !important;
+}
+[data-theme="light"] .modal .btn {
+  background: #ffffff !important;
+  border: 1px solid #d8d0f0 !important;
+  color: #334155 !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+}
+[data-theme="light"] .modal .btn:hover:not(:disabled) {
+  background: #faf8ff !important;
+  border-color: #b6a8d8 !important;
+  color: #0f172a !important;
+}
+[data-theme="light"] .modal .btn.acc {
+  background: linear-gradient(180deg, #8b6dff 0%, #6b46e5 100%) !important;
+  border-color: #5b3dd1 !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(107,70,229,0.25), 0 4px 12px rgba(107,70,229,0.20), inset 0 1px 0 rgba(255,255,255,0.20) !important;
+}
+[data-theme="light"] #taskModal .sketchInner,
+[data-theme="light"] #linkModal .sketchInner,
+[data-theme="light"] [id$="Modal"] .sketchInner {
+  background: #ffffff !important;
+  border-color: rgba(107, 70, 229, 0.16) !important;
+  color: #0f172a !important;
+  box-shadow:
+    0 24px 60px rgba(15, 23, 42, 0.18),
+    0 2px 6px  rgba(15, 23, 42, 0.06) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+[data-theme="light"] select {
+  background-image:
+    linear-gradient(45deg, transparent 50%, #8b6dff 50%),
+    linear-gradient(135deg, #8b6dff 50%, transparent 50%) !important;
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px)  50% !important;
+  background-size: 5px 5px, 5px 5px !important;
+  background-repeat: no-repeat !important;
+}
+[data-theme="light"] select option,
+[data-theme="light"] datalist option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+[data-theme="light"] select option:checked,
+[data-theme="light"] select option:hover {
+  background-color: #f3f0fd !important;
+  color: #5b3dd1 !important;
+}
