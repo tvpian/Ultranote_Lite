@@ -905,6 +905,139 @@ async function initApp(){
       syncBtnLabel();
     });
   };
+
+  // --- Fancy autocomplete for text inputs ---
+  // Replaces the browser-native <datalist> popup (which can't be themed
+  // cross-browser) with a portaled popup that reuses the .fancy-select-popup
+  // styling, so token inputs (tag fields etc.) feel consistent with the
+  // rest of the dropdowns. Token-aware: only the word containing the
+  // caret is matched / replaced, so 'foo #typ' will only autocomplete
+  // 'typ' and leave 'foo' alone.
+  window.attachFancyAutocomplete = function attachFancyAutocomplete(input, getOptions, opts) {
+    if (!input || input.dataset.fancyAc === '1') return;
+    opts = opts || {};
+    input.dataset.fancyAc = '1';
+    // Kill the native datalist popup if any.
+    input.removeAttribute('list');
+    input.setAttribute('autocomplete', 'off');
+
+    const popup = document.createElement('div');
+    popup.className = 'fancy-select-popup fancy-autocomplete-popup';
+    popup.setAttribute('role', 'listbox');
+    document.body.appendChild(popup);
+    popup.__fancyOwner = input; // reuse the enhanceSelects orphan-sweeper
+
+    let isOpen = false;
+    let activeIdx = -1;
+    let matches = [];
+
+    const tokenize = () => {
+      const val = input.value;
+      const cur = input.selectionStart != null ? input.selectionStart : val.length;
+      let start = cur;
+      while (start > 0 && !/\s/.test(val[start - 1])) start--;
+      let end = cur;
+      while (end < val.length && !/\s/.test(val[end])) end++;
+      return { start, end, token: val.slice(start, end) };
+    };
+
+    const positionPopup = () => {
+      const r = input.getBoundingClientRect();
+      const margin = 4;
+      const maxH = 240;
+      const spaceBelow = window.innerHeight - r.bottom - margin;
+      const spaceAbove = r.top - margin;
+      const openUp = spaceBelow < 160 && spaceAbove > spaceBelow;
+      popup.style.position = 'fixed';
+      popup.style.left = r.left + 'px';
+      popup.style.minWidth = Math.max(r.width, 220) + 'px';
+      popup.style.maxHeight = Math.min(maxH, openUp ? spaceAbove : spaceBelow) + 'px';
+      if (openUp) {
+        popup.style.top = '';
+        popup.style.bottom = (window.innerHeight - r.top + margin) + 'px';
+      } else {
+        popup.style.bottom = '';
+        popup.style.top = (r.bottom + margin) + 'px';
+      }
+    };
+
+    const escapeHTML = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    const render = () => {
+      const tok = tokenize();
+      const q = tok.token.replace(/^#/, '').trim().toLowerCase();
+      matches = (getOptions(q, input.value) || []).slice(0, opts.max || 10);
+      if (!matches.length) { close(); return; }
+      activeIdx = 0;
+      popup.innerHTML = matches.map((m, i) => {
+        const label = m.label || ('#' + m.tag);
+        const hint  = m.count ? `<span class="fancy-ac-count">${m.count}</span>` : '';
+        return `<div class="fancy-select-opt${i === 0 ? ' is-selected' : ''}" data-i="${i}" role="option">${escapeHTML(label)}${hint}</div>`;
+      }).join('');
+      popup.querySelectorAll('.fancy-select-opt').forEach(el => {
+        el.onmousedown = (e) => { e.preventDefault(); pick(+el.dataset.i); };
+      });
+      if (!isOpen) open(); else positionPopup();
+    };
+
+    const open = () => {
+      popup.classList.add('is-open');
+      isOpen = true;
+      positionPopup();
+      window.addEventListener('scroll', positionPopup, true);
+      window.addEventListener('resize', positionPopup, true);
+      document.addEventListener('mousedown', outsideHandler, true);
+    };
+    const close = () => {
+      popup.classList.remove('is-open');
+      isOpen = false;
+      activeIdx = -1;
+      window.removeEventListener('scroll', positionPopup, true);
+      window.removeEventListener('resize', positionPopup, true);
+      document.removeEventListener('mousedown', outsideHandler, true);
+    };
+    const outsideHandler = (e) => {
+      if (e.target === input || popup.contains(e.target)) return;
+      close();
+    };
+    const pick = (i) => {
+      const m = matches[i];
+      if (!m) return;
+      const tok = tokenize();
+      const insert = (opts.format ? opts.format(m) : ('#' + (m.tag || m.label)));
+      const val = input.value;
+      input.value = val.slice(0, tok.start) + insert + ' ' + val.slice(tok.end);
+      const caret = tok.start + insert.length + 1;
+      try { input.setSelectionRange(caret, caret); } catch(_){}
+      close();
+      input.focus();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const setActive = (i) => {
+      if (!matches.length) return;
+      activeIdx = Math.max(0, Math.min(matches.length - 1, i));
+      popup.querySelectorAll('.fancy-select-opt').forEach((el, idx) => {
+        const on = idx === activeIdx;
+        el.classList.toggle('is-selected', on);
+        if (on) el.scrollIntoView({ block: 'nearest' });
+      });
+    };
+
+    input.addEventListener('input', render);
+    input.addEventListener('focus', () => { if (input.value) render(); });
+    input.addEventListener('keydown', (e) => {
+      if (!isOpen) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); render(); }
+        return;
+      }
+      if (e.key === 'ArrowDown')      { e.preventDefault(); setActive(activeIdx + 1); }
+      else if (e.key === 'ArrowUp')   { e.preventDefault(); setActive(activeIdx - 1); }
+      else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (activeIdx >= 0) { e.preventDefault(); pick(activeIdx); }
+      }
+      else if (e.key === 'Escape')    { e.preventDefault(); close(); }
+    });
+  };
   bindTypingGuards();
   // Re-bind after each render by monkey-patching render once (idempotent)
   if(!window.__originalRender){
@@ -1393,6 +1526,33 @@ function suggestTagsFor(text, alreadySet = [], max = 10){
 }
 window.suggestTagsFor = suggestTagsFor;
 window.buildTagCorpus = buildTagCorpus;
+
+// Option provider for the tag inputs' fancy autocomplete popup.
+// q          — the user's current partial token (no leading #), lowercased
+// fullValue  — the entire input value (used to exclude already-typed tags)
+// Returns [{tag, count}] ranked by substring-position then frequency.
+window.tagAutocompleteOptions = function tagAutocompleteOptions(q, fullValue) {
+  const used = (fullValue || '').split(/\s+/)
+    .map(t => t.startsWith('#') ? t.slice(1) : t)
+    .map(t => t.toLowerCase().trim())
+    .filter(Boolean);
+  const corpus = (typeof buildTagCorpus === 'function') ? buildTagCorpus() : new Map();
+  const ql = (q || '').toLowerCase();
+  const items = [];
+  for (const e of corpus.values()) {
+    // Exclude tags the user has already finished typing (still allow the
+    // current partial token to surface).
+    if (used.includes(e.tag) && e.tag !== ql) continue;
+    if (ql && !e.tag.toLowerCase().includes(ql)) continue;
+    items.push({ tag: e.tag, count: e.count, _idx: ql ? e.tag.toLowerCase().indexOf(ql) : 0 });
+  }
+  items.sort((a, b) =>
+    a._idx - b._idx ||
+    b.count - a.count ||
+    a.tag.localeCompare(b.tag)
+  );
+  return items;
+};
 
 // True when the note lives in a system-managed notebook (e.g. 🔬 Research).
 // Those notes are surfaced by their own dedicated tool; we hide them from
@@ -5866,8 +6026,7 @@ function renderLinks(){
       <div class='row' style='margin-top:8px;gap:8px;flex-wrap:wrap;'>
         <input id='linkTitle' type='text' placeholder='Title' style='flex:1;min-width:140px;' />
         <input id='linkUrl' type='text' placeholder='https://...' style='flex:1;min-width:180px;' />
-        <input id='linkTags' type='text' placeholder='tags (space)' list='linkTagCorpusList' autocomplete='off' style='flex:1;min-width:120px;' />
-        <datalist id='linkTagCorpusList'>${getAllTags().map(t=>`<option value="#${htmlesc(t)}"></option>`).join('')}</datalist>
+        <input id='linkTags' type='text' placeholder='tags (space)' autocomplete='off' style='flex:1;min-width:120px;' />
         <button id='addLink' class='btn acc'>Add</button>
       </div>
       <div id='linkTagSuggestRow' class='row' style='margin-top:4px;flex-wrap:wrap;gap:4px;align-items:center;font-size:11px;min-height:0;'></div>
@@ -5981,6 +6140,11 @@ function renderLinks(){
       const debounced = () => { clearTimeout(_t); _t = setTimeout(refresh, 200); };
       [titleI, urlI, tagsI].forEach(el => el && el.addEventListener('input', debounced));
       refresh();
+      // Token-aware autocomplete popup (replaces native datalist) — uses
+      // the same .fancy-select-popup styling as every other dropdown.
+      try {
+        attachFancyAutocomplete(tagsI, (q, val) => tagAutocompleteOptions(q, val));
+      } catch(_){}
     }
   }
   draw();
@@ -6045,8 +6209,7 @@ function openNote(id){
       })()}
       <input id="title" type="text" value="${htmlesc(n.title)}" />
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
-        <input id="tags" type="text" placeholder="Tags (space separated)" value="${(n.tags||[]).map(t=>'#'+t).join(' ')}" list="tagCorpusList" autocomplete="off" />
-        <datalist id="tagCorpusList">${getAllTags().map(t=>`<option value="#${htmlesc(t)}"></option>`).join('')}</datalist>
+        <input id="tags" type="text" placeholder="Tags (space separated)" value="${(n.tags||[]).map(t=>'#'+t).join(' ')}" autocomplete="off" />
         <label style="margin-left:8px;"><input id="pinned" type="checkbox" ${n.pinned?'checked':''}> Pin</label>
         <select id="noteProject" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;" title="Assign to project">
           <option value="">— No Project —</option>
@@ -6153,6 +6316,11 @@ function openNote(id){
         if (tagsEl)    tagsEl.addEventListener(evt, debouncedRefresh);
       });
       refresh();
+      // Token-aware autocomplete popup (replaces native datalist) — uses
+      // the same .fancy-select-popup styling as every other dropdown.
+      try {
+        attachFancyAutocomplete(tagsEl, (q, val) => tagAutocompleteOptions(q, val));
+      } catch(_){}
     }
   }
   const saveBtn = document.getElementById('save');

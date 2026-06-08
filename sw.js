@@ -1,4 +1,4 @@
-const CACHE = 'ultranote-lite-v129-fancy-select-everywhere';
+const CACHE = 'ultranote-lite-v130-fancy-autocomplete';
 const ASSETS = ['/', '/index.html', '/manifest.json', '/styles.css', '/app.js', '/autosync.js', '/ui-polish.js', '/ui-extras.js', '/editor-extras.js', '/power-features.js', '/research-mode.js', '/fonts/fonts.css'];
 self.addEventListener('install', e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
