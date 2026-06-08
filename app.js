@@ -1135,6 +1135,66 @@ function getAllTags(){
 }
 function extractTags(text){ return (text.match(/#[\w-]+/g) || []).map(tag => tag.slice(1)); }
 
+// Build a frequency map of all tags actually in use across the workspace.
+// Returns { Map<tagLower, {tag, count}>, total }. Used by suggestTagsFor.
+function buildTagCorpus(){
+  const sysNbIds = new Set((db.notebooks || [])
+    .filter(nb => nb.system && !nb.deletedAt).map(nb => nb.id));
+  const isUserNote = n => !n.deletedAt && !sysNbIds.has(n.notebookId);
+  const corpus = new Map();
+  const bump = (tag) => {
+    const t = (tag || '').toLowerCase().trim();
+    if (!t) return;
+    const e = corpus.get(t) || { tag: t, count: 0 };
+    e.count++;
+    corpus.set(t, e);
+  };
+  db.notes.filter(isUserNote).forEach(n => {
+    (n.tags || []).forEach(bump);
+    extractTags(n.content || '').forEach(bump);
+  });
+  (db.links     || []).filter(l => !l.deletedAt).forEach(l => (l.tags || []).forEach(bump));
+  (db.tasks     || []).filter(t => !t.deletedAt).forEach(t => (t.tags || []).forEach(bump));
+  (db.templates || []).forEach(t => (t.tags || []).forEach(bump));
+  (db.monthly   || []).forEach(m => (m.tags || []).forEach(bump));
+  (db.notebooks || []).forEach(nb => (nb.tags || []).forEach(bump));
+  return corpus;
+}
+// Suggest existing tags ranked by relevance to a piece of text.
+// Strategy:
+//   1. exact substring of the tag in lowercased text → strong signal
+//      (boosted by corpus frequency, capped to avoid one super-popular
+//       tag dominating).
+//   2. word-fragment match — tag split on - _ space, any word ≥3 chars
+//      appearing in the text contributes.
+//   3. zero-signal tags with corpus frequency ≥ 5 get a faint baseline
+//      score so the picker has fallback suggestions for empty notes.
+// alreadySet is the list of tags currently on the note (excluded from
+// suggestions). Returns at most `max` results, sorted by score then
+// frequency.
+function suggestTagsFor(text, alreadySet = [], max = 10){
+  const t = (text || '').toLowerCase();
+  const skip = new Set((alreadySet || []).map(x => (x || '').toLowerCase()));
+  const scored = [];
+  for (const e of buildTagCorpus().values()){
+    if (skip.has(e.tag)) continue;
+    let score = 0;
+    if (e.tag.length >= 2 && t.includes(e.tag)) {
+      score = 100 + Math.min(e.count, 20);
+    } else {
+      const words = e.tag.split(/[-_\s]+/).filter(w => w.length >= 3);
+      const hits = words.filter(w => t.includes(w)).length;
+      if (hits) score = 20 * hits + Math.min(e.count, 10);
+      else if (e.count >= 5) score = 1;
+    }
+    if (score > 0) scored.push({ tag: e.tag, count: e.count, score });
+  }
+  scored.sort((a, b) => b.score - a.score || b.count - a.count);
+  return scored.slice(0, max);
+}
+window.suggestTagsFor = suggestTagsFor;
+window.buildTagCorpus = buildTagCorpus;
+
 // True when the note lives in a system-managed notebook (e.g. 🔬 Research).
 // Those notes are surfaced by their own dedicated tool; we hide them from
 // generic surfaces (Vault search, hashtag cloud, link picker) so they don't
@@ -5739,7 +5799,8 @@ function openNote(id){
       })()}
       <input id="title" type="text" value="${htmlesc(n.title)}" />
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
-        <input id="tags" type="text" placeholder="Tags (space separated)" value="${(n.tags||[]).map(t=>'#'+t).join(' ')}" />
+        <input id="tags" type="text" placeholder="Tags (space separated)" value="${(n.tags||[]).map(t=>'#'+t).join(' ')}" list="tagCorpusList" autocomplete="off" />
+        <datalist id="tagCorpusList">${getAllTags().map(t=>`<option value="#${htmlesc(t)}"></option>`).join('')}</datalist>
         <label style="margin-left:8px;"><input id="pinned" type="checkbox" ${n.pinned?'checked':''}> Pin</label>
         <select id="noteProject" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;" title="Assign to project">
           <option value="">— No Project —</option>
@@ -5767,6 +5828,7 @@ function openNote(id){
           ${(db.templates||[]).map(t=>`<option value="${t.id}">${htmlesc(t.name)}</option>`).join('')}
         </select>
       </div>
+      <div id="tagSuggestRow" class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px;align-items:center;font-size:11px;"></div>
       <div class="row" style="margin-top:8px; gap:8px; align-items:center;">
         <button id="toggleModeBtn" class="btn acc" style="font-size:12px;" title="Cycle Edit → Split → Preview">Split</button>
         <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+V cycles view | Ctrl+S to save</span>
@@ -5807,6 +5869,52 @@ function openNote(id){
       if(titleEl) titleEl.addEventListener(evt, () => { window._editorDirty = true; });
       if(contentEl) contentEl.addEventListener(evt, () => { window._editorDirty = true; });
     });
+  }
+  // --- Tag suggestion chips ---
+  // Suggests existing tags from the workspace corpus, ranked by relevance
+  // to the current title + content (substring match) with a popularity
+  // tiebreaker. Click a chip to append it to the tags input. Re-ranks
+  // live (debounced) as the user types title or content.
+  {
+    const tagsEl  = document.getElementById('tags');
+    const titleEl = document.getElementById('title');
+    const contentEl = document.getElementById('contentBox');
+    const row     = document.getElementById('tagSuggestRow');
+    if (tagsEl && row) {
+      const currentTagList = () => (tagsEl.value || '').split(/\s+/)
+        .map(t => t.startsWith('#') ? t.slice(1) : t).map(t => t.trim().toLowerCase()).filter(Boolean);
+      const refresh = () => {
+        const text = ((titleEl?.value || '') + ' ' + (contentEl?.value || '')).slice(0, 4000);
+        const used = currentTagList();
+        const sugg = suggestTagsFor(text, used, 12);
+        if (!sugg.length) {
+          row.innerHTML = `<span class="muted">No tag suggestions — type # in the box for autocomplete from your existing tags.</span>`;
+          return;
+        }
+        row.innerHTML = `<span class="muted" style="margin-right:4px;">Suggested:</span>` +
+          sugg.map(s => `<button type="button" class="btn" data-suggest="${htmlesc(s.tag)}" style="font-size:11px;padding:2px 8px;cursor:pointer;" title="Used ${s.count}× in your notes">+ #${htmlesc(s.tag)}</button>`).join('') +
+          `<button type="button" class="btn" id="tagSuggestRefresh" style="font-size:11px;padding:2px 8px;margin-left:4px;" title="Recompute suggestions">↻</button>`;
+        row.querySelectorAll('[data-suggest]').forEach(b => b.onclick = () => {
+          const tag = b.dataset.suggest;
+          const existing = currentTagList();
+          if (existing.includes(tag.toLowerCase())) return;
+          const cur = (tagsEl.value || '').trim();
+          tagsEl.value = (cur ? cur + ' ' : '') + '#' + tag;
+          window._editorDirty = true;
+          refresh();
+        });
+        const ref = row.querySelector('#tagSuggestRefresh');
+        if (ref) ref.onclick = refresh;
+      };
+      let _tagSuggestTimer;
+      const debouncedRefresh = () => { clearTimeout(_tagSuggestTimer); _tagSuggestTimer = setTimeout(refresh, 250); };
+      ['input','change','blur'].forEach(evt => {
+        if (titleEl)   titleEl.addEventListener(evt, debouncedRefresh);
+        if (contentEl) contentEl.addEventListener(evt, debouncedRefresh);
+        if (tagsEl)    tagsEl.addEventListener(evt, debouncedRefresh);
+      });
+      refresh();
+    }
   }
   const saveBtn = document.getElementById('save');
   const doSaveNote = () => {
