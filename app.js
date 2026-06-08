@@ -709,6 +709,149 @@ async function initApp(){
       el.dataset.typingBound = '1';
     });
   };
+  // --- Fancy <select> enhancer ---
+  // Wraps every native single-select with a custom dropdown that matches the
+  // app's modal/glass aesthetic. The original <select> stays in the DOM so
+  // existing change handlers, form semantics, and `select.value = ''` resets
+  // continue to work — we only intercept the value setter to keep the visible
+  // button label in sync with programmatic changes. Selects with
+  // data-no-fancy or [multiple]/[size>1] are skipped (e.g. linkSelect, which
+  // has its own search-and-pick UX inside the link modal).
+  window.enhanceSelects = function enhanceSelects(root) {
+    root = root || document;
+    root.querySelectorAll('select').forEach(sel => {
+      if (sel.dataset.fancy === '1') return;
+      if (sel.dataset.noFancy === '1' || sel.id === 'linkSelect') return;
+      if (sel.multiple || sel.size > 1) return;
+      sel.dataset.fancy = '1';
+
+      const wrap = document.createElement('div');
+      wrap.className = 'fancy-select';
+      // Carry over inline width hints so layouts that expected
+      // width:100% on the original select keep their flex sizing.
+      const inlineWidth = sel.style.width;
+      if (inlineWidth) wrap.style.width = inlineWidth;
+      if (sel.style.flex) wrap.style.flex = sel.style.flex;
+      sel.parentNode.insertBefore(wrap, sel);
+      wrap.appendChild(sel);
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'fancy-select-btn';
+      btn.setAttribute('aria-haspopup', 'listbox');
+      btn.setAttribute('aria-expanded', 'false');
+      if (sel.title) btn.title = sel.title;
+      if (sel.disabled) btn.disabled = true;
+
+      const popup = document.createElement('div');
+      popup.className = 'fancy-select-popup';
+      popup.setAttribute('role', 'listbox');
+
+      wrap.appendChild(btn);
+      wrap.appendChild(popup);
+
+      const escapeHTML = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const syncBtnLabel = () => {
+        const opt = sel.options[sel.selectedIndex];
+        const label = opt ? (opt.textContent || '\u00a0') : '\u00a0';
+        btn.innerHTML = `<span class="fancy-select-label">${escapeHTML(label)}</span><span class="fancy-select-chev">▾</span>`;
+        btn.disabled = sel.disabled;
+      };
+      const buildPopup = () => {
+        popup.innerHTML = Array.from(sel.options).map((o, i) => {
+          const cls = `fancy-select-opt${i === sel.selectedIndex ? ' is-selected' : ''}${o.disabled ? ' is-disabled' : ''}`;
+          return `<div class="${cls}" data-i="${i}" role="option" aria-selected="${i === sel.selectedIndex}">${escapeHTML(o.textContent || '')}</div>`;
+        }).join('');
+        popup.querySelectorAll('.fancy-select-opt').forEach(el => {
+          el.onclick = (e) => {
+            e.stopPropagation();
+            if (el.classList.contains('is-disabled')) return;
+            const i = +el.dataset.i;
+            sel.selectedIndex = i;
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            syncBtnLabel();
+            close();
+          };
+        });
+      };
+      let isOpen = false;
+      const open = () => {
+        if (sel.disabled) return;
+        buildPopup();
+        wrap.classList.add('is-open');
+        btn.setAttribute('aria-expanded', 'true');
+        isOpen = true;
+        document.addEventListener('mousedown', outsideHandler, true);
+        document.addEventListener('keydown', keyHandler, true);
+        // Scroll selected into view
+        const cur = popup.querySelector('.is-selected');
+        if (cur) cur.scrollIntoView({ block: 'nearest' });
+      };
+      const close = () => {
+        wrap.classList.remove('is-open');
+        btn.setAttribute('aria-expanded', 'false');
+        isOpen = false;
+        document.removeEventListener('mousedown', outsideHandler, true);
+        document.removeEventListener('keydown', keyHandler, true);
+      };
+      const outsideHandler = (e) => { if (!wrap.contains(e.target)) close(); };
+      const keyHandler = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); close(); btn.focus(); }
+        else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const opts = Array.from(popup.querySelectorAll('.fancy-select-opt:not(.is-disabled)'));
+          if (!opts.length) return;
+          const visIdx = opts.findIndex(o => +o.dataset.i === sel.selectedIndex);
+          let nextVis = e.key === 'ArrowDown' ? Math.min(opts.length - 1, visIdx + 1) : Math.max(0, visIdx - 1);
+          if (visIdx === -1) nextVis = 0;
+          const targetI = +opts[nextVis].dataset.i;
+          sel.selectedIndex = targetI;
+          popup.querySelectorAll('.fancy-select-opt').forEach(o => {
+            const sel2 = +o.dataset.i === targetI;
+            o.classList.toggle('is-selected', sel2);
+            o.setAttribute('aria-selected', sel2 ? 'true' : 'false');
+          });
+          opts[nextVis].scrollIntoView({ block: 'nearest' });
+        }
+        else if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+          syncBtnLabel();
+          close();
+        }
+      };
+      btn.onclick = (e) => { e.stopPropagation(); isOpen ? close() : open(); };
+      btn.addEventListener('keydown', e => {
+        if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+
+      // Capture programmatic value changes (sel.value = '...' / selectedIndex = N)
+      // so the visible button label and selected style remain correct after handlers
+      // that reset the dropdown after use (e.g. Apply Template).
+      try {
+        const valueDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+        Object.defineProperty(sel, 'value', {
+          get() { return valueDesc.get.call(this); },
+          set(v) { valueDesc.set.call(this, v); syncBtnLabel(); },
+          configurable: true
+        });
+        const idxDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
+        Object.defineProperty(sel, 'selectedIndex', {
+          get() { return idxDesc.get.call(this); },
+          set(v) { idxDesc.set.call(this, v); syncBtnLabel(); },
+          configurable: true
+        });
+      } catch(_){}
+
+      // If callers replace the option list (linkModal-style search filters,
+      // or template-list rebuilds), keep the popup + label fresh.
+      const obs = new MutationObserver(() => syncBtnLabel());
+      obs.observe(sel, { childList: true, subtree: true });
+      sel.addEventListener('change', syncBtnLabel);
+
+      syncBtnLabel();
+    });
+  };
   bindTypingGuards();
   // Re-bind after each render by monkey-patching render once (idempotent)
   if(!window.__originalRender){
@@ -717,9 +860,12 @@ async function initApp(){
       window.__originalRender.apply(this, arguments);
   window.db = db; // keep global pointer current
       bindTypingGuards();
+      try { enhanceSelects(); } catch(_){}
       try { _navSaveSession(); } catch(_) {}
     };
   }
+  // Initial pass for selects already in the DOM (taskModal, linkModal, etc.)
+  try { enhanceSelects(); } catch(_){}
   // Bind Sync Now button if present
   const syncBtn = document.getElementById('syncNowBtn');
   if(syncBtn){
