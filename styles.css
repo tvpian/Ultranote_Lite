@@ -5102,9 +5102,10 @@ select option:hover {
 
 .fancy-select {
   position: relative;
-  display: inline-flex;
+  display: inline-block;
   vertical-align: middle;
   min-width: 0;
+  isolation: isolate; /* establish a fresh stacking context so the popup sits above siblings predictably */
 }
 /* Hide the underlying native select but keep it focusable in the DOM
    for change events and form semantics. */
@@ -5116,6 +5117,11 @@ select option:hover {
   opacity: 0 !important;
   pointer-events: none !important;
   z-index: -1 !important;
+  /* Defeat the global `select { background: rgba(...0.7) !important }` so the
+     hidden native select doesn't paint over the wrapper. */
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
 }
 .fancy-select-btn {
   display: flex;
@@ -5167,24 +5173,24 @@ select option:hover {
   opacity: 1;
 }
 
-/* Popup list: same elevated glass treatment as modals */
+/* Popup list: solid surface so it always reads clearly even when the popup
+   sits inside an already-blurred modal (nested backdrop-filters render as
+   transparent on some browser/compositor setups). */
 .fancy-select-popup {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
   right: 0;
   min-width: 100%;
-  background: rgba(20, 16, 35, 0.96);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  border: 1px solid rgba(139, 109, 255, 0.22);
+  background: #18142a;
+  border: 1px solid rgba(139, 109, 255, 0.32);
   border-radius: 12px;
   padding: 4px;
   box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.55),
-    0 2px 6px rgba(0, 0, 0, 0.3),
+    0 16px 48px rgba(0, 0, 0, 0.65),
+    0 2px 6px rgba(0, 0, 0, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  z-index: 1000;
+  z-index: 10000;
   max-height: 280px;
   overflow-y: auto;
   display: none;
@@ -5221,7 +5227,7 @@ select option:hover {
 /* Within modals, lift the popup z-index so it floats above the modal card */
 .modal .fancy-select-popup,
 [id$="Modal"] .fancy-select-popup {
-  z-index: 1100;
+  z-index: 10001;
 }
 
 /* Light theme: white surface to match Phase 3 styling */
