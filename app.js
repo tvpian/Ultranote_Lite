@@ -816,9 +816,14 @@ function setTaskStatus(id, status){
   if (!t) return;
   t.status = status;
   t.completedAt = status === 'DONE' ? nowISO() : null;
+  // Track when a task was dropped so Review can answer "what did I drop
+  // this week/month?" without scanning journals. Cleared if reopened.
+  if (status === 'DROPPED') t.droppedAt = nowISO();
+  else if (t.droppedAt) t.droppedAt = null;
   t.updatedAt = nowISO();
   if (status === 'DONE') logActivity('task:done', 'task', t.id, { title: t.title, projectId: t.projectId });
   else if (status === 'TODO') logActivity('task:reopen', 'task', t.id, { title: t.title });
+  else if (status === 'DROPPED') logActivity('task:dropped', 'task', t.id, { title: t.title, projectId: t.projectId });
   save();
   // If a project task status changes, update the Today page project tasks button count
   const ptBtn = document.getElementById('showProjectTasks');
@@ -827,10 +832,45 @@ function setTaskStatus(id, status){
     if (typeof updateProjectTasksButton === 'function') updateProjectTasksButton();
   }
 }
-// New helper to move a task to backlog
-function moveToBacklog(id) {
+// Append a timestamped entry to a task's journal. The journal is an
+// append-only audit trail of edits, drops, backlog moves, and free-form
+// remarks. Each entry: { at, kind, text }.
+function appendTaskJournal(id, kind, text){
   const t = db.tasks.find(x => x.id === id);
   if (!t) return;
+  const txt = (text || '').trim();
+  if (!txt) return;
+  if (!Array.isArray(t.journal)) t.journal = [];
+  t.journal.push({ at: nowISO(), kind: kind || 'note', text: txt });
+  t.updatedAt = nowISO();
+  save();
+}
+window.appendTaskJournal = appendTaskJournal;
+// Drop a task — semantically "I decided not to do this." Distinct from
+// DONE (completed), BACKLOG (deferred), and deletedAt (mistake).
+// Reason is REQUIRED — callers must collect it via showReasonModal first.
+function dropTask(id, reason){
+  const t = db.tasks.find(x => x.id === id);
+  if (!t) return;
+  const r = (reason || '').trim();
+  if (!r) {
+    console.warn('dropTask called without a reason — aborting');
+    return;
+  }
+  if (!Array.isArray(t.journal)) t.journal = [];
+  t.journal.push({ at: nowISO(), kind: 'drop', text: r });
+  setTaskStatus(id, 'DROPPED');
+}
+window.dropTask = dropTask;
+// New helper to move a task to backlog
+function moveToBacklog(id, reason) {
+  const t = db.tasks.find(x => x.id === id);
+  if (!t) return;
+  const r = (reason || '').trim();
+  if (r) {
+    if (!Array.isArray(t.journal)) t.journal = [];
+    t.journal.push({ at: nowISO(), kind: 'backlog', text: r });
+  }
   // Mark task as backlog
   t.status = 'BACKLOG';
   t.updatedAt = nowISO();
@@ -914,6 +954,7 @@ function updateProjectTasksButton() {
       t.projectId &&
       !t.noteId &&
       t.status !== 'BACKLOG' &&
+      t.status !== 'DROPPED' &&
       t.status !== 'DONE' &&
       !t.deletedAt
   ).length;
@@ -1823,7 +1864,63 @@ function showPrompt(message, defaultValue = '', okText = 'OK', cancelText = 'Can
   });
 }
 
-// Restored: drawProjectsSidebar (was missing causing project UI break)
+/**
+ * Multi-line reason prompt with theme-aware textarea.
+ * - opts.required (default false): if true, no Skip button and Save is
+ *   disabled while the textarea is empty/whitespace-only. The user MUST
+ *   provide a reason — used by the Drop-task flow.
+ * - opts.skipText: label for the optional skip button (default 'Skip').
+ * - Resolves to the trimmed string on Save, '' on Skip, null on Esc/Cancel.
+ *   Required prompts cannot resolve to '' — they only resolve with a
+ *   non-empty reason or null (Esc).
+ */
+function showReasonModal(message, opts = {}){
+  const required = !!opts.required;
+  const okText     = opts.okText     || 'Save';
+  const skipText   = opts.skipText   || 'Skip';
+  const cancelText = opts.cancelText || 'Cancel';
+  const placeholder = opts.placeholder || (required
+    ? 'Why are you dropping this? Required.'
+    : 'Optional — what changed, why, what next?');
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    const skipBtnHTML = required ? '' : `<button class="btn" id="modalSkip">${htmlesc(skipText)}</button>`;
+    modal.innerHTML = `
+      <div class="modal-body">${htmlesc(message)}</div>
+      <textarea id="modalReason" rows="4" placeholder="${htmlesc(placeholder)}" style="width:100%;min-height:100px;background:var(--input-bg);color:var(--fg);border:1px solid var(--input-border);border-radius:6px;padding:8px;font:inherit;resize:vertical;"></textarea>
+      ${required ? '<div id="modalReasonHint" class="muted" style="font-size:11px;margin-top:4px;">A reason is required to drop a task.</div>' : ''}
+      <div class="modal-footer" style="margin-top:10px;">
+        <button class="btn" id="modalCancel">${htmlesc(cancelText)}</button>
+        ${skipBtnHTML}
+        <button class="btn acc" id="modalOk">${htmlesc(okText)}</button>
+      </div>`;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    const ta = modal.querySelector('#modalReason');
+    const okBtn = modal.querySelector('#modalOk');
+    const update = () => { if (required) okBtn.disabled = !ta.value.trim(); };
+    update();
+    ta.addEventListener('input', update);
+    setTimeout(() => ta.focus(), 0);
+    const close = (val) => { document.body.removeChild(overlay); resolve(val); };
+    okBtn.onclick = () => {
+      const v = (ta.value || '').trim();
+      if (required && !v) { ta.focus(); return; }
+      close(v);
+    };
+    if (!required) modal.querySelector('#modalSkip').onclick = () => close('');
+    modal.querySelector('#modalCancel').onclick = () => close(null);
+    // Ctrl/Cmd+Enter saves; Esc cancels.
+    ta.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); okBtn.click(); }
+      else if (e.key === 'Escape') { e.preventDefault(); close(null); }
+    });
+  });
+}
+window.showReasonModal = showReasonModal;
 function drawProjectsSidebar(){
   if(!projectList) return;
   projectList.innerHTML = db.projects.map(p=> `
@@ -2072,6 +2169,7 @@ function renderToday(){
         t.projectId &&
         !t.noteId &&
         t.status !== 'BACKLOG' &&
+        t.status !== 'DROPPED' &&
         t.status !== 'DONE' &&
         !t.deletedAt
     )
@@ -2419,7 +2517,7 @@ function renderToday(){
     // Exception: tasks intentionally auto-carried into this daily note
     // (carriedToNoteId === daily.id) are allowed through so the auto-carry
     // feature actually surfaces them here while preserving the project link.
-    const tasks = db.tasks.filter(t=> t.noteId===daily.id && (!t.projectId || t.carriedToNoteId===daily.id) && t.status!=='BACKLOG' && !t.deletedAt && !isUndivergedRecurring(t))
+    const tasks = db.tasks.filter(t=> t.noteId===daily.id && (!t.projectId || t.carriedToNoteId===daily.id) && t.status!=='BACKLOG' && t.status!=='DROPPED' && !t.deletedAt && !isUndivergedRecurring(t))
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
     // Virtual recurring rows for the displayed date.
     const recurring = getRecurringForDate(key);
@@ -2467,7 +2565,8 @@ function renderToday(){
       </label>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
-        ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
+        ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;' title='Send to backlog (optional reason)'>Backlog</button>`:''}
+        ${t.status!=='DONE'?`<button class='btn' data-drop='${t.id}' style='font-size:11px;color:#f88;' title='Drop with required reason'>⊘ Drop</button>`:''}
         <button class='btn' data-del='${t.id}' title='Delete'>✕</button>
       </div>
     </div>`;
@@ -2488,7 +2587,19 @@ function renderToday(){
     });
     list.querySelectorAll("input[type=checkbox]:not([data-rec-id])").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked? 'DONE':'TODO'); drawTasks(); drawBacklog(); });
     list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); drawBacklog(); });
-    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); });
+    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = async ()=>{
+      const reason = await showReasonModal('Send to backlog', { required: false, okText: 'Send to backlog' });
+      if (reason === null) return; // user cancelled
+      moveToBacklog(b.dataset.b, reason);
+      drawTasks(); drawBacklog(); drawDropped && drawDropped();
+    });
+    list.querySelectorAll('[data-drop]').forEach(b=> b.onclick = async ()=>{
+      const t = db.tasks.find(x => x.id === b.dataset.drop);
+      const reason = await showReasonModal(`Drop "${t?.title || 'task'}"?`, { required: true, okText: 'Drop task' });
+      if (!reason) return; // cancelled or empty
+      dropTask(b.dataset.drop, reason);
+      drawTasks(); drawBacklog(); drawDropped && drawDropped();
+    });
     list.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{ openTaskModal(b.dataset.edit); });
     // --- Overdue/due-today summary banner (informational) ---
     // Delegated to the module-level refreshDueBanner() so any save() call
@@ -2606,7 +2717,7 @@ function renderToday(){
     // prioritizes high-priority tasks first.
     const tasks = db.tasks
       .filter(t =>
-        t.projectId && !t.noteId && t.status !== 'BACKLOG' && t.status !== 'DONE' && !t.deletedAt
+        t.projectId && !t.noteId && t.status !== 'BACKLOG' && t.status !== 'DROPPED' && t.status !== 'DONE' && !t.deletedAt
       )
       .sort((a, b) => {
         const priorities = { high: 3, medium: 2, low: 1 };
@@ -2632,7 +2743,8 @@ function renderToday(){
       </label>
       <div class='row' style='gap:6px;'>
         <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
-        ${t.status !== 'DONE' ? `<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>` : ''}
+        ${t.status !== 'DONE' ? `<button class='btn' data-b='${t.id}' style='font-size:11px;' title='Send to backlog (optional reason)'>Backlog</button>` : ''}
+        ${t.status !== 'DONE' ? `<button class='btn' data-drop='${t.id}' style='font-size:11px;color:#f88;' title='Drop with required reason'>⊘ Drop</button>` : ''}
         <button class='btn' data-del='${t.id}'>✕</button>
       </div>
     </div>`;
@@ -2649,8 +2761,19 @@ function renderToday(){
       })
     );
     list.querySelectorAll('[data-b]').forEach(
-      b => (b.onclick = () => {
-        moveToBacklog(b.dataset.b);
+      b => (b.onclick = async () => {
+        const reason = await showReasonModal('Send to backlog', { required: false, okText: 'Send to backlog' });
+        if (reason === null) return;
+        moveToBacklog(b.dataset.b, reason);
+        drawProjectTasks();
+      })
+    );
+    list.querySelectorAll('[data-drop]').forEach(
+      b => (b.onclick = async () => {
+        const t = db.tasks.find(x => x.id === b.dataset.drop);
+        const reason = await showReasonModal(`Drop "${t?.title || 'task'}"?`, { required: true, okText: 'Drop task' });
+        if (!reason) return;
+        dropTask(b.dataset.drop, reason);
         drawProjectTasks();
       })
     );
@@ -2798,7 +2921,7 @@ function renderProjects(){
     // return active tasks (TODO/DONE) for this project. Filtering out deleted tasks
     // ensures that once a user deletes a project task it no longer appears in the list.
     return db.tasks.filter(
-      t => t.projectId === currentProjectId && t.status !== 'BACKLOG' && !t.deletedAt
+      t => t.projectId === currentProjectId && t.status !== 'BACKLOG' && t.status !== 'DROPPED' && !t.deletedAt
     );
   }
   function getProjectBacklog(){
@@ -2917,14 +3040,27 @@ function renderProjects(){
         </label>
         <div class='row' style='gap:6px;flex-shrink:0;flex-wrap:wrap;'>
           <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
-          ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;'>Backlog</button>`:''}
+          ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:11px;' title='Send to backlog (optional reason)'>Backlog</button>`:''}
+          ${t.status!=='DONE'?`<button class='btn' data-drop='${t.id}' style='font-size:11px;color:#f88;' title='Drop with required reason'>⊘ Drop</button>`:''}
           <button class='btn' data-del='${t.id}'>✕</button>
         </div>
       </div>`;
     }).join("");
     list.querySelectorAll("input[type=checkbox]").forEach(cb=> cb.onchange = ()=>{ setTaskStatus(cb.dataset.id, cb.checked?"DONE":"TODO"); drawTasks(); refreshStats(); drawBacklog(); });
     list.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{ deleteTask(b.dataset.del); drawTasks(); refreshStats(); drawBacklog(); });
-    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = ()=>{ moveToBacklog(b.dataset.b); drawTasks(); drawBacklog(); refreshStats(); });
+    list.querySelectorAll('[data-b]').forEach(b=> b.onclick = async ()=>{
+      const reason = await showReasonModal('Send to backlog', { required: false, okText: 'Send to backlog' });
+      if (reason === null) return;
+      moveToBacklog(b.dataset.b, reason);
+      drawTasks(); drawBacklog(); refreshStats();
+    });
+    list.querySelectorAll('[data-drop]').forEach(b=> b.onclick = async ()=>{
+      const t = db.tasks.find(x => x.id === b.dataset.drop);
+      const reason = await showReasonModal(`Drop "${t?.title || 'task'}"?`, { required: true, okText: 'Drop task' });
+      if (!reason) return;
+      dropTask(b.dataset.drop, reason);
+      drawTasks(); drawBacklog(); refreshStats();
+    });
     list.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=>{ openTaskModal(b.dataset.edit); });
   }
   function drawBacklog(){ const list = document.getElementById('projBacklogList'); const tasks = getProjectBacklog(); list.innerHTML = `<div class='muted' style='font-size:12px;margin-bottom:4px;'>Backlog (${tasks.length})</div>` + (tasks.length? tasks.map(t=> `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>
@@ -3317,7 +3453,7 @@ function renderReview(){
   // habit completions are visualized in the Habit Streaks grid instead — mixing
   // them into the list was confusing (and Clear History couldn't touch them).
   const realDone = db.tasks.filter(t => t.status==='DONE' && !t.deletedAt);
-  const activeTasks = [...virtualDone, ...db.tasks.filter(t=> t.status!=='BACKLOG' && !t.deletedAt)];
+  const activeTasks = [...virtualDone, ...db.tasks.filter(t=> t.status!=='BACKLOG' && t.status!=='DROPPED' && !t.deletedAt)];
   const total = activeTasks.length;
   const pct = total? Math.round(done.length/total*100) : 0;
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
@@ -3366,7 +3502,7 @@ function renderReview(){
     const completed = tasks.filter(t=> t.status === 'DONE').length;
     return { project: p, total: tasks.length, completed, progress: tasks.length ? Math.round(completed/tasks.length*100) : 0 };
   }).filter(s=> s.total > 0);
-  const pendingAll = db.tasks.filter(t=> t.status==='TODO' && t.status!=='BACKLOG' && !t.deletedAt && !isUndivergedRecurringTask(t));
+  const pendingAll = db.tasks.filter(t=> t.status==='TODO' && t.status!=='BACKLOG' && t.status!=='DROPPED' && !t.deletedAt && !isUndivergedRecurringTask(t));
   const backlogAll = db.tasks.filter(t=> t.status==='BACKLOG' && !t.deletedAt);
   const pPriority = {high:3,medium:2,low:1};
   pendingAll.sort((a,b)=> (pPriority[b.priority]||2)-(pPriority[a.priority]||2));
@@ -4325,6 +4461,39 @@ function openTaskModal(taskId) {
     t.subtasks.push({ id: uid(), title: '', status: 'TODO' });
     renderSubtasks();
   };
+  // --- Journal section: append-only audit + freeform notes ---
+  const journalListEl = document.getElementById('taskJournalList');
+  const journalInput  = document.getElementById('taskJournalInput');
+  const journalAddBtn = document.getElementById('taskJournalAdd');
+  function renderJournal() {
+    if (!journalListEl) return;
+    const entries = Array.isArray(t.journal) ? t.journal : [];
+    if (!entries.length) {
+      journalListEl.innerHTML = `<div class='muted' style='font-size:11px;'>No entries yet. Notes added when dropping or sending to backlog show up here.</div>`;
+      return;
+    }
+    const kindIcon = { drop: '⊘', backlog: '📦', note: '✎', done: '✓', reopen: '↩' };
+    const kindLabel = { drop: 'dropped', backlog: 'backlog', note: 'note', done: 'done', reopen: 'reopen' };
+    journalListEl.innerHTML = entries.slice().reverse().map(e => {
+      const when = (e.at || '').replace('T', ' ').slice(0, 16);
+      const ic = kindIcon[e.kind] || '•';
+      const lbl = kindLabel[e.kind] || (e.kind || 'note');
+      return `<div style='border-left:2px solid var(--border);padding:4px 8px;margin-bottom:4px;font-size:12px;'>
+        <div class='muted' style='font-size:10px;'>${ic} ${htmlesc(lbl)} · ${htmlesc(when)}</div>
+        <div style='white-space:pre-wrap;'>${htmlesc(e.text || '')}</div>
+      </div>`;
+    }).join('');
+  }
+  function addJournalEntry() {
+    const v = (journalInput?.value || '').trim();
+    if (!v) return;
+    appendTaskJournal(t.id, 'note', v);
+    journalInput.value = '';
+    renderJournal();
+  }
+  if (journalAddBtn) journalAddBtn.onclick = addJournalEntry;
+  if (journalInput)  journalInput.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addJournalEntry(); } };
+  renderJournal();
   // Save handler
   saveBtn.onclick = () => {
     t.title = titleEl.value.trim();

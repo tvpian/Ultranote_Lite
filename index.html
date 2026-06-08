@@ -276,6 +276,17 @@
           </div>
           <div id="subtaskList" class="list" style="margin-top:6px;"></div>
         </div>
+        <div>
+          <div class="row" style="justify-content:space-between;align-items:center;">
+            <strong style="font-size:12px;">Journal</strong>
+            <span class="muted" style="font-size:11px;">append-only</span>
+          </div>
+          <div id="taskJournalList" class="list" style="margin-top:6px;max-height:160px;overflow-y:auto;"></div>
+          <div class="row" style="margin-top:6px;gap:6px;">
+            <input id="taskJournalInput" type="text" placeholder="Add a note · Enter to save" style="flex:1;"/>
+            <button id="taskJournalAdd" class="btn" style="font-size:12px;">Add</button>
+          </div>
+        </div>
       </div>
       <div class="row" style="margin-top:12px; justify-content:flex-end; gap:8px; flex-wrap:wrap;">
         <button id="taskSave" class="btn acc">Save</button>
