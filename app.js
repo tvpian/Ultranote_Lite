@@ -1978,7 +1978,7 @@ function renderNav(){
   if(_mbToday) _mbToday.innerHTML = 'Today' + _badgeHtml;
 }
 
-function htmlesc(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
+function htmlesc(s){ return String(s ?? '').replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
 
 // Enhanced markdown rendering using marked.js library with fallback
 // This function provides:
@@ -5738,10 +5738,15 @@ function renderVault(){
 // --- Notebooks view ---
 function renderNotebooks(){
   if(!db.notebooks) db.notebooks=[];
-  // Hide system-managed notebooks (e.g. 🔬 Research) from the generic list \u2014
-  // they're surfaced by their own dedicated tool and would just look like
-  // duplicates here.
-  const nbs=db.notebooks.filter(nb=>!nb.deletedAt && !nb.system).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
+  // Hide system-managed / feature-owned notebooks from the generic list —
+  // they're surfaced by their own dedicated tools (🔬 Research, 👥 People)
+  // and would just look like duplicates here. The People container uses a
+  // {name, emoji} schema instead of {title}, so it has no `title` field;
+  // listing it would also crash htmlesc(nb.title). Guard against any other
+  // title-less record the same way.
+  const nbs=db.notebooks
+    .filter(nb=>!nb.deletedAt && !nb.system && nb.name!=='People' && nb.title)
+    .sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
   content.innerHTML=`
     <div class='card'>
       <div class='row' style='justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;'>
@@ -5752,15 +5757,16 @@ function renderNotebooks(){
       <div style='margin-top:14px;display:flex;flex-direction:column;gap:10px;'>
         ${nbs.map(nb=>{
           const pages=getNotebookPages(nb.id);
+          const updated=(nb.updatedAt||nb.createdAt||'').slice(0,10);
           return `<div class='nb-card' data-open-nb='${nb.id}'
             style='border:1px solid var(--btn-border);border-left:3px solid var(--acc);border-radius:8px;
                    padding:14px;cursor:pointer;background:var(--card-bg);transition:opacity 0.15s;'>
             <div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;'>
               <div style='flex:1;min-width:0;'>
-                <strong style='font-size:15px;word-break:break-word;'>${htmlesc(nb.title)}</strong>
+                <strong style='font-size:15px;word-break:break-word;'>${htmlesc(nb.title||'Untitled')}</strong>
                 ${nb.description?`<div class='muted' style='font-size:12px;margin-top:3px;'>${htmlesc(nb.description)}</div>`:''}
                 <div class='muted' style='font-size:11px;margin-top:5px;'>
-                  ${pages.length} page${pages.length!==1?'s':''} &nbsp;&middot;&nbsp; Updated ${nb.updatedAt.slice(0,10)}
+                  ${pages.length} page${pages.length!==1?'s':''}${updated?` &nbsp;&middot;&nbsp; Updated ${updated}`:''}
                 </div>
               </div>
               <div class='row' style='gap:6px;flex-shrink:0;' onclick='event.stopPropagation()'>
