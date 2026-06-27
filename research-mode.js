@@ -90,14 +90,33 @@
   function ensureNotebook(title){
     const db = window.db;
     db.notebooks = db.notebooks || [];
-    // Skip tombstoned rows — if the user explicitly deleted a notebook with
-    // this title we must NOT find-or-create on top of it; we'd just keep
-    // resurrecting the same row on every boot.
-    let nb = db.notebooks.find(x => x.title === title && !x.deletedAt);
-    if (nb) return nb;
-    nb = { id: uid(), title, description: '', createdAt: nowISO(), updatedAt: nowISO() };
+    // Reuse an existing, non-deleted Research notebook rather than risk
+    // seeding a second one. Match by exact title OR by the system flag —
+    // the title's emoji/spelling has drifted across versions, and a bare
+    // title match against a not-yet-hydrated db once let a duplicate slip
+    // through. If a past sync/seed race left more than one, keep the
+    // notebook with the most live pages (that's the user's real data) so
+    // an empty shell can never shadow it again. Tombstoned rows are
+    // skipped so an explicit delete is never resurrected.
+    const matches = db.notebooks.filter(x =>
+      !x.deletedAt && (x.title === title || (x.system && /research/i.test(x.title || '')))
+    );
+    if (matches.length) {
+      matches.sort((a, b) =>
+        livePageCount(b.id) - livePageCount(a.id) ||
+        (a.createdAt || '').localeCompare(b.createdAt || '')
+      );
+      return matches[0];
+    }
+    const nb = { id: uid(), title, description: '', createdAt: nowISO(), updatedAt: nowISO() };
     db.notebooks.push(nb);
     return nb;
+  }
+
+  function livePageCount(notebookId){
+    return (window.db.notes || []).filter(
+      n => n.notebookId === notebookId && !n.deletedAt && n.type === 'page'
+    ).length;
   }
 
   function ensurePage({ title, notebookId, content = '', tags = [] }){
