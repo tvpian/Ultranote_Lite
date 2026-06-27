@@ -5385,3 +5385,33 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background: rgba(107, 70, 229, 0.1);
   border-style: solid;
 }
+
+/* ==================================================================
+   Layout hardening (added) — two related fixes.
+   ================================================================== */
+
+/* (1) Overflow containment: the CSS Grid/Flexbox "automatic minimum
+   size" gotcha. Grid & flex items default to min-width:auto, so they
+   refuse to shrink below their content's intrinsic width. A single long
+   unbreakable token (a pasted URL or a long task title) then forces a
+   1fr column wider than its track, which overflows #content, which
+   overflows <main> — dragging the Tasks / Journal / Note sections out
+   past the viewport edge. Opting every layout child back to min-width:0
+   lets the tracks shrink; overflow-wrap breaks the token, not the page. */
+#content,              /* the app-shell content column (main's 1fr track) */
+.grid-2 > *,           /* Today's Tasks + Quick-Capture/Journal cards     */
+.card {
+  min-width: 0;
+}
+.card {
+  overflow-wrap: anywhere;
+}
+
+/* (2) Focus mode on the Today page. The daily-note editor card is
+   followed by a .grid-2 holding the Tasks + Quick-Capture/Journal cards.
+   In focus mode we want ONLY the note itself, so collapse that grid;
+   otherwise Alt+F just hid the sidebar and left everything stacked,
+   making focus mode feel like it "did nothing" on Today. */
+body.focus-mode #content > .grid-2 {
+  display: none !important;
+}
