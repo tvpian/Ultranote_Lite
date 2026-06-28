@@ -5415,3 +5415,20 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 body.focus-mode #content > .grid-2 {
   display: none !important;
 }
+
+/* ==================================================================
+   (3) Editor typing stability — kill the "letters glitch as I type"
+   flicker. The global rule `* { font-family: var(--font) }` applies a
+   proportional sans with a slight negative letter-spacing to every
+   element, textareas included. As you type, each new character forces
+   the browser to re-kern and re-shape the whole line (ligatures +
+   subpixel letter-spacing), so existing glyphs visibly nudge/jitter.
+   For the note editors we pin neutral metrics + disable ligatures so
+   text is laid out one stable glyph at a time. */
+#dailyContent, #dailyNewContent, #pgContent, #contentBox, #journalContent {
+  letter-spacing: normal !important;
+  font-variant-ligatures: none;
+  font-kerning: none;
+  text-rendering: optimizeSpeed;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
