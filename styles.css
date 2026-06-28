@@ -5427,11 +5427,18 @@ body.focus-mode #content > .grid-2 {
    text is laid out one stable glyph at a time. */
 #dailyContent, #dailyNewContent, #pgContent, #contentBox, #journalContent {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
   letter-spacing: normal !important;
   font-variant-ligatures: none;
   font-kerning: none;
   text-rendering: optimizeSpeed;
   font-feature-settings: "liga" 0, "calt" 0;
+  -webkit-text-size-adjust: 100% !important;
+  text-size-adjust: 100% !important;
+  transition: none !important;
+  transform: none !important;
+  zoom: 1 !important;
 }
 
 /* (4) Scrollbar-gutter stability — stop the "zoom in/out" reflow. When a
