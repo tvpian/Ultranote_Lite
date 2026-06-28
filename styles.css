@@ -5433,3 +5433,10 @@ body.focus-mode #content > .grid-2 {
   text-rendering: optimizeSpeed;
   font-feature-settings: "liga" 0, "calt" 0;
 }
+
+/* (4) Scrollbar-gutter stability — stop the "zoom in/out" reflow. When a
+   line of typing pushes content past the viewport, a vertical scrollbar
+   appears and shrinks the layout width; deleting text removes it again.
+   The 1fr grid then re-flows on every threshold cross, reading as a
+   subtle zoom. Reserving the gutter keeps width constant. */
+html { scrollbar-gutter: stable; }
