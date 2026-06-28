@@ -5426,6 +5426,7 @@ body.focus-mode #content > .grid-2 {
    For the note editors we pin neutral metrics + disable ligatures so
    text is laid out one stable glyph at a time. */
 #dailyContent, #dailyNewContent, #pgContent, #contentBox, #journalContent {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
   letter-spacing: normal !important;
   font-variant-ligatures: none;
   font-kerning: none;
