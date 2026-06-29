@@ -2423,7 +2423,7 @@ function showReasonModal(message, opts = {}){
 window.showReasonModal = showReasonModal;
 function drawProjectsSidebar(){
   if(!projectList) return;
-  projectList.innerHTML = db.projects.map(p=> `
+  projectList.innerHTML = db.projects.filter(p=> !p.deletedAt && !p.archivedAt).map(p=> `
     <button class="projBtn ${currentProjectId===p.id?"active":""}" data-proj="${p.id}" title="Select project">
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${htmlesc(p.name)}</span>
       <span class="projDel" data-del="${p.id}" title="Delete project">✕</span>
@@ -2441,9 +2441,16 @@ function drawProjectsSidebar(){
         const msg = `Delete project "${proj.name}"${noteCount || taskCount ? ` (and its ${noteCount} notes / ${taskCount} tasks)` : ''}? This cannot be undone.`;
         const ok = await showConfirm(msg, 'Delete', 'Cancel');
         if (!ok) return;
-        db.notes = db.notes.filter(n => n.projectId !== pid);
-        db.tasks = db.tasks.filter(t => t.projectId !== pid);
-        db.projects = db.projects.filter(p => p.id !== pid);
+        // Soft-delete with tombstones so the server merge propagates the
+        // deletion. A hard array-splice can't be removed by POST /api/db's
+        // merge-by-id, so the project (and its notes/tasks) resurrected on the
+        // next fetch. deletedAt + a fresh updatedAt wins the merge; the lists
+        // already filter deletedAt, and _hardDeletedIds blocks re-add this session.
+        const now = new Date().toISOString();
+        db.notes.forEach(n => { if (n.projectId === pid && !n.deletedAt) { n.deletedAt = now; n.updatedAt = now; window._hardDeletedIds.add(n.id); } });
+        db.tasks.forEach(t => { if (t.projectId === pid && !t.deletedAt) { t.deletedAt = now; t.updatedAt = now; window._hardDeletedIds.add(t.id); } });
+        if (proj) { proj.deletedAt = now; proj.archivedAt = now; proj.updatedAt = now; }
+        window._hardDeletedIds.add(pid);
         if (currentProjectId === pid) currentProjectId = null;
         save();
         drawProjectsSidebar();
@@ -3340,7 +3347,7 @@ function renderProjects(){
   const selectorHTML = db.projects && db.projects.length ? `
     <div id="projectSelectorContainer" class="card">
       <select id="projectSelector" style="width:100%;padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
-        ${db.projects.map(p=>`<option value="${p.id}" ${p.id===currentProjectId?'selected':''}>${htmlesc(p.name)}</option>`).join('')}
+        ${db.projects.filter(p=>!p.deletedAt).map(p=>`<option value="${p.id}" ${p.id===currentProjectId?'selected':''}>${htmlesc(p.name)}</option>`).join('')}
       </select>
     </div>
   ` : '';
@@ -3997,7 +4004,7 @@ function renderReview(){
   const topProject = projCompletions[0] || null;
   // Progress bar helper
   const pbar = (val, max, color='#8b6dff') => `<div style="background:var(--btn-bg);border-radius:4px;height:6px;flex:1;min-width:60px;"><div style="background:${color};width:${max?Math.round(val/max*100):0}%;height:100%;border-radius:4px;"></div></div>`;
-  const projectStats = db.projects.map(p=>{
+  const projectStats = db.projects.filter(p=>!p.deletedAt).map(p=>{
     const tasks = db.tasks.filter(t=> t.projectId === p.id && !t.deletedAt);
     const completed = tasks.filter(t=> t.status === 'DONE').length;
     return { project: p, total: tasks.length, completed, progress: tasks.length ? Math.round(completed/tasks.length*100) : 0 };
@@ -5616,7 +5623,7 @@ function renderVault(){
     }).sort((a,b)=> (b.pinned?1:0)-(a.pinned?1:0) || b.updatedAt.localeCompare(a.updatedAt));
     // Projects: only text filter (projects have no tags yet)
     if(text && !tagFilters.length){
-      projectMatches = db.projects.filter(p=> p.name.toLowerCase().includes(text));
+      projectMatches = db.projects.filter(p=> !p.deletedAt && p.name.toLowerCase().includes(text));
     }
     // Tasks: only if no tag filters (tasks have no tags); search title
     if(text && !tagFilters.length){
@@ -6307,7 +6314,7 @@ function openNote(id){
         <label style="margin-left:8px;"><input id="pinned" type="checkbox" ${n.pinned?'checked':''}> Pin</label>
         <select id="noteProject" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;" title="Assign to project">
           <option value="">— No Project —</option>
-          ${db.projects.map(p=>`<option value="${p.id}" ${n.projectId===p.id?'selected':''}>${htmlesc(p.name)}</option>`).join('')}
+          ${db.projects.filter(p=>!p.deletedAt).map(p=>`<option value="${p.id}" ${n.projectId===p.id?'selected':''}>${htmlesc(p.name)}</option>`).join('')}
         </select>
         <select id="noteStatus" title="Reading status — handy for papers and long reads"
                 style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
