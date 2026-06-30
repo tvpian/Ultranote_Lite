@@ -5447,3 +5447,17 @@ body.focus-mode #content > .grid-2 {
    The 1fr grid then re-flows on every threshold cross, reading as a
    subtle zoom. Reserving the gutter keeps width constant. */
 html { scrollbar-gutter: stable; }
+
+/* Project sidebar rename (✎) affordance — mirrors .projDel, accent on hover. */
+.projBtn .projRename {
+  font-size: 12px;
+  opacity: 0.55;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.projBtn .projRename:hover {
+  opacity: 1;
+  background: var(--btn-active-bg);
+  color: var(--acc);
+}

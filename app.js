@@ -1438,6 +1438,20 @@ function updateProject(id, patch){
   Object.assign(p, patch, { updatedAt: nowISO() });
   save(); return p;
 }
+// Shared rename flow used by the sidebar (✎) and the Projects page header.
+// Reuses showPrompt; no-ops on cancel, empty, or unchanged name.
+async function renameProjectFlow(id){
+  const p = db.projects.find(x => x.id === id);
+  if(!p) return;
+  const name = await showPrompt('Rename project', p.name, 'Rename', 'Cancel');
+  if(name === null) return;                 // cancelled
+  const trimmed = name.trim();
+  if(!trimmed || trimmed === p.name) return; // empty or unchanged
+  updateProject(id, { name: trimmed });
+  drawProjectsSidebar();
+  if(route === 'projects') render();
+}
+window.renameProjectFlow = renameProjectFlow;
 function createTemplate(name, content){
   // Canonical template schema.
   const t = { id:uid(), name, content, description:'', tags:[], createdAt:nowISO(), updatedAt:nowISO() };
@@ -2426,10 +2440,17 @@ function drawProjectsSidebar(){
   projectList.innerHTML = db.projects.filter(p=> !p.deletedAt && !p.archivedAt).map(p=> `
     <button class="projBtn ${currentProjectId===p.id?"active":""}" data-proj="${p.id}" title="Select project">
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${htmlesc(p.name)}</span>
+      <span class="projRename" data-rename="${p.id}" title="Rename project">✎</span>
       <span class="projDel" data-del="${p.id}" title="Delete project">✕</span>
     </button>`).join("");
   if(!projectList.dataset.bound){
     projectList.addEventListener('click', async (e) => {
+      const ren = e.target.closest('.projRename');
+      if (ren) {
+        e.stopPropagation();
+        await renameProjectFlow(ren.dataset.rename);
+        return;
+      }
       const del = e.target.closest('.projDel');
       if (del) {
         e.stopPropagation();
@@ -3376,7 +3397,10 @@ function renderProjects(){
   content.innerHTML = selectorHTML + `
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center;">
-        <strong>Project: ${htmlesc(selectedProject.name)}</strong>
+        <div class="row" style="gap:6px;align-items:center;min-width:0;">
+          <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Project: ${htmlesc(selectedProject.name)}</strong>
+          <button id="projRename" class="btn" style="font-size:11px;flex-shrink:0;padding:2px 8px;" title="Rename project">✎ Rename</button>
+        </div>
         <div class="row" style="gap:12px;">
           <span class="muted" id="projNoteCount"></span>
           <span class="muted" id="projTaskProgress"></span>
@@ -3489,6 +3513,10 @@ function renderProjects(){
     const templateId = document.getElementById("noteTemplate").value;
     openDraftNote({title:t, projectId:currentProjectId, type:'note', templateId});
   };
+  {
+    const renBtn = document.getElementById('projRename');
+    if(renBtn) renBtn.onclick = ()=> renameProjectFlow(currentProjectId);
+  }
   // Allow pressing Enter in the note title input to trigger Add Note
   {
     const nt = document.getElementById('noteTitle');
