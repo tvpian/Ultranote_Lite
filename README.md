@@ -60,6 +60,7 @@ If Notion feels too heavy, Obsidian too plugin-laden, and Markdown-in-VS-Code to
 - [Architecture](#architecture)
 - [Data model](#data-model)
 - [API](#api)
+- [Coding-agent projects: a shared knowledge base](#coding-agent-projects-a-shared-knowledge-base)
 - [Security](#security)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
@@ -469,6 +470,68 @@ All endpoints require an authenticated session, or a whitelisted IP.
 | `GET`  | `/login` | Login page |
 | `POST` | `/login` | Submit password |
 | `GET`  | `/logout` | Clear session and redirect to login |
+
+### Agent-friendly read endpoints
+
+These return small, clean JSON (not the full DB) and are what a coding agent uses to read state. Writes still go through `POST /api/db` (merge-by-id, strictly-newer-`updatedAt` wins). Local/LAN requests are auto-authorized; writes require the header `X-Requested-With: XMLHttpRequest`.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/query?collection=<c>&projectId=<id>&status=<s>` | Filtered records as `{total, results}` |
+| `GET` | `/api/search?q=<text>&collection=<c>` | Full-text search across notes/tasks/links/… |
+| `GET` | `/api/context` | Compact workspace overview for orientation |
+| `GET` | `/api/activity` | Recent activity feed |
+
+---
+
+## Coding-agent projects: a shared knowledge base
+
+If a project of yours is co-handled with a **coding agent** (Copilot, Claude, Cursor, etc.), UltraNote can be the **single source of truth** for that project's tasks, sub-tasks, decisions, and docs — kept truthful by the agent as it works, and browsable by you in the normal UI (Today, Projects, Notebooks, the `[[wiki-link]]` Map).
+
+The idea: instead of scattering a project's status across chat history, scratch files, and the agent's short-term memory, the agent reads and writes it all back to UltraNote over the REST API. You get a durable, queryable knowledge base around the project; the agent gets a ledger it can reconcile against reality every session.
+
+```mermaid
+flowchart LR
+    subgraph WS["Project workspace"]
+        A["Coding agent<br/>(Copilot / Claude / Cursor)"]
+        G["AGENT_GUIDE.md<br/>.ultranote.json"]
+        G -. reads playbook .-> A
+    end
+
+    subgraph UN["UltraNote — source of truth"]
+        DB[("data.json")]
+        API["REST API"]
+        UI["Web / PWA UI<br/>Today · Projects · Map"]
+        API <--> DB
+        UI <--> DB
+    end
+
+    A -- "GET /api/query · /api/search · /api/context" --> API
+    API -- "live state" --> A
+    A -- "POST /api/db (merge by id)" --> API
+    YOU(["You"]) -- browse & edit --> UI
+
+    A -. "living-project loop" .- A
+```
+
+**How to wire it up**
+
+1. Drop [`AGENT_GUIDE.md`](AGENT_GUIDE.md) into the project's workspace (it's a complete, battle-tested API playbook for agents).
+2. Add a tiny `.ultranote.json` next to it so the agent knows where to write:
+   ```json
+   { "baseUrl": "http://localhost:3366", "projectId": "prj_xxx" }
+   ```
+   (Find the `projectId` with `GET /api/query?collection=projects` and match by name.)
+3. Point the agent at the guide — paste the prompt block from §11 of `AGENT_GUIDE.md`.
+
+**What the agent then maintains for you**
+
+- **Tasks & sub-tasks** with truthful TODO/DONE/BACKLOG status — only marked done with recorded validation evidence.
+- **Notes** capturing decisions, gotchas, and validated procedures, each with a few specific tags so they're findable.
+- **A notemap**: ordered docs chained with `[[wiki-links]]` (prev/next/index footers) so a walkthrough or course reads as a connected series in the **Map** view.
+- **Notebooks** for living, multi-page docs and runbooks.
+
+The agent runs a **living-project loop** — read live state → reconcile with what actually happened → update statuses truthfully → grow the backlog → capture new knowledge as notes → verify — every session until the project is done or parked. See [`AGENT_GUIDE.md`](AGENT_GUIDE.md) for the full contract.
 
 ---
 
