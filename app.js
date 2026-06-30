@@ -2438,19 +2438,20 @@ window.showReasonModal = showReasonModal;
 function drawProjectsSidebar(){
   if(!projectList) return;
   projectList.innerHTML = db.projects.filter(p=> !p.deletedAt && !p.archivedAt).map(p=> `
-    <button class="projBtn ${currentProjectId===p.id?"active":""}" data-proj="${p.id}" title="Select project">
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${htmlesc(p.name)}</span>
-      <span class="projRename" data-rename="${p.id}" title="Rename project">✎</span>
+    <button class="projBtn ${currentProjectId===p.id?"active":""}" data-proj="${p.id}" title="Select project · double-click name to rename">
+      <span class="projName" data-rename="${p.id}" title="Double-click to rename" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${htmlesc(p.name)}</span>
       <span class="projDel" data-del="${p.id}" title="Delete project">✕</span>
     </button>`).join("");
   if(!projectList.dataset.bound){
-    projectList.addEventListener('click', async (e) => {
-      const ren = e.target.closest('.projRename');
-      if (ren) {
+    projectList.addEventListener('dblclick', (e) => {
+      const name = e.target.closest('.projName');
+      if (name) {
+        e.preventDefault();
         e.stopPropagation();
-        await renameProjectFlow(ren.dataset.rename);
-        return;
+        renameProjectFlow(name.dataset.rename);
       }
+    });
+    projectList.addEventListener('click', async (e) => {
       const del = e.target.closest('.projDel');
       if (del) {
         e.stopPropagation();
@@ -3397,10 +3398,7 @@ function renderProjects(){
   content.innerHTML = selectorHTML + `
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center;">
-        <div class="row" style="gap:6px;align-items:center;min-width:0;">
-          <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Project: ${htmlesc(selectedProject.name)}</strong>
-          <button id="projRename" class="btn" style="font-size:11px;flex-shrink:0;padding:2px 8px;" title="Rename project">✎ Rename</button>
-        </div>
+        <strong id="projRename" title="Double-click to rename" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:text;">Project: ${htmlesc(selectedProject.name)}</strong>
         <div class="row" style="gap:12px;">
           <span class="muted" id="projNoteCount"></span>
           <span class="muted" id="projTaskProgress"></span>
@@ -3514,8 +3512,8 @@ function renderProjects(){
     openDraftNote({title:t, projectId:currentProjectId, type:'note', templateId});
   };
   {
-    const renBtn = document.getElementById('projRename');
-    if(renBtn) renBtn.onclick = ()=> renameProjectFlow(currentProjectId);
+    const renEl = document.getElementById('projRename');
+    if(renEl) renEl.ondblclick = ()=> renameProjectFlow(currentProjectId);
   }
   // Allow pressing Enter in the note title input to trigger Add Note
   {
