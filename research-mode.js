@@ -488,6 +488,27 @@
     return true;
   }
 
+  // Sibling to appendCaptureToInbox() used when the capture is routed to
+  // Today's Tasks instead of the Research Inbox (dest=today). Creates a real
+  // task on today's daily note rather than a markdown line, so it shows up
+  // wherever the rest of the app expects tasks (Today page, follow-ups, etc.).
+  function appendCaptureToToday(text, silent){
+    if (!text) return false;
+    if (typeof window.createDailyNoteFor !== 'function' || typeof window.createTask !== 'function' || typeof window.todayKey !== 'function') {
+      // Fall back to the inbox if the task/daily helpers aren't available for
+      // some reason — better to capture it somewhere than to drop it.
+      return appendCaptureToInbox(text, silent);
+    }
+    const key = window.todayKey();
+    const daily = window.createDailyNoteFor(key);
+    String(text).split(/\r?\n/).map(s => s.trim()).filter(Boolean).forEach(line => {
+      window.createTask({ title: line, noteId: daily.id });
+    });
+    toast(silent ? '✅ Added to Today\'s Tasks (from bookmarklet)' : 'Added to Today\'s Tasks');
+    if (window.route === 'today' && typeof window.render === 'function') window.render();
+    return true;
+  }
+
   async function newPaperNote(prefill = ''){
     // If the prefill looks like it contains an arXiv link/ID, try to fetch the
     // canonical title + authors + abstract from arXiv's API (CORS-enabled).
@@ -983,7 +1004,34 @@ Things outside UltraNote that compound. Adopt one at a time.
     // Named target ('ultranote') makes the browser reuse the same tab/window on
     // subsequent clicks instead of spawning a new instance each time.
     // .focus() then brings it forward. Drop noopener so .focus() works.
-    const bookmarklet = `javascript:(function(){var u=encodeURIComponent((document.getSelection().toString()||document.title)+' — '+location.href);var w=window.open('${origin}/?capture='+u,'ultranote');if(w){try{w.focus();}catch(e){}}})();`;
+    // Clicking the bookmarklet doesn't open UltraNote directly — it first
+    // injects a tiny floating chooser onto the CURRENT page (works on any
+    // site: bookmarklet javascript: execution isn't subject to that page's
+    // CSP, and we only ever touch the DOM via JS property assignment, never
+    // inline <style>/<script> tags, so no CSP violation is possible). The
+    // user picks "Research Inbox" or "Today's Tasks" and *that* choice opens
+    // '${origin}/?capture=...&dest=...'. Clicking outside or "Cancel" just
+    // removes the chooser — nothing is sent anywhere.
+    const bookmarklet = `javascript:(function(){` +
+      `var sel=document.getSelection().toString();` +
+      `var text=(sel||document.title)+' — '+location.href;` +
+      `var old=document.getElementById('__un_cap_ov');if(old)old.remove();` +
+      `var ov=document.createElement('div');ov.id='__un_cap_ov';` +
+      `ov.style.cssText='position:fixed;z-index:2147483647;bottom:20px;right:20px;background:#1c2430;color:#fff;border:1px solid #394259;border-radius:10px;padding:12px 14px;font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:8px;min-width:220px';` +
+      `var lbl=document.createElement('div');lbl.textContent='Save to UltraNote:';lbl.style.cssText='font-weight:600';ov.appendChild(lbl);` +
+      `function go(dest){var w=window.open('${origin}/?capture='+encodeURIComponent(text)+'&dest='+dest,'ultranote');if(w){try{w.focus();}catch(e){}}ov.remove();}` +
+      `function mk(t,d,bg){var b=document.createElement('button');b.textContent=t;` +
+        `b.style.cssText='cursor:pointer;border:1px solid #394259;background:'+bg+';color:#fff;border-radius:8px;padding:8px 10px;font:inherit;font-weight:600;text-align:left';` +
+        `b.onclick=function(){go(d);};ov.appendChild(b);}` +
+      `mk('📥 Research Inbox','research','#5073b8');` +
+      `mk('✅ Today\\'s Tasks','today','#3d8b5f');` +
+      `var c=document.createElement('button');c.textContent='Cancel';` +
+      `c.style.cssText='cursor:pointer;border:none;background:transparent;color:#97a5b8;font:inherit;padding:4px 0;text-align:left';` +
+      `c.onclick=function(){ov.remove();};ov.appendChild(c);` +
+      `document.body.appendChild(ov);` +
+      `setTimeout(function(){document.addEventListener('click',function h(e){if(!ov.contains(e.target)){ov.remove();document.removeEventListener('click',h);}});},10);` +
+      `})();`;
+
 
     content.innerHTML = `
       <style>
@@ -1104,9 +1152,9 @@ Things outside UltraNote that compound. Adopt one at a time.
           )}
 
           ${card('📌 Capture bookmarklet',
-            `<div style="margin-bottom:8px;">Drag this to your browser bookmark bar. Click it on any paper / blog / arXiv page to capture the title + URL straight into your inbox.</div>
+            `<div style="margin-bottom:8px;">Drag this to your browser bookmark bar. Select text first to capture a quote instead of the page title.</div>
              <a class="research-bookmarklet" draggable="true" href="${bookmarklet.replace(/"/g,'&quot;')}">📥 Capture to UltraNote</a>`,
-            'Select text first to capture a quote instead of the page title.'
+            'Clicking it pops up a tiny chooser — pick 📥 Research Inbox (triage later) or ✅ Today\'s Tasks (adds a TODO right now).'
           )}
         </div>
       </div>`;
@@ -1147,8 +1195,9 @@ Things outside UltraNote that compound. Adopt one at a time.
     });
     // Stop the bookmarklet from being followed when clicked from the app
     // itself (only useful from the bookmark bar in another tab).
-    const bm = content.querySelector('.research-bookmarklet');
-    if (bm) bm.addEventListener('click', (e) => { e.preventDefault(); toast("Drag this link to your bookmark bar — don't click it here."); });
+    content.querySelectorAll('.research-bookmarklet').forEach(bm => {
+      bm.addEventListener('click', (e) => { e.preventDefault(); toast("Drag this link to your bookmark bar — don't click it here."); });
+    });
   }
 
   // ------------------------------------------------------------------
@@ -1741,7 +1790,7 @@ Things outside UltraNote that compound. Adopt one at a time.
         // could overwrite the freshly-saved server copy with their own stale
         // local snapshot. They just refresh their UI to pick up the change.
         if (msg.type === 'captured') {
-          if (window.route === 'research' && typeof window.render === 'function') {
+          if ((window.route === 'research' || window.route === 'today') && typeof window.render === 'function') {
             try { window.render(); } catch(_){}
           }
           // Nudge autosync to fetch the latest server state so the sibling's
@@ -1760,7 +1809,12 @@ Things outside UltraNote that compound. Adopt one at a time.
       const url = new URL(location.href);
       const cap = url.searchParams.get('capture');
       if (!cap) return;
+      // dest tells us where to file this capture: 'research' (default, Inbox)
+      // or 'today' (task on today's daily note). Defaults to 'research' so
+      // older bookmarklets/HTTP Shortcuts without the param keep working.
+      const dest = url.searchParams.get('dest') === 'today' ? 'today' : 'research';
       url.searchParams.delete('capture');
+      url.searchParams.delete('dest');
       history.replaceState(null, '', url.pathname + (url.search ? url.search : '') + url.hash);
       // The spawned bookmarklet tab is now the sole writer for this capture.
       // It re-fetches the freshest server state right before appending so we
@@ -1769,7 +1823,8 @@ Things outside UltraNote that compound. Adopt one at a time.
       // any other open UltraNote tabs refresh their UI, and closes itself.
       const ch = _ensureCaptureChannel();
       const finish = async () => {
-        appendCaptureToInbox(cap, /*silent*/ true);
+        if (dest === 'today') appendCaptureToToday(cap, /*silent*/ true);
+        else appendCaptureToInbox(cap, /*silent*/ true);
         // CRITICAL: window.save() is debounced ~400ms; if we close the tab
         // before that timer fires (or before the resulting POST completes)
         // the capture is dropped on the floor — which was the HTTP Shortcut
@@ -1781,7 +1836,7 @@ Things outside UltraNote that compound. Adopt one at a time.
             await window.persistDB();
           }
         } catch(_) {}
-        try { ch && ch.postMessage({ type: 'captured' }); } catch(_){}
+        try { ch && ch.postMessage({ type: 'captured', dest }); } catch(_){}
         // Tiny grace period so the toast paints and BroadcastChannel flushes.
         setTimeout(() => { try { window.close(); } catch(_) {} }, 250);
       };
@@ -1789,7 +1844,10 @@ Things outside UltraNote that compound. Adopt one at a time.
       // adopt the server's inbox content as our local truth before appending.
       // If it fails (offline, no auth) we fall back to whatever's in db; the
       // server-side shrinkage guard still blocks any catastrophic overwrite.
-      if (typeof window.fetchDB === 'function') {
+      // Only relevant for the Inbox path — the 'today' path creates a fresh
+      // task rather than mutating existing note content, so there's nothing
+      // to merge ahead of time.
+      if (dest === 'research' && typeof window.fetchDB === 'function') {
         window.fetchDB().then(remote => {
           try {
             if (remote && Array.isArray(remote.notes)) {

@@ -137,8 +137,8 @@ No mode switching, no menus. One keystroke decides everything.
 
 A capture-first inbox for things you stumble on while reading.
 
-- **Bookmarklet**: drag to your browser's bookmark bar — clicking it on any page silently appends `[timestamp] page title — URL` to your **📥 Research Inbox**. The same tab is reused so you don't pile up windows.
-- **`?capture=<text>` URL endpoint**: works with iOS/Android share sheets, automation tools, anything that can hit an HTTP URL.
+- **Bookmarklet**: drag one link to your browser's bookmark bar from the Research dashboard. Clicking it on any page pops up a tiny on-page chooser — pick **📥 Research Inbox** (appends `[timestamp] page title — URL` for later triage) or **✅ Today's Tasks** (creates a TODO on today's daily note right away). The same UltraNote tab is reused so you don't pile up windows.
+- **`?capture=<text>&dest=research|today` URL endpoint**: works with iOS/Android share sheets, automation tools, anything that can hit an HTTP URL. `dest` defaults to `research` if omitted.
 - **arXiv auto-parser**: pasting an arxiv.org link parses title, authors, abstract, categories, and saves a structured note ready to triage.
 - **Topic-map picker**: file an inbox item into an existing project topic, or create a new one in the same modal. Choice is remembered.
 - **Undo toast**: every file action shows an interactive toast with an **Unfile** button for 8 seconds — restores both the item and any cleaned-up bullet line.
@@ -247,7 +247,7 @@ UltraNote has a real mobile story, not just a "yes it scales down" story.
 
 Install [HTTP Shortcuts](https://play.google.com/store/apps/details?id=ch.rmy.android.http_shortcuts) (free, open-source). Create a **Browser Shortcut**:
 
-- **URL**: `http://YOUR_HOST:3366/?capture={{shared}}`
+- **URL**: `http://YOUR_HOST:3366/?capture={{shared}}&dest=research`
 - **Variable** `shared` (Text input type) with **"Allow sharing into this variable"** enabled
 - **Triggers → Add to share menu** → bind shared text into `shared`
 
@@ -256,6 +256,8 @@ Now, from any Android app (Chrome, YouTube, Twitter, PDF reader, etc.):
 > Tap **Share → UltraNote** → page silently appends to 📥 Research Inbox → swipe back to what you were reading.
 
 That's the same flow as a desktop bookmarklet, but native on phone. (The PWA share-target in `manifest.json` works automatically once you host over HTTPS — see [Going beyond LAN](#going-beyond-lan).)
+
+**Sending it to Today's Tasks instead:** the `dest` param controls where the capture lands — `dest=research` (default) files it in the 📥 Inbox for later triage, `dest=today` adds it straight away as a TODO task on today's daily note. Android share sheets can't pop up an in-page chooser like the desktop bookmarklet does, so duplicate the shortcut above with `&dest=today` in the URL to get a second share-menu entry (e.g. name it "UltraNote → Today") and pick whichever one you need per share.
 
 ---
 
@@ -466,7 +468,7 @@ All endpoints require an authenticated session, or a whitelisted IP.
 |---|---|---|
 | `GET`  | `/api/db` | Returns the full database as JSON |
 | `POST` | `/api/db` | Replaces the database with the posted JSON body |
-| `GET`  | `/?capture=<text>` | Silently appends `text` to 📥 Research Inbox |
+| `GET`  | `/?capture=<text>&dest=research\|today` | Silently appends `text` to 📥 Research Inbox (`dest=research`, default) or adds it as a task on today's daily note (`dest=today`) |
 | `GET`  | `/?qc=<text>` | Opens quick-capture pre-filled with `text` |
 | `GET`  | `/login` | Login page |
 | `POST` | `/login` | Submit password |

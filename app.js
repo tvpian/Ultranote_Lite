@@ -52,6 +52,7 @@ const formatDateString = (dateStr) => {
   return new Date(dateStr).toLocaleDateString();
 };
 // NEW: selected daily date (default today)
+window.todayKey = todayKey;
 let selectedDailyDate = todayKey();
 // Independent month selection for the Monthly planning view.
 // Kept separate from selectedDailyDate so navigating daily notes never
@@ -92,6 +93,7 @@ function createDailyNoteFor(dateKey, contentOverride){
   syncMonthlyTasksToDaily(daily, dateKey);
   return daily;
 }
+window.createDailyNoteFor = createDailyNoteFor;
 // NEW: unified handler to open or create the selected daily note
 function createOrOpenDaily(){
   const today = todayKey();
@@ -1143,6 +1145,7 @@ function createTask({title, due=null, noteId=null, projectId=null, priority="med
   save();
   return t;
 }
+window.createTask = createTask;
 function setTaskStatus(id, status){
   const t = db.tasks.find(x => x.id === id);
   if (!t) return;
@@ -6202,14 +6205,25 @@ function renderLinks(){
       if(newUrl === null) return;
       const newTags = await showPrompt('Tags (space)', (l.tags || []).join(' '), 'OK', 'Cancel');
       if(newTags === null) return;
+      const dup = db.links.find(x=> x.id !== id && !x.deletedAt && normUrl(x.url) === normUrl(newUrl));
+      if(dup){
+        showQuickToast('⚠️ Link already saved');
+        return;
+      }
       updateLink(id, {title: newTitle.trim() || newUrl.trim(), url: newUrl.trim(), tags: newTags.split(/\s+/).map(t=> t.startsWith('#') ? t.slice(1) : t).filter(Boolean)});
       draw();
     })();
   }
+  const normUrl = u => (u||'').trim().replace(/\/+$/,'').toLowerCase();
   document.getElementById('addLink').onclick = ()=>{
     const title = document.getElementById('linkTitle').value.trim();
     const url = document.getElementById('linkUrl').value.trim();
     if(!url) return;
+    const dup = db.links.find(l=> !l.deletedAt && normUrl(l.url) === normUrl(url));
+    if(dup){
+      showQuickToast('⚠️ Link already saved');
+      return;
+    }
     const tags = (document.getElementById('linkTags').value||'').split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean);
     createLink({title: title || url, url, tags});
     document.getElementById('linkTitle').value='';
