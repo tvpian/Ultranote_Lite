@@ -6758,7 +6758,7 @@ function renderNotebookDetail(nbId){
         <button id='newPage' class='btn acc' style='font-size:12px;width:100%;'>+ New Page</button>
         <button id='nbExportMd' class='btn' style='font-size:11px;width:100%;'
                 title='Download every page in this notebook as one Markdown file'>⬇ Export .md</button>
-        <input id='nbTocFilter' type='text' placeholder='Filter pages…' autocomplete='off'
+        <input id='nbTocFilter' type='text' placeholder='Search titles & content…' autocomplete='off'
                style='width:100%;font-size:12px;padding:5px 7px;margin-top:2px;box-sizing:border-box;' />
         <div id='tocList' style='display:flex;flex-direction:column;gap:3px;margin-top:4px;'>
           ${pages.map(p=>{
@@ -6824,14 +6824,42 @@ function renderNotebookDetail(nbId){
   };
 
   // --- TOC filter (purely client-side, doesn't persist) ---
+  // Searches both page titles AND page body content (notebook-wide content
+  // search), not just titles. Content is plain-text-stripped once up front
+  // (same stripping used for the tooltip snippet above) and cached by page
+  // id so filtering on every keystroke stays cheap.
+  const _pageTextById = new Map(pages.map(p => [p.id, ((p.title||'') + ' ' + (p.content||''))
+    .replace(/^---[\s\S]*?---\s*/, '')
+    .replace(/`{1,3}[^`]*`{1,3}/g, ' ')
+    .replace(/[#>*_~`\-]+/g, ' ')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()]));
   const filterEl=document.getElementById('nbTocFilter');
   if(filterEl){
     filterEl.addEventListener('input', ()=>{
       const q=filterEl.value.trim().toLowerCase();
+      let visibleCount = 0;
       content.querySelectorAll('.nb-toc-item').forEach(el=>{
-        const title=(el.dataset.pageTitle||'').toLowerCase();
-        el.style.display = (!q || title.includes(q)) ? '' : 'none';
+        const text = _pageTextById.get(el.dataset.pageId) || '';
+        const match = !q || text.includes(q);
+        el.style.display = match ? '' : 'none';
+        if(match) visibleCount++;
       });
+      const emptyEl = document.getElementById('nbTocFilterEmpty');
+      if(q && visibleCount===0 && pages.length>0){
+        if(!emptyEl){
+          const div=document.createElement('div');
+          div.id='nbTocFilterEmpty';
+          div.className='muted';
+          div.style.cssText='font-size:12px;text-align:center;margin-top:10px;';
+          div.textContent='No pages match your search.';
+          document.getElementById('tocList').after(div);
+        }
+      } else if(emptyEl){
+        emptyEl.remove();
+      }
     });
   }
 
@@ -6971,6 +6999,7 @@ function openPageInNotebook(pageId, nbId){
                   resize:vertical;box-sizing:border-box;'>${htmlesc(p.content||'')}</textarea>
         <div id='pgPreview' class='markdown-preview pane-preview' style='min-height:320px;height:calc(100vh - 360px);'></div>
       </div>
+      <div id='pgFollowupsSection' style='margin-top:12px;'></div>
       <div class='row' style='margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center;'>
         <button id='pgSave' class='btn acc'>Save</button>
         <button id='pgDelete' class='btn' style='border-color:#ff6b6b;color:#ff6b6b;'>Delete Page</button>
@@ -7030,6 +7059,84 @@ function openPageInNotebook(pageId, nbId){
       };
     });
   }
+
+  // --- Checklist promoter, scoped to notebook pages -------------------
+  // Notebook-page-native equivalent of power-features.js's standalone-note
+  // checklist promoter (renderFollowupsPanel). Kept separate/local (rather
+  // than reused) because it targets `pgContent`/`#pgFollowupsSection` and
+  // notebook page ids instead of `contentBox`/`#noteFollowupsSection` and
+  // standalone note ids — the two editors are deliberately kept independent.
+  // Scans the page for markdown "- [ ]"/"- [x]" lines and lets the user
+  // promote any of them into a real db.tasks entry linked to this page
+  // (noteId set to the page id, tag 'notebook-followup' added). Promoted
+  // lines are detected by matching task title + noteId, so re-opening the
+  // page shows them as already tracked instead of offering the button again.
+  const pgFollowupsEl = document.getElementById('pgFollowupsSection');
+  let _pgFollowupsSig = '';
+  function renderPgFollowupsPanel(){
+    if(!pgFollowupsEl) return;
+    const src = contentEl.value || '';
+    const items = [];
+    src.split('\n').forEach((line, idx) => {
+      const m = line.match(/^\s*-\s*\[\s*([ xX])\s*\]\s*(.+?)\s*$/);
+      if(!m) return;
+      const text = m[2].trim();
+      if(!text) return;
+      items.push({ idx, checked: m[1] !== ' ', text });
+    });
+    if(!items.length){ pgFollowupsEl.innerHTML=''; _pgFollowupsSig=''; return; }
+
+    const pageTasks = (db.tasks||[]).filter(t => t.noteId===pageId && !t.deletedAt);
+    const norm = s => s.replace(/\s+/g,' ').trim().toLowerCase();
+    const matchTask = text => pageTasks.find(t => norm(t.title)===norm(text));
+
+    const sig = items.length + '\u0000' + items.map(it=>(it.checked?'x':'o')+':'+it.text).join('|') +
+      '\u0000' + pageTasks.map(t=>t.id+':'+t.status).join('|');
+    if(sig === _pgFollowupsSig) return;
+    _pgFollowupsSig = sig;
+
+    const untracked = items.filter(it => !matchTask(it.text)).length;
+
+    pgFollowupsEl.innerHTML = `
+      <div class='row' style='justify-content:space-between;align-items:center;'>
+        <h3 style='margin:0;font-size:14px;'>Checklist in this page (${items.length})</h3>
+        <span class='muted' style='font-size:11px;'>${untracked} untracked \u00b7 click \u2192 Task to promote</span>
+      </div>
+      <div style='margin-top:6px;'>
+        ${items.map(it=>{
+          const t = matchTask(it.text);
+          const tracked = !!t;
+          const done = tracked && t.status==='DONE';
+          const badge = tracked
+            ? `<span class='pill' style='background:${done?'#4caf9e':'#8b6dff'};color:#fff;font-size:10px;margin-left:6px;'>${done?'\u2713 done':'\u2192 tracked'}</span>`
+            : '';
+          const rowStyle = it.checked ? 'opacity:.55;text-decoration:line-through;' : '';
+          return `<div class='row' style='justify-content:space-between;gap:8px;align-items:flex-start;padding:4px 0;border-bottom:1px solid var(--btn-border);'>
+            <span style='flex:1;font-size:13px;${rowStyle}'>${it.checked?'\u2611':'\u2610'} ${htmlesc(it.text)} ${badge}</span>
+            ${tracked ? '' : `<button class='btn' data-pg-fup-promote='${it.idx}' style='font-size:11px;flex-shrink:0;' title='Create a tracked task for this line'>\u2192 Task</button>`}
+          </div>`;
+        }).join('')}
+      </div>`;
+
+    pgFollowupsEl.querySelectorAll('[data-pg-fup-promote]').forEach(btn=>{
+      btn.onclick = () => {
+        const idx = +btn.dataset.pgFupPromote;
+        const it = items.find(x=>x.idx===idx);
+        if(!it) return;
+        createTask({
+          title: it.text,
+          noteId: pageId,
+          priority: 'medium',
+          tags: ['notebook-followup'],
+        });
+        save();
+        _pgFollowupsSig = '';
+        renderPgFollowupsPanel();
+      };
+    });
+  }
+  contentEl.addEventListener('input', renderPgFollowupsPanel);
+  renderPgFollowupsPanel();
 
   // --- Autosave: debounced (~500ms after last keystroke) so the user never
   // loses work by switching pages or clicking "← All". Ctrl+S / the Save
