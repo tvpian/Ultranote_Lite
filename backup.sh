@@ -16,6 +16,7 @@ set -euo pipefail
 # parent drive is renamed (e.g. /media/mbwh/pop -> /media/mbwh/pop1).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE="$SCRIPT_DIR/data.json"
+ATTACHMENTS_SOURCE="$SCRIPT_DIR/attachments"
 BACKUP_REPO="${HOME}/.local/share/ultranote-data"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
@@ -34,18 +35,28 @@ fi
 
 cp "$SOURCE" "$BACKUP_REPO/data.json"
 
+# Images/audio/video/files now live on disk under attachments/<id>.bin
+# (moved out of data.json to keep saves fast — see out-of-band attachment
+# store in server.js). Mirror that folder into the backup repo too, otherwise
+# a note that references an attachment id would restore with a broken image.
+mkdir -p "$BACKUP_REPO/attachments"
+if [ -d "$ATTACHMENTS_SOURCE" ]; then
+  rsync -a --delete "$ATTACHMENTS_SOURCE"/ "$BACKUP_REPO/attachments"/
+fi
+
 cd "$BACKUP_REPO"
 
 # Pull remote changes first to avoid conflicts from concurrent pushes
 git pull --rebase --quiet origin main 2>/dev/null || true
 
-# Nothing changed — skip commit
-if git diff --quiet data.json; then
+git add data.json attachments
+
+# Nothing changed (neither data.json nor any attachment file) — skip commit
+if git diff --cached --quiet; then
   echo "[$TIMESTAMP] No changes since last backup — skipping commit."
   exit 0
 fi
 
-git add data.json
 git commit -m "backup: $TIMESTAMP"
 git push origin main
 

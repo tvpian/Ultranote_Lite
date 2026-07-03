@@ -161,7 +161,7 @@ async function persistDB(){
         const notEditing = !window._editorDirty && !window._isTypingInForm &&
                            !(window.__typingUntil && Date.now() < window.__typingUntil);
         if (notEditing) {
-          const COLS = ['notes','tasks','projects','templates','links','monthly','notebooks','activity'];
+          const COLS = ['notes','tasks','projects','templates','links','monthly','notebooks','activity','agentPrompts'];
           COLS.forEach(k => {
             if (!Array.isArray(result.db[k])) return;
             if (!Array.isArray(db[k])) { db[k] = result.db[k]; return; }
@@ -209,6 +209,42 @@ async function persistDB(){
   } catch(err) { /* ignore */ }
 }
 
+// Upload a File/Blob to the out-of-band attachment store (server writes it to
+// ./attachments/<id>.bin, see POST /api/attachments in server.js) and return
+// { id, name, type, size } — no base64 payload kept around in memory or in
+// `db` afterwards. This is what keeps large images/audio/video out of
+// data.json and out of every save()/persistDB() round-trip: the note only
+// ever stores a small pointer record, and the browser fetches the actual
+// bytes as a normal cacheable HTTP resource (GET /api/attachments/:id) when
+// it's actually rendered, instead of the whole multi-MB DB blob having to be
+// parsed/diffed/saved on every keystroke.
+function readFileAsDataURL(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = ev => resolve(ev.target.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+async function uploadAttachmentFile(file){
+  const dataUrl = await readFileAsDataURL(file);
+  const id = uid();
+  const resp = await fetch('/api/attachments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    body: JSON.stringify({ id, name: file.name, type: file.type, data: dataUrl })
+  });
+  if (!resp.ok) throw new Error(`Attachment upload failed: ${resp.status}`);
+  const json = await resp.json();
+  return { id: json.id, name: json.name, type: json.type, size: json.size };
+}
+// Resolve the URL to use for an attachment record, whichever shape it's in:
+// legacy records still have an inline base64 `data` field; current records
+// only have an `id` and are served from disk via /api/attachments/:id.
+function attachmentSrc(att){
+  return att.data || ('/api/attachments/' + encodeURIComponent(att.id));
+}
+
 const seed = {
   version:2,
   settings:{rollover:true, seenTip:false, autoCarryTasks:true, autoReload:false, dailyTemplate:"# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"},
@@ -233,9 +269,231 @@ const seed = {
   // NEW: recurring monthly tasks for planning (empty by default)
   monthly: [],
   // Structured study/reference notebooks
-  notebooks: []
+  notebooks: [],
+  // Built-in, read-only reference prompts (e.g. system prompts for external
+  // AI agents). Deliberately NOT a notebook — this is a fixed, immutable
+  // library surfaced inside the Notebooks tool, separate from the user's
+  // own notebooks list.
+  agentPrompts: []
 };
 const defaults = seed;
+
+// Full system-prompt text for an external AI note-taking agent, tuned so its
+// output is UltraNote-markdown-friendly (renders correctly with this app's
+// marked.js + wiki-link/KaTeX/Mermaid pipeline). Kept as a Notebook page (see
+// ensureAgentPromptsNotebook() below) purely as a copy-paste reference —
+// nothing in the app parses or runs this text.
+const LECTURE_AGENT_PROMPT = [
+  "You are my lecture note-taking and learning agent.",
+  "",
+  "I will provide a YouTube lecture, transcript, or live notes. Your job is not to simply summarize it. Your job is to help me retain, understand, and reuse the ideas.",
+  "",
+  "Create notes using the following structure:",
+  "",
+  "# 1. Core Thesis",
+  "",
+  "Explain the lecture's central idea in 1–3 sentences.",
+  "",
+  "Answer:",
+  "",
+  "- What is this lecture really about?",
+  "- What problem, question, or tension is it addressing?",
+  "- Why does it matter?",
+  "",
+  "# 2. Concept Map",
+  "",
+  "Identify the main concepts and show how they relate.",
+  "",
+  "For each concept, include:",
+  "",
+  "- Simple explanation",
+  "- Why it matters",
+  "- How it connects to other concepts",
+  "- A concrete example or analogy",
+  "",
+  "If the relationships between concepts are non-trivial (more than a simple",
+  "list), ALSO render them as a Mermaid flowchart so the structure is visible",
+  "at a glance, e.g.:",
+  "",
+  "```mermaid",
+  "flowchart LR",
+  "  A[Concept A] --> B[Concept B]",
+  "  A --> C[Concept C]",
+  "```",
+  "",
+  "# 3. High-Retention Notes",
+  "",
+  "Extract only the ideas worth remembering.",
+  "",
+  "For every important point, write it in this format:",
+  "",
+  "**Idea:**",
+  "**Why it matters:**",
+  "**Example:**",
+  "**What I should remember:**",
+  "",
+  "Avoid shallow bullet-point summaries. Prioritize depth over quantity.",
+  "",
+  "# 4. Mental Models and Frameworks",
+  "",
+  "Identify any reusable frameworks, principles, decision rules, or patterns from the lecture.",
+  "",
+  "For each one, explain:",
+  "",
+  "- When to use it",
+  "- How to apply it",
+  "- What mistakes to avoid",
+  "- How it generalizes beyond this lecture",
+  "",
+  "# 5. Active Recall Questions",
+  "",
+  "Generate questions that test whether I actually understood the lecture.",
+  "",
+  "Include:",
+  "",
+  "- 5 basic recall questions",
+  "- 5 conceptual understanding questions",
+  "- 5 application questions",
+  "- 3 \"explain like I'm teaching someone else\" questions",
+  "- 3 questions that expose possible misunderstandings",
+  "",
+  "Do not include answers immediately unless I ask for them.",
+  "",
+  "# 6. Confusion Tracker",
+  "",
+  "Identify places where the lecture may be confusing, incomplete, vague, or easy to misunderstand.",
+  "",
+  "For each confusion point:",
+  "",
+  "- Explain what might be unclear",
+  "- Provide a clearer explanation",
+  "- Give an example",
+  "- Suggest what I should look up next if needed",
+  "",
+  "# 7. Examples, Stories, and Evidence",
+  "",
+  "Capture the strongest examples, case studies, experiments, demonstrations, or stories used in the lecture.",
+  "",
+  "For each:",
+  "",
+  "- What was the example?",
+  "- What idea did it support?",
+  "- Why was it persuasive?",
+  "- Could there be another interpretation?",
+  "",
+  "# 8. Practical Applications",
+  "",
+  "Translate the lecture into practical use.",
+  "",
+  "Answer:",
+  "",
+  "- How can I apply this in my work, research, writing, decision-making, or projects?",
+  "- What would a small experiment or implementation look like?",
+  "- What would a more advanced version look like?",
+  "- What could be modularized into a reusable system, checklist, prompt, script, or workflow?",
+  "",
+  "# 9. Connections to My Existing Knowledge",
+  "",
+  "Connect this lecture to related ideas, especially in:",
+  "",
+  "- AI",
+  "- robotics",
+  "- research",
+  "- engineering systems",
+  "- product thinking",
+  "- human behavior",
+  "- philosophy",
+  "- writing or communication",
+  "",
+  "Also identify whether the lecture confirms, challenges, or updates what I may already believe.",
+  "",
+  "If a concept clearly maps to an existing note/topic/person I've likely",
+  "already written about, reference it as a wiki-link: [[Note Title]]. Only",
+  "use this for genuinely likely matches (project names, recurring topics,",
+  "people) — don't invent links to notes that probably don't exist.",
+  "",
+  "# 10. Compression Ladder",
+  "",
+  "Summarize the lecture at four levels:",
+  "",
+  "**One sentence:**",
+  "**One paragraph:**",
+  "**Five key bullets:**",
+  "**Detailed technical/conceptual summary:**",
+  "",
+  "# 11. Retention System",
+  "",
+  "Create a spaced repetition package from the lecture.",
+  "",
+  "Include:",
+  "",
+  "- Flashcards — format each as **Q:** ... **A:** ...",
+  "- Cloze deletion cards — format as a sentence with the missing term wrapped",
+  "  like this isn't natively supported, so instead write it as **Q:** The ___ effect explains why ... **A:** term",
+  "- \"Why?\" questions",
+  "- \"Compare and contrast\" questions",
+  "- Real-world application prompts",
+  "",
+  "# 12. Final Takeaways",
+  "",
+  "End with:",
+  "",
+  "- The 3 most important ideas",
+  "- The 3 ideas most likely to be forgotten",
+  "- The 3 questions I should keep thinking about",
+  "- One action I should take after watching this lecture — write this as a",
+  "  checkable task: `- [ ] <action>`, so it can be tracked directly in the app.",
+  "",
+  "---",
+  "",
+  "## Output Formatting Rules (must follow — target app is UltraNote Lite)",
+  "",
+  "My notes app renders Markdown via marked.js (GitHub-Flavored Markdown) +",
+  "DOMPurify sanitization, with a few custom extensions. Follow these rules",
+  "exactly so the output renders correctly and nothing gets stripped or",
+  "mangled:",
+  "",
+  "**Supported & encouraged:**",
+  "- Headings #/##/### — use them for structure; they get anchor IDs.",
+  "- **Bold**, _italic_ (`_text_` preferred over `*text*` to avoid ambiguity",
+  "  with bullets), ~~strikethrough~~ (`~~text~~`).",
+  "- Bullets: use `-` (not `*`) for list items, for consistency.",
+  "- Numbered lists: `1. item`.",
+  "- Task lists: `- [ ] task` / `- [x] done task` — exact spacing matters:",
+  "  a space after `-`, and a single space inside the brackets.",
+  "- Blockquotes: `> text`.",
+  "- Inline code: `` `code` ``. Fenced code blocks: use triple backticks WITH",
+  "  a language tag (e.g. ```python) for syntax highlighting.",
+  "- Tables: standard GFM pipe syntax.",
+  "- Links `[text](url)`, images `![alt](url)`.",
+  "- Horizontal rule: `---` on its own line (used sparingly — see frontmatter",
+  "  warning below).",
+  "- Wiki-links: `[[Note Title]]` or `[[Note Title|display text]]` to",
+  "  reference another note in the vault.",
+  "- Math (KaTeX): inline `$x^2$`, block form must have `$$` alone on its own",
+  "  line before and after the expression.",
+  "- Diagrams: fenced code block with `mermaid` as the language.",
+  "- Inline hashtags: `#tagname` anywhere in the text is auto-picked-up as a",
+  "  tag (letters/numbers/-/_ only, no spaces — e.g. `#robot-learning`).",
+  "",
+  "**Avoid:**",
+  "- No raw HTML tags — they get sanitized/stripped, so use markdown syntax",
+  "  only, never `<div>`, `<b>`, etc.",
+  "- No YAML frontmatter (`---` block at the very top) — a leading `---` is",
+  "  parsed as a horizontal rule, not metadata. If you need to note metadata",
+  "  (date, source, etc.), write it as a plain line, e.g. **Source:** ...",
+  "- Don't stack multiple blank lines for spacing — one blank line between",
+  "  blocks is enough and extra ones are collapsed anyway.",
+  "",
+  "Important behavior:",
+  "",
+  "- Do not over-summarize.",
+  "- Do not preserve every detail.",
+  "- Prioritize understanding, retention, and transfer.",
+  "- Rewrite ideas in clear language.",
+  "- Flag uncertainty instead of pretending everything is obvious.",
+  "- Where useful, turn ideas into reusable templates, checklists, or frameworks."
+].join("\n");
 
 // Theme definitions. Each theme defines CSS variable values for our design tokens.
 const THEMES = {
@@ -475,6 +733,72 @@ function migrateDB() {
     ensure(nb, 'tags',       []);
     ensure(nb, 'archivedAt', null);
     ensure(nb, 'updatedAt',  nb.createdAt || nowISO());
+  });
+
+  // One-time: seed the built-in, read-only "Agent Prompts" reference library
+  // (e.g. the Lecture Note-Taking Agent system prompt) as an immutable entry
+  // — deliberately NOT a Notebook, since that made it look like just another
+  // item in the user's own notebooks list. It's surfaced instead as a fixed
+  // "📌 Reference Prompts" section inside the Notebooks tool (see
+  // renderNotebooks()). Also retires the earlier notebook/page-based version
+  // of this content from an earlier iteration, if present.
+  if (!db._seededAgentPrompts) {
+    db.agentPrompts = db.agentPrompts || [];
+    if (!db.agentPrompts.some(p => p.id === 'ap_lecture_agent')) {
+      db.agentPrompts.push({
+        id: 'ap_lecture_agent',
+        title: 'Lecture Note-Taking & Learning Agent',
+        // Shows only in the Notebooks tool — a general-purpose study/lecture
+        // prompt has nothing to do with managing a coding project.
+        scope: 'notebooks',
+        content: LECTURE_AGENT_PROMPT,
+        createdAt: nowISO(),
+        updatedAt: nowISO()
+      });
+    }
+    const oldNb = (db.notebooks || []).find(nb => nb.id === 'nb_agent_prompts');
+    if (oldNb && !oldNb.deletedAt) oldNb.deletedAt = nowISO();
+    const oldPage = (db.notes || []).find(n => n.id === 'note_lecture_agent_prompt');
+    if (oldPage && !oldPage.deletedAt) oldPage.deletedAt = nowISO();
+    db._seededAgentPrompts = true;
+    dirty = true;
+  }
+
+  // One-time: seed the "Coding-Agent API Guide" reference entry. Unlike the
+  // lecture-agent prompt, this one is NOT embedded as a string — it points
+  // at AGENT_GUIDE.md (served as a static file by server.js, `express.
+  // static(__dirname)`) via `sourceFile`, so the in-app copy always reflects
+  // whatever is currently on disk instead of drifting out of sync with a
+  // duplicated copy. Own flag (`_seededAgentGuidePrompt`) so this seed can
+  // run independently of the lecture-agent one above.
+  if (!db._seededAgentGuidePrompt) {
+    db.agentPrompts = db.agentPrompts || [];
+    if (!db.agentPrompts.some(p => p.id === 'ap_coding_agent_guide')) {
+      db.agentPrompts.push({
+        id: 'ap_coding_agent_guide',
+        title: 'Coding-Agent API Guide',
+        description: 'Drop into any project workspace so a coding agent can manage that project\u2019s tasks/notes via the UltraNote REST API.',
+        // Shows only in the Projects tool — this guide is specifically about
+        // managing a *project's* tasks/notes via the REST API, so surfacing
+        // it inside Notebooks (an unrelated tool) would be unintuitive.
+        scope: 'projects',
+        sourceFile: 'AGENT_GUIDE.md',
+        createdAt: nowISO(),
+        updatedAt: nowISO()
+      });
+    }
+    db._seededAgentGuidePrompt = true;
+    dirty = true;
+  }
+
+  // Backfill: any agentPrompts entry missing `scope` (e.g. seeded by an
+  // earlier version of this app, before per-tool scoping existed) gets its
+  // correct scope assigned by known id, defaulting to 'notebooks' — the
+  // original, pre-scoping home for this feature — for anything unrecognized.
+  (db.agentPrompts || []).forEach(p => {
+    if (p.scope) return;
+    p.scope = (p.id === 'ap_coding_agent_guide') ? 'projects' : 'notebooks';
+    dirty = true;
   });
 
   // ── links ─────────────────────────────────────────────────────────────────
@@ -1729,6 +2053,83 @@ function insertMd(ta, before, after, ph){
   ta.focus();
   ta.dispatchEvent(new Event('input'));
 }
+
+// --- Inline images ---------------------------------------------------------
+// Lets you drop/paste a hand-drawn figure or a screenshot from a lecture
+// slide directly into the note body, the same way Notion/Obsidian do: the
+// image is uploaded to the out-of-band attachment store (uploadAttachmentFile,
+// same one backing the 📎 Attach sidebar) and only a small markdown
+// `![alt](/api/attachments/<id>)` pointer is spliced into the text — never a
+// base64 blob. marked.js (already wired in markdownToHtml) renders standard
+// markdown images out of the box, so Split/Preview mode "just works" with no
+// extra renderer code, and the actual bytes are fetched as a normal cached
+// HTTP request only when the image is actually visible on screen.
+// Alt text sits inside markdown `![alt](url)` syntax, not HTML — so it must
+// NOT be htmlesc()'d (that would show literal "&amp;" etc. in the source).
+// Instead just strip characters that would break the `[...]`/`(...)` syntax.
+function _mdSafeAlt(s){
+  return String(s || 'image').replace(/[\[\]()\r\n]/g, ' ').trim() || 'image';
+}
+async function _uploadAndInsertImage(file, ta){
+  if(!file || !file.type || !file.type.startsWith('image/')) return;
+  const token = uid();
+  const safeName = _mdSafeAlt(file.name);
+  const placeholder = `![Uploading ${safeName}…](#${token})`;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  ta.setRangeText(placeholder, s, e, 'end');
+  ta.dispatchEvent(new Event('input'));
+  const replacePlaceholder = (text) => {
+    const idx = ta.value.indexOf(placeholder);
+    if(idx >= 0) ta.setRangeText(text, idx, idx + placeholder.length, 'end');
+    else ta.setRangeText(text, ta.value.length, ta.value.length, 'end'); // placeholder text got edited away
+    ta.dispatchEvent(new Event('input'));
+  };
+  try {
+    const att = await uploadAttachmentFile(file);
+    replacePlaceholder(`![${safeName.replace(/\.[a-z0-9]+$/i, '')}](${attachmentSrc(att)})`);
+  } catch(err){
+    console.warn('Inline image upload failed:', err);
+    replacePlaceholder(`![upload failed: ${safeName}]()`);
+    if(typeof showQuickToast === 'function') showQuickToast('⚠️ Image upload failed');
+  }
+}
+// Wire paste + drag&drop image handling onto a textarea. Non-image pastes/drops
+// (plain text, other files) are left alone and fall through to default behavior.
+function wireInlineImagePasteDrop(textareaId){
+  const ta = document.getElementById(textareaId);
+  if(!ta || ta._inlineImageWired) return;
+  ta._inlineImageWired = true;
+  ta.addEventListener('paste', (e) => {
+    const items = Array.from((e.clipboardData && e.clipboardData.items) || []);
+    const imgItem = items.find(it => it.type && it.type.startsWith('image/'));
+    if(!imgItem) return;
+    e.preventDefault();
+    const file = imgItem.getAsFile();
+    if(file) _uploadAndInsertImage(file, ta);
+  });
+  ta.addEventListener('dragover', (e) => {
+    if(Array.from(e.dataTransfer?.types || []).includes('Files')) e.preventDefault();
+  });
+  ta.addEventListener('drop', (e) => {
+    const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []).filter(f => f.type && f.type.startsWith('image/'));
+    if(!files.length) return;
+    e.preventDefault();
+    files.forEach(f => _uploadAndInsertImage(f, ta));
+  });
+}
+// Wire a file-picker input (e.g. the 🖼️ Image toolbar button) to the same
+// upload-and-insert pipeline, targeting a given textarea.
+function wireInlineImagePicker(inputId, textareaId){
+  const input = document.getElementById(inputId);
+  const ta = document.getElementById(textareaId);
+  if(!input || !ta) return;
+  input.onchange = (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    files.forEach(f => _uploadAndInsertImage(f, ta));
+  };
+}
+
 function markdownToolbarHtml(taId){
   return `<div class='md-toolbar' style='display:flex;flex-wrap:wrap;gap:2px;padding:4px 0;
       margin-bottom:5px;border-bottom:1px solid var(--btn-border);'>
@@ -2382,6 +2783,65 @@ function showPrompt(message, defaultValue = '', okText = 'OK', cancelText = 'Can
 }
 
 /**
+ * Password-masked variant of showPrompt(), used to re-confirm the app
+ * password before unlocking edit mode on "immutable" reference content.
+ * @param {string} message The prompt message.
+ * @returns {Promise<string|null>} The entered password, or null if cancelled.
+ */
+function showPasswordPrompt(message){
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `
+      <div class="modal-body">${htmlesc(message)}</div>
+      <input id="modalInput" type="password" autocomplete="current-password" />
+      <div class='muted' id='modalPwError' style='font-size:12px;color:#ff6b6b;margin-top:6px;display:none;'></div>
+      <div class="modal-footer">
+        <button class="btn" id="modalCancel">Cancel</button>
+        <button class="btn acc" id="modalOk">Unlock</button>
+      </div>`;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    const inputEl = modal.querySelector('#modalInput');
+    inputEl.focus();
+    inputEl.addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter'){
+        modal.querySelector('#modalOk').click();
+      }
+    });
+    modal.querySelector('#modalOk').onclick = ()=>{
+      const val = inputEl.value;
+      document.body.removeChild(overlay);
+      resolve(val || '');
+    };
+    modal.querySelector('#modalCancel').onclick = ()=>{
+      document.body.removeChild(overlay);
+      resolve(null);
+    };
+  });
+}
+
+// Re-verify the app password against the server (see /api/verify-password).
+// This is a UX confirmation gate for editing built-in reference content, not
+// a new privilege boundary — an already-authenticated session can already
+// rewrite any data via /api/db. Returns true only on an explicit {ok:true}.
+async function verifyAppPassword(password){
+  try{
+    const res = await fetch('/api/verify-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json().catch(()=>({}));
+    return { ok: res.ok && data.ok === true, error: data.error || (res.ok ? '' : 'Verification failed') };
+  }catch(e){
+    return { ok:false, error:'Network error: '+e.message };
+  }
+}
+
+/**
  * Multi-line reason prompt with theme-aware textarea.
  * - opts.required (default false): if true, no Skip button and Save is
  *   disabled while the textarea is empty/whitespace-only. The user MUST
@@ -2870,6 +3330,7 @@ function renderToday(){
   };
   // --- Markdown toolbar for daily note content ---
   bindMarkdownToolbar('dailyContent');
+  wireInlineImagePasteDrop('dailyContent');
 
   // --- Journal card wiring ---
   const journalEl = document.getElementById('journalContent');
@@ -2884,6 +3345,7 @@ function renderToday(){
     journalEl.addEventListener('input', ()=>{ updateJournalWc(); const s=journalSaveStatusEl(); if(s) s.textContent='Unsaved…'; });
     // Re-bind the toolbar to journalContent AFTER dailyContent was bound
     bindMarkdownToolbar('journalContent');
+    wireInlineImagePasteDrop('journalContent');
   }
   const journalSaveBtn = document.getElementById('journalSave');
   const saveJournal = ()=>{
@@ -3398,7 +3860,7 @@ function renderProjects(){
     return;
   }
   let sortBy = 'date';
-  content.innerHTML = selectorHTML + `
+  content.innerHTML = renderReferencePromptsCard('projects') + selectorHTML + `
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center;">
         <strong id="projRename" title="Double-click to rename" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:text;">Project: ${htmlesc(selectedProject.name)}</strong>
@@ -3447,6 +3909,7 @@ function renderProjects(){
         <div id="notes" class="list" style="margin-top:8px;"></div>
       </div>
     </div>`;
+  wireReferencePromptsCard();
   // Exclude deleted tasks when retrieving project tasks/backlog
   function getProjectTasks(){
     // Exclude tasks that have been soft-deleted (deletedAt) or moved to backlog. Only
@@ -3656,11 +4119,40 @@ function _extractWikilinks(text) {
   return out;
 }
 
+// Topics/collaborators are *meant* to be written as [[Wiki Links]] so they can
+// cross-link to real Topic Map / person notes, but nothing in the Person
+// template enforces that syntax — most people just type plain bullet text
+// (e.g. "- AI Safety & Robustness"). Without this fallback, plain-text topics
+// silently disappear from the People table's Topics column, filter dropdown,
+// and "Grouped by topic" view even though the user filled them in. Prefer
+// real wiki-links when present; otherwise fall back to one entry per
+// non-empty bullet line so the data the user actually typed still shows up.
+function _extractWikilinksOrLines(text) {
+  const wiki = _extractWikilinks(text);
+  if (wiki.length) return wiki;
+  return text.split(/\r?\n/)
+    .map(l => l.replace(/^\s*[-*]\s*/, '').replace(/\*\*/g, '').trim())
+    .filter(Boolean);
+}
+
 // Slice the body of a `## Heading` section until the next `## ` or end.
 function _extractSection(content, heading) {
   const re = new RegExp('^##\\s+' + heading.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '\\s*$([\\s\\S]*?)(?=^##\\s+|\\Z)', 'mi');
   const m = content.match(re);
   return m ? m[1] : '';
+}
+
+// Collaborators live in the "- Frequent collaborators: A, B, C" bullet inside
+// the Lab / team section — not the whole section (which also has Lab page /
+// Advisor / Advisees / Team's main focus lines we must NOT pick up). Prefer
+// wiki-links if the user linked real person notes; otherwise fall back to the
+// comma-separated plain-text names so they still show up in the People table.
+function _extractCollaborators(labBody) {
+  const wiki = _extractWikilinks(labBody);
+  if (wiki.length) return wiki;
+  const m = labBody.match(/-\s*Frequent collaborators:\s*(.*)/i);
+  if (!m || !m[1].trim()) return [];
+  return m[1].split(/[,;]/).map(s => s.replace(/\*\*/g, '').trim()).filter(Boolean);
 }
 
 function _parsePerson(note) {
@@ -3669,12 +4161,13 @@ function _parsePerson(note) {
   const tags = tagsRaw ? tagsRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
   const met  = /^(y|yes|true|1)$/i.test(_parseField(c, 'Met'));
   const star = /^(y|yes|true|1)$/i.test(_parseField(c, 'Star'));
-  // Topics are wiki-links inside the Topics section (typically "[[🗺️ Topic Map — X]]").
+  // Topics: wiki-links inside the Topics section (typically "[[🗺️ Topic Map — X]]"),
+  // falling back to plain bullet text since most people just type "- Topic name".
   const topicsBody = _extractSection(c, 'Topics');
-  const topics = _extractWikilinks(topicsBody);
-  // Collaborators: wiki-links anywhere inside the Lab / team section.
+  const topics = _extractWikilinksOrLines(topicsBody);
+  // Collaborators: wiki-links or the "Frequent collaborators:" line inside Lab / team.
   const labBody = _extractSection(c, 'Lab \\/ team') || _extractSection(c, 'Lab / team');
-  const collaborators = _extractWikilinks(labBody);
+  const collaborators = _extractCollaborators(labBody);
   // Role bucket — derived from tags first, then from the Role field.
   const tagsLower = tags.map(t => t.toLowerCase());
   let bucket = 'Other';
@@ -3705,8 +4198,19 @@ function _parsePerson(note) {
   };
 }
 
+// Set (or replace) the value on a `**Key:** value` line in Person-note markdown.
+// Used by the People quick-add form to stamp in the few fields the user typed
+// without making them fill out the whole dossier template up front.
+// NOTE: trailing match must use [ \t]* (not \s*) — \s* matches newlines too,
+// which let the regex greedily swallow the *next* field's line and delete it.
+function _setField(content, key, value) {
+  const escKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp('^(\\*\\*' + escKey + ':\\*\\*)[ \\t]*.*$', 'm');
+  return re.test(content) ? content.replace(re, '$1 ' + value) : content;
+}
+
 // Module-scoped UI state for the People view.
-let _peopleFilters = { q: '', role: '', topic: '', metOnly: false, starOnly: false, view: 'group' };
+let _peopleFilters = { q: '', role: '', topic: '', metOnly: false, starOnly: false, view: 'flat' };
 
 function renderPeople() {
   const nbId = _peopleNotebookId();
@@ -3756,9 +4260,16 @@ function renderPeople() {
         <strong>👥 People <span class="muted" style="font-weight:normal;">(${filtered.length}/${people.length})</span></strong>
         <div class="row" style="gap:6px;flex-wrap:wrap;">
           ${indexNote ? `<button class="btn" id="pplOpenIndex" title="Open the People — Index note">📑 Index</button>` : ''}
-          <button class="btn acc" id="pplAdd" title="Create a new person note from the Person template">➕ Add Person</button>
         </div>
       </div>
+      <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px;">
+        <input id="pplNewName" type="text" placeholder="Name" style="flex:1;min-width:120px;" />
+        <input id="pplNewRole" type="text" placeholder="Role (optional)" style="flex:1;min-width:120px;" />
+        <input id="pplNewAffil" type="text" placeholder="Affiliation (optional)" style="flex:1;min-width:140px;" />
+        <input id="pplNewTags" type="text" placeholder="tags (space, optional)" style="flex:1;min-width:120px;" />
+        <button class="btn acc" id="pplAdd" title="Add — press Enter in any field to save">➕ Add</button>
+      </div>
+      <div class="muted" style="margin-top:4px;font-size:11px;">Just enter a name to get started — press Enter or click Add. Open the note afterward to fill in the rest of the dossier.</div>
       <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px;">
         <input id="pplSearch" type="text" placeholder="Search name, org, role, tag…" value="${htmlesc(f.q)}" style="flex:1;min-width:180px;" />
         <select id="pplRole" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
@@ -3820,7 +4331,7 @@ function renderPeople() {
     bodyHTML = `
       <div class="card">
         <strong>No people yet.</strong>
-        <div class="muted" style="margin-top:6px;">Click <em>➕ Add Person</em> above to create your first person note. Each note becomes a researcher dossier — affiliation, lab, key papers, topics they work on. Backlinks from your paper notes will accumulate automatically.</div>
+        <div class="muted" style="margin-top:6px;">Type a name above and hit Enter to create your first person note. Each note becomes a researcher dossier — affiliation, lab, key papers, topics they work on. Backlinks from your paper notes will accumulate automatically.</div>
       </div>`;
   } else if (f.view === 'flat') {
     bodyHTML = `<div class="card">${tableHTML(filtered)}</div>`;
@@ -3858,22 +4369,53 @@ function renderPeople() {
   $get('pplView').onchange  = e => { _peopleFilters.view    = e.target.value; rerender(); };
 
   $get('pplAdd').onclick = () => {
+    const nameEl = $get('pplNewName');
+    const name = nameEl.value.trim();
+    if (!name) { nameEl.focus(); return; }
+    const dup = allPersonNotes.find(n => n.title.trim().toLowerCase() === name.toLowerCase());
+    if (dup) { showQuickToast('⚠️ Person already exists'); return; }
+
+    const role = $get('pplNewRole').value.trim();
+    const affiliation = $get('pplNewAffil').value.trim();
+    const tagsRaw = ($get('pplNewTags').value || '').split(/\s+/).map(t => t.startsWith('#') ? t.slice(1) : t).filter(Boolean);
+
     const tpl = (db.templates || []).find(t => !t.deletedAt && t.id === 'tpl_person');
-    const body = tpl ? tpl.content : '# New Person\n\n**Role:** \n**Affiliation:** \n**Tags:** \n';
+    let body = tpl ? tpl.content : '# [Name]\n\n**Role:** \n**Affiliation:** \n**Tags:** \n';
+    body = body.replace(/^#\s*\[Name\]\s*$/m, '# ' + name);
+    body = _setField(body, 'Role', role);
+    body = _setField(body, 'Affiliation', affiliation);
+    if (tagsRaw.length) body = _setField(body, 'Tags', tagsRaw.join(', '));
+
     const note = {
       id: uid(),
-      title: 'New Person',
+      title: name,
       content: body,
       tags: ['person'],
       notebookId: nbId,
+      type: 'page',
+      pinned: false,
+      projectId: null,
+      dateIndex: null,
+      attachments: [],
+      links: [],
       createdAt: nowISO(),
       updatedAt: nowISO(),
     };
     db.notes.push(note);
     save();
-    _navPush();
-    openNote(note.id);
+
+    // Quick-add stays on the People page so you can rattle off several
+    // contacts in a row — click the row later to open the full dossier.
+    nameEl.value = '';
+    $get('pplNewRole').value = '';
+    $get('pplNewAffil').value = '';
+    $get('pplNewTags').value = '';
+    rerender();
+    showQuickToast(`✅ Added ${name}`);
   };
+  ['pplNewName', 'pplNewRole', 'pplNewAffil', 'pplNewTags'].forEach(id => {
+    $get(id).onkeydown = e => { if (e.key === 'Enter') $get('pplAdd').click(); };
+  });
 
   if (indexNote) {
     const ix = $get('pplOpenIndex');
@@ -5647,7 +6189,7 @@ function renderVault(){
     linkMatches = db.links.filter(l=>{
       if(l.deletedAt) return false;
       if(tagFilters.length && !tagFilters.every(t=> (l.tags||[]).map(x=>x.toLowerCase()).includes(t))) return false;
-      if(text && !(l.title.toLowerCase().includes(text) || l.url.toLowerCase().includes(text))) return false;
+      if(text && !((l.title||'').toLowerCase().includes(text) || (l.url||'').toLowerCase().includes(text))) return false;
       return true;
     }).sort((a,b)=> (b.pinned?1:0)-(a.pinned?1:0) || b.updatedAt.localeCompare(a.updatedAt));
     // Projects: only text filter (projects have no tags yet)
@@ -5655,8 +6197,9 @@ function renderVault(){
       projectMatches = db.projects.filter(p=> !p.deletedAt && p.name.toLowerCase().includes(text));
     }
     // Tasks: only if no tag filters (tasks have no tags); search title
+    // Skip deleted/tombstoned tasks — they may have had their title cleared.
     if(text && !tagFilters.length){
-      taskMatches = db.tasks.filter(t=> t.title.toLowerCase().includes(text)).slice(0,50); // cap to avoid huge lists
+      taskMatches = db.tasks.filter(t=> !t.deletedAt && (t.title||'').toLowerCase().includes(text)).slice(0,50); // cap to avoid huge lists
     }
   }
   const highlight = (s)=>{ if(!text) return htmlesc(s); return htmlesc(s).replace(new RegExp(text.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'),'ig'), m=>`<mark style='background:#3a2a5a;color:inherit;'>${m}</mark>`); };
@@ -5771,6 +6314,102 @@ function renderVault(){
   document.getElementById('sortRecent').onclick = ()=>{ document.getElementById('q').value=''; notes.sort((a,b)=> b.updatedAt.localeCompare(a.updatedAt)); renderVault(); };
 }
 
+// --- Shared "Reference Prompts" card (immutable, read-only) ---
+// Surfaces db.agentPrompts entries — used by both the Notebooks tool and the
+// Projects tool, since some entries (e.g. the Coding-Agent API Guide) are
+// most useful from Projects, while others (e.g. the lecture-agent prompt)
+// are more general. Kept as one shared card + wiring so both call sites
+// stay in sync automatically as new entries are added.
+// `scope` filters which entries show here — each entry declares the single
+// tool it's intuitively tied to via its own `scope` field (e.g. 'projects'
+// for the Coding-Agent API Guide, 'notebooks' for the lecture-agent prompt),
+// so a prompt about managing *projects* only ever shows up in the Projects
+// tool, not duplicated into Notebooks (and vice versa).
+function renderReferencePromptsCard(scope){
+  const prompts=(db.agentPrompts||[]).filter(p=>!scope || p.scope===scope);
+  if(!prompts.length) return '';
+  return `<div class='card' style='margin-bottom:14px;border-style:dashed;'>
+      <div class='row' style='justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;'>
+        <strong style='font-size:14px;'>\ud83d\udccc Reference Prompts</strong>
+        <span class='muted' style='font-size:11px;'>Built-in &middot; password to edit</span>
+      </div>
+      <div class='muted' style='font-size:12px;margin-top:4px;'>
+        Copy-paste system prompts / guides for external AI agents. Locked by default — enter the app password to edit.
+      </div>
+      <div style='margin-top:10px;display:flex;flex-direction:column;gap:8px;'>
+        ${prompts.map(p=>`
+          <div style='border:1px dashed var(--btn-border);border-radius:8px;padding:10px 12px;
+                      display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;'>
+            <div style='flex:1;min-width:0;'>
+              <strong style='font-size:13px;word-break:break-word;'>\ud83d\udd12 ${htmlesc(p.title)}</strong>
+              ${p.description?`<div class='muted' style='font-size:11px;margin-top:2px;'>${htmlesc(p.description)}</div>`:''}
+            </div>
+            <div class='row' style='gap:6px;flex-shrink:0;'>
+              <button class='btn' data-view-prompt='${p.id}' style='font-size:12px;'>View</button>
+              <button class='btn' data-copy-prompt='${p.id}' style='font-size:12px;'>Copy</button>
+              <button class='btn' data-edit-prompt='${p.id}' style='font-size:12px;' title='Requires app password'>\ud83d\udd11 Edit</button>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+// Fetch the text content for an agentPrompts entry. Entries either carry
+// `content` inline (e.g. the lecture-agent prompt) or point at a static file
+// on disk via `sourceFile` (e.g. AGENT_GUIDE.md, served by express.static),
+// which is fetched fresh each time so the in-app copy never drifts out of
+// sync with whatever is actually on disk.
+async function getPromptContent(p){
+  if(p.content) return p.content;
+  if(p.sourceFile){
+    const res=await fetch('/'+p.sourceFile.replace(/^\/+/, ''));
+    if(!res.ok) throw new Error('Failed to load '+p.sourceFile+' ('+res.status+')');
+    return await res.text();
+  }
+  return '';
+}
+
+// Wire up the View/Copy/Edit buttons rendered by renderReferencePromptsCard()
+// within the given root element (defaults to the global #content).
+function wireReferencePromptsCard(root){
+  const scope = root || content;
+  scope.querySelectorAll('[data-view-prompt]').forEach(b=>b.onclick=async()=>{
+    const p=(db.agentPrompts||[]).find(x=>x.id===b.dataset.viewPrompt);
+    if(p) showPromptViewer(p);
+  });
+  scope.querySelectorAll('[data-copy-prompt]').forEach(b=>b.onclick=async()=>{
+    const p=(db.agentPrompts||[]).find(x=>x.id===b.dataset.copyPrompt);
+    if(!p) return;
+    const orig=b.textContent;
+    try{
+      const txt=await getPromptContent(p);
+      await navigator.clipboard.writeText(txt);
+      b.textContent='Copied ✓';
+    }catch(_){
+      b.textContent='Copy failed';
+    }
+    setTimeout(()=>{ b.textContent=orig; },1500);
+  });
+  scope.querySelectorAll('[data-edit-prompt]').forEach(b=>b.onclick=async()=>{
+    const p=(db.agentPrompts||[]).find(x=>x.id===b.dataset.editPrompt);
+    if(p) unlockAndEditPrompt(p);
+  });
+}
+
+// Prompt for the app password, verify it against the server, and on success
+// open the editor for `p`. This is the entry point for the 🔑 Edit button.
+async function unlockAndEditPrompt(p){
+  const pw = await showPasswordPrompt('Enter the app password to edit "'+p.title+'":');
+  if(pw === null) return; // cancelled
+  if(!pw){ await showConfirm('Password cannot be empty.', 'OK', 'OK'); return; }
+  const { ok, error } = await verifyAppPassword(pw);
+  if(!ok){
+    await showConfirm('❌ ' + (error || 'Incorrect password') , 'OK', 'OK');
+    return;
+  }
+  showPromptEditor(p);
+}
+
 // --- Notebooks view ---
 function renderNotebooks(){
   if(!db.notebooks) db.notebooks=[];
@@ -5784,6 +6423,7 @@ function renderNotebooks(){
     .filter(nb=>!nb.deletedAt && !nb.system && nb.name!=='People' && nb.title)
     .sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
   content.innerHTML=`
+    ${renderReferencePromptsCard('notebooks')}
     <div class='card'>
       <div class='row' style='justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;'>
         <strong style='font-size:16px;'>\ud83d\udcd3 Notebooks</strong>
@@ -5822,6 +6462,7 @@ function renderNotebooks(){
     currentNotebookId=nb.id; currentPageId=null;
     renderNotebookDetail(nb.id);
   };
+  wireReferencePromptsCard();
   content.querySelectorAll('[data-open-nb]').forEach(el=>{
     el.onclick=()=>{ _navPush(); currentNotebookId=el.dataset.openNb; renderNotebookDetail(el.dataset.openNb); };
   });
@@ -5842,6 +6483,128 @@ function renderNotebooks(){
     if(currentNotebookId===nb.id){ currentNotebookId=null; currentPageId=null; }
     renderNotebooks();
   });
+}
+
+// Read-only viewer for a built-in "agentPrompts" entry — rendered markdown
+// preview plus a one-click "Copy to clipboard" button. Deliberately has no
+// edit affordances: this content is immutable, fixed reference material.
+// Content is loaded async via getPromptContent() since `sourceFile`-backed
+// entries fetch from disk rather than being embedded inline.
+async function showPromptViewer(p){
+  const overlay=document.createElement('div');
+  overlay.className='modal-overlay';
+  const modal=document.createElement('div');
+  modal.className='modal';
+  modal.style.maxWidth='720px';
+  modal.style.width='90vw';
+  modal.innerHTML=`
+    <div class="modal-body" style="text-align:left;">
+      <div class='row' style='justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;'>
+        <strong style='font-size:15px;'>🔒 ${htmlesc(p.title)}</strong>
+        <span class='muted' style='font-size:11px;white-space:nowrap;'>Read-only</span>
+      </div>
+      <div class='markdown-preview' id='promptViewerPreview'
+           style='max-height:55vh;overflow-y:auto;border:1px solid var(--btn-border);border-radius:6px;padding:12px;text-align:left;'>
+           <div class='muted'>Loading…</div></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="modalCancel">Close</button>
+      <button class="btn acc" id="modalOk" disabled>Copy to clipboard</button>
+    </div>`;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  modal.querySelector('#modalCancel').onclick=()=>{ if(document.body.contains(overlay)) document.body.removeChild(overlay); };
+  const previewEl=modal.querySelector('#promptViewerPreview');
+  let text='';
+  try{
+    text=await getPromptContent(p);
+  }catch(err){
+    previewEl.innerHTML=`<div style='color:#ff6b6b;'>Failed to load content: ${htmlesc(err.message)}</div>`;
+    return;
+  }
+  if(!document.body.contains(overlay)) return; // closed while loading
+  previewEl.innerHTML=markdownToHtml(text);
+  if(typeof _processMermaid==='function') _processMermaid(previewEl);
+  const okBtn=modal.querySelector('#modalOk');
+  okBtn.disabled=false;
+  okBtn.onclick=async()=>{
+    try{ await navigator.clipboard.writeText(text); }catch(_){ }
+    okBtn.textContent='Copied ✓';
+    setTimeout(()=>{ if(document.body.contains(overlay)) okBtn.textContent='Copy to clipboard'; },1200);
+  };
+}
+
+// Editor for an agentPrompts entry — only reachable after unlockAndEditPrompt()
+// re-verifies the app password. Persists via two different paths depending
+// on how the entry stores its text:
+//  - `content`-backed entries (e.g. lecture-agent prompt): update the field
+//    directly on the db.agentPrompts record and go through the normal
+//    save()/persistDB() pipeline, same as any other note edit.
+//  - `sourceFile`-backed entries (e.g. AGENT_GUIDE.md): write straight back
+//    to that file on disk via POST /api/agent-prompt-file, so the file
+//    stays the single source of truth and the in-app copy never drifts.
+async function showPromptEditor(p){
+  const overlay=document.createElement('div');
+  overlay.className='modal-overlay';
+  const modal=document.createElement('div');
+  modal.className='modal';
+  modal.style.maxWidth='760px';
+  modal.style.width='92vw';
+  modal.innerHTML=`
+    <div class="modal-body" style="text-align:left;">
+      <div class='row' style='justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;'>
+        <strong style='font-size:15px;'>🔓 Editing: ${htmlesc(p.title)}</strong>
+        <span class='muted' style='font-size:11px;white-space:nowrap;'>${p.sourceFile?htmlesc('Writes to '+p.sourceFile):'Saved in-app'}</span>
+      </div>
+      <textarea id='promptEditorText' spellcheck='false'
+        style='width:100%;height:50vh;resize:vertical;font-family:monospace;font-size:12.5px;
+               background:var(--input-bg);border:1px solid var(--input-border);color:var(--fg);
+               border-radius:6px;padding:10px;'>Loading…</textarea>
+      <div class='muted' id='promptEditorError' style='font-size:12px;color:#ff6b6b;margin-top:6px;display:none;'></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="modalCancel">Cancel</button>
+      <button class="btn acc" id="modalOk" disabled>Save</button>
+    </div>`;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  modal.querySelector('#modalCancel').onclick=()=>{ if(document.body.contains(overlay)) document.body.removeChild(overlay); };
+  const textEl=modal.querySelector('#promptEditorText');
+  const errEl=modal.querySelector('#promptEditorError');
+  const okBtn=modal.querySelector('#modalOk');
+  try{
+    textEl.value=await getPromptContent(p);
+  }catch(err){
+    textEl.value='';
+    errEl.textContent='Failed to load current content: '+err.message;
+    errEl.style.display='block';
+  }
+  if(!document.body.contains(overlay)) return; // closed while loading
+  okBtn.disabled=false;
+  okBtn.onclick=async()=>{
+    const newText=textEl.value;
+    okBtn.disabled=true; okBtn.textContent='Saving…'; errEl.style.display='none';
+    try{
+      if(p.sourceFile){
+        const res=await fetch('/api/agent-prompt-file', {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json', 'X-Requested-With':'XMLHttpRequest' },
+          body: JSON.stringify({ file:p.sourceFile, content:newText })
+        });
+        const data=await res.json().catch(()=>({}));
+        if(!res.ok || !data.ok) throw new Error(data.error || 'Save failed ('+res.status+')');
+      } else {
+        p.content=newText;
+      }
+      p.updatedAt=nowISO();
+      save();
+      document.body.removeChild(overlay);
+    }catch(err){
+      errEl.textContent='Save failed: '+err.message;
+      errEl.style.display='block';
+      okBtn.disabled=false; okBtn.textContent='Save';
+    }
+  };
 }
 
 function renderNotebookDetail(nbId){
@@ -6020,7 +6783,7 @@ function openPageInNotebook(pageId, nbId){
     el.style.borderColor=isActive?'var(--acc)':'var(--btn-border)';
   });
   editor.innerHTML=`
-    <div style='max-width:800px;'>
+    <div style='max-width:100%;'>
       ${(() => {
         const nb = (db.notebooks || []).find(x => x.id === nbId);
         if (!nb || !nb.system) return '';
@@ -6036,9 +6799,16 @@ function openPageInNotebook(pageId, nbId){
       <input id='pgTags' type='text' placeholder='Tags (e.g. #ml #ros2)'
              value='${(p.tags||[]).map(t=>'#'+t).join(' ')}'
              style='width:100%;margin-bottom:8px;font-size:13px;box-sizing:border-box;' />
+      <div class='row' style='margin-bottom:8px;gap:8px;align-items:center;'>
+        <button id='pgToggleModeBtn' class='btn acc' style='font-size:12px;' title='Cycle Edit → Split → Preview'>Split</button>
+        <span style='font-size:11px;color:var(--muted);'>Ctrl+Shift+V cycles view</span>
+      </div>
       ${markdownToolbarHtml('pgContent')}
-      <textarea id='pgContent' style='width:100%;min-height:320px;height:calc(100vh - 360px);
-                resize:vertical;box-sizing:border-box;'>${htmlesc(p.content||'')}</textarea>
+      <div id='pgEditorPaneWrap' class='editor-pane-wrap' data-mode='edit'>
+        <textarea id='pgContent' class='pane-editor' style='width:100%;min-height:320px;height:calc(100vh - 360px);
+                  resize:vertical;box-sizing:border-box;'>${htmlesc(p.content||'')}</textarea>
+        <div id='pgPreview' class='markdown-preview pane-preview' style='min-height:320px;height:calc(100vh - 360px);'></div>
+      </div>
       <div class='row' style='margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center;'>
         <button id='pgSave' class='btn acc'>Save</button>
         <button id='pgDelete' class='btn' style='border-color:#ff6b6b;color:#ff6b6b;'>Delete Page</button>
@@ -6077,6 +6847,65 @@ function openPageInNotebook(pageId, nbId){
 
   // Bind markdown toolbar AFTER HTML is stamped into the DOM
   bindMarkdownToolbar('pgContent');
+  wireInlineImagePasteDrop('pgContent');
+
+  // --- Edit / Split / Preview cycle (mirrors the same feature in openNote) ---
+  const pgPreviewEl = document.getElementById('pgPreview');
+  const pgPaneWrap = document.getElementById('pgEditorPaneWrap');
+  const pgToggleModeBtn = document.getElementById('pgToggleModeBtn');
+  const PG_MODES = ['edit', 'split', 'preview'];
+  const PG_NEXT_LABEL = { edit: 'Split', split: 'Preview', preview: 'Edit' };
+  const pgNarrow = () => (window.innerWidth || document.documentElement.clientWidth) < 720;
+  let pgCurrentMode = (db.settings && PG_MODES.includes(db.settings.noteViewMode))
+    ? db.settings.noteViewMode : 'edit';
+  if (pgCurrentMode === 'split' && pgNarrow()) pgCurrentMode = 'edit';
+  let _pgPreviewRaf = 0;
+  function renderPgPreview() {
+    if (!pgPreviewEl) return;
+    const sH = pgPreviewEl.scrollHeight || 1;
+    const ratio = pgPreviewEl.scrollTop / sH;
+    pgPreviewEl.innerHTML = markdownToHtml(contentEl.value);
+    if (typeof _processMermaid === 'function') _processMermaid(pgPreviewEl);
+    const newH = pgPreviewEl.scrollHeight || 1;
+    pgPreviewEl.scrollTop = ratio * newH;
+  }
+  function schedulePgPreview() {
+    if (pgCurrentMode === 'edit') return;
+    if (_pgPreviewRaf) cancelAnimationFrame(_pgPreviewRaf);
+    _pgPreviewRaf = requestAnimationFrame(() => { _pgPreviewRaf = 0; renderPgPreview(); });
+  }
+  function applyPgMode(mode) {
+    if (!PG_MODES.includes(mode)) mode = 'edit';
+    if (mode === 'split' && pgNarrow()) mode = 'preview';
+    pgCurrentMode = mode;
+    if (pgPaneWrap) pgPaneWrap.setAttribute('data-mode', mode);
+    if (pgToggleModeBtn) pgToggleModeBtn.textContent = PG_NEXT_LABEL[mode];
+    if (mode !== 'edit') renderPgPreview();
+    if (mode === 'edit') contentEl.focus();
+    else if (mode === 'preview') pgPreviewEl.focus();
+    if (db && db.settings) {
+      db.settings.noteViewMode = mode;
+      save();
+    }
+  }
+  function cyclePgMode() {
+    const i = PG_MODES.indexOf(pgCurrentMode);
+    applyPgMode(PG_MODES[(i + 1) % PG_MODES.length]);
+  }
+  applyPgMode(pgCurrentMode);
+  contentEl.addEventListener('input', schedulePgPreview);
+  if (contentEl && pgPreviewEl) {
+    contentEl.addEventListener('scroll', () => {
+      if (pgCurrentMode !== 'split') return;
+      const sh = contentEl.scrollHeight - contentEl.clientHeight;
+      if (sh <= 0) return;
+      const r = contentEl.scrollTop / sh;
+      const psh = pgPreviewEl.scrollHeight - pgPreviewEl.clientHeight;
+      pgPreviewEl.scrollTop = r * psh;
+    });
+  }
+  if (pgToggleModeBtn) pgToggleModeBtn.onclick = cyclePgMode;
+  if (pgPreviewEl) pgPreviewEl.setAttribute('tabindex', '0');
 
   // Ctrl+S — use window._pgKeyHandler so it is properly cleaned up when
   // switching pages or navigating away (prevents stale handler accumulation)
@@ -6105,10 +6934,13 @@ function openPageInNotebook(pageId, nbId){
     setStatus(fromAutosave ? 'Saved \u2713' : 'Saved \u2713', /*fade*/true);
   };
   const pgKeyHandler=e=>{
-    if((e.ctrlKey||e.metaKey) && e.key==='s'){
+    if((e.ctrlKey||e.metaKey) && !e.shiftKey && e.key==='s'){
       e.preventDefault();
       e.stopPropagation();
       doSavePage();
+    } else if(e.ctrlKey && e.shiftKey && (e.key==='V' || e.key==='v' || e.code==='KeyV')){
+      e.preventDefault();
+      cyclePgMode();
     }
   };
   document.addEventListener('keydown', pgKeyHandler, true);
@@ -6370,6 +7202,9 @@ function openNote(id){
         </select>
         <button id="addSketch" class="btn" style="font-size:12px;" title="Draw a sketch">🎨 Sketch</button>
         <button id="addVoice" class="btn" style="font-size:12px;" title="Record voice note">🎙 Voice</button>
+        <!-- Inline image — embeds into the note body via markdown ![](...), unlike Attach below -->
+        <label class="btn" for="noteInlineImageFile" style="font-size:12px;" title="Insert an image inline in the text (or just paste/drag one into the editor)">🖼️ Image</label>
+        <input id="noteInlineImageFile" type="file" accept="image/*" class="hidden" multiple />
         <!-- Attachment uploader -->
         <label class="btn" for="noteAttachFile" style="font-size:12px;" title="Attach a file">📎 Attach</label>
         <input id="noteAttachFile" type="file" class="hidden" multiple />
@@ -6381,7 +7216,7 @@ function openNote(id){
       <div id="tagSuggestRow" class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px;align-items:center;font-size:11px;"></div>
       <div class="row" style="margin-top:8px; gap:8px; align-items:center;">
         <button id="toggleModeBtn" class="btn acc" style="font-size:12px;" title="Cycle Edit → Split → Preview">Split</button>
-        <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+V cycles view | Ctrl+S to save</span>
+        <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+V cycles view | Ctrl+S to save | paste/drag an image to insert it inline</span>
       </div>
       <div style="margin-top:8px;">
         ${markdownToolbarHtml('contentBox')}
@@ -6565,6 +7400,14 @@ function openNote(id){
   if(!n.attachments) n.attachments = [];
   const attachInput = document.getElementById('noteAttachFile');
   const attList = document.getElementById('attachments');
+
+  // Inline images: 🖼️ Image button (file picker) + paste/drag directly into
+  // the editor. Both funnel through _uploadAndInsertImage, which embeds a
+  // markdown ![]( ) pointer to the out-of-band store — see the comment on
+  // that function for why this keeps large images out of data.json.
+  wireInlineImagePicker('noteInlineImageFile', 'contentBox');
+  wireInlineImagePasteDrop('contentBox');
+
   function renderAttachmentsList(){
     if(!attList) return;
     if(!n.attachments || n.attachments.length===0){
@@ -6578,26 +7421,27 @@ function openNote(id){
       const isVideo = t.startsWith('video');
       const isPdf   = t === 'application/pdf';
       const isText  = t.startsWith('text');
+      const src = attachmentSrc(att);
       let preview;
       if(isImg){
-        preview = `<img src="${att.data}" alt="${htmlesc(att.name)}"
+        preview = `<img src="${src}" alt="${htmlesc(att.name)}" loading="lazy"
           style="max-width:100%;max-height:200px;border:1px solid var(--btn-border);border-radius:8px;display:block;" />`;
       } else if(isAudio){
-        preview = `<audio controls src="${att.data}" style="width:100%;margin-top:4px;"></audio>
+        preview = `<audio controls preload="none" src="${src}" style="width:100%;margin-top:4px;"></audio>
           <div style="font-size:11px;color:var(--muted);margin-top:2px;">${htmlesc(att.name)}</div>`;
       } else if(isVideo){
-        preview = `<video controls src="${att.data}"
+        preview = `<video controls preload="none" src="${src}"
           style="max-width:100%;max-height:200px;border:1px solid var(--btn-border);border-radius:8px;display:block;"></video>
           <div style="font-size:11px;color:var(--muted);margin-top:2px;">${htmlesc(att.name)}</div>`;
       } else if(isPdf){
-        preview = `<a href="${att.data}" target="_blank" rel="noopener"
+        preview = `<a href="${src}" target="_blank" rel="noopener"
           style="display:inline-flex;align-items:center;gap:6px;font-size:13px;">📄 ${htmlesc(att.name)}</a>`;
       } else if(isText){
-        preview = `<a href="${att.data}" download="${htmlesc(att.name)}"
+        preview = `<a href="${src}" download="${htmlesc(att.name)}"
           style="display:inline-flex;align-items:center;gap:6px;font-size:13px;">📝 ${htmlesc(att.name)}</a>`;
       } else {
         // Generic download link for anything else (zip, docx, etc.)
-        preview = `<a href="${att.data}" download="${htmlesc(att.name)}"
+        preview = `<a href="${src}" download="${htmlesc(att.name)}"
           style="display:inline-flex;align-items:center;gap:6px;font-size:13px;">📎 ${htmlesc(att.name)}</a>`;
       }
       return `<div class='row' style='justify-content:space-between;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--btn-border);'>
@@ -6608,9 +7452,16 @@ function openNote(id){
     // Bind remove handlers
     attList.querySelectorAll('[data-remove]').forEach(b=> b.onclick = ()=>{
       const id = b.dataset.remove;
+      const removed = n.attachments.find(x=> x.id === id);
       n.attachments = n.attachments.filter(x=> x.id !== id);
       save();
       renderAttachmentsList();
+      // Free the on-disk blob for out-of-band attachments (legacy inline-base64
+      // records have no server-side file to clean up, so skip the call for those).
+      if (removed && !removed.data) {
+        fetch('/api/attachments/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+          .catch(()=>{ /* non-critical: an orphaned file on disk is harmless */ });
+      }
     });
   }
   renderAttachmentsList();
@@ -6619,16 +7470,22 @@ function openNote(id){
       const files = Array.from(e.target.files || []);
       e.target.value = ''; // reset early so the same file can be picked again
       if (!files.length) return;
-      // Read all files in parallel then append and save in one shot.
-      // Reading them one-at-a-time with separate save() calls causes a race:
-      // the debounced persistDB can fire between readers, the server response
-      // then replaces db.notes, detaching the `n` reference so later pushes
-      // end up on a stale object that is never serialised.
-      Promise.all(files.map(file => new Promise(resolve => {
-        const reader = new FileReader();
-        reader.onload = ev => resolve({ id: uid(), name: file.name, type: file.type, data: ev.target.result });
-        reader.readAsDataURL(file);
-      }))).then(newAtts => {
+      // Upload each file to the out-of-band attachment store (keeps data.json
+      // small — see uploadAttachmentFile()) then append the small pointer
+      // records and save in one shot. If the upload fails (offline/server
+      // error) we fall back to the old inline-base64 behavior for that file
+      // so attaching still works, just without the size benefit.
+      // Reading/uploading them one-at-a-time with separate save() calls causes
+      // a race: the debounced persistDB can fire between readers, the server
+      // response then replaces db.notes, detaching the `n` reference so later
+      // pushes end up on a stale object that is never serialised.
+      Promise.all(files.map(file =>
+        uploadAttachmentFile(file).catch(async err => {
+          console.warn('Out-of-band attachment upload failed, falling back to inline:', err);
+          const dataUrl = await readFileAsDataURL(file);
+          return { id: uid(), name: file.name, type: file.type, data: dataUrl };
+        })
+      )).then(newAtts => {
         if (!n.attachments) n.attachments = [];
         newAtts.forEach(att => n.attachments.push(att));
         // Stamp updatedAt so the autosync / persistDB response merges correctly

@@ -427,6 +427,64 @@ function requireSameOrigin(req, res, next) {
 }
 app.use('/api', requireSameOrigin);
 
+// === Password re-check for editing "immutable" reference content ===
+// The Reference Prompts library (db.agentPrompts, see app.js) is presented
+// as read-only in the UI. This endpoint lets the user re-enter the *same*
+// app password (APP_PASSWORD) as a deliberate confirmation step before the
+// edit UI unlocks — a friction/confirmation gate against casual accidental
+// edits, not a new privilege boundary: any already-authenticated session can
+// already rewrite arbitrary data via POST /api/db, so this doesn't grant
+// anything that session didn't already have. Reuses the same per-IP
+// attempt/lockout counters as /login so hammering this endpoint also trips
+// the existing brute-force protection instead of being a fresh unguarded
+// attack surface.
+app.post('/api/verify-password', (req, res) => {
+  const ip = req.ip.replace(/^::ffff:/, '');
+  const now = Date.now();
+  const ipState = ipLockState(ip);
+  if (ipState.lockedUntil && ipState.lockedUntil > now) {
+    return res.status(429).json({ ok: false, error: 'Too many attempts. Try again later.' });
+  }
+  const password = String((req.body && req.body.password) || '').trim();
+  if (password === APP_PASSWORD) {
+    ipLoginFails.delete(ip);
+    return res.json({ ok: true });
+  }
+  const ipRec = ipLoginFails.get(ip) || { attempts: 0, lockedUntil: 0 };
+  ipRec.attempts = (ipRec.attempts || 0) + 1;
+  if (ipRec.attempts >= MAX_ATTEMPTS) ipRec.lockedUntil = now + LOCK_MS;
+  ipLoginFails.set(ip, ipRec);
+  return res.status(401).json({ ok: false, error: 'Incorrect password' });
+});
+
+// === Write-back for sourceFile-backed reference prompts ===
+// Some agentPrompts entries (e.g. the Coding-Agent API Guide) mirror a real
+// markdown file on disk instead of embedding content inline, so the in-app
+// copy never drifts from what's actually checked into the repo. Editing one
+// from the UI writes straight back to that file. Tightly whitelisted to a
+// bare `<name>.md` filename (no path separators, no `..`) resolved directly
+// under the app root, with a second directory-containment check as
+// defense-in-depth — this must never become a generic arbitrary-file-write
+// endpoint.
+app.post('/api/agent-prompt-file', (req, res) => {
+  const filename = String((req.body && req.body.file) || '');
+  const content = req.body && req.body.content;
+  if (typeof content !== 'string') return res.status(400).json({ error: 'content must be a string' });
+  if (!/^[A-Za-z0-9_-]+\.md$/.test(filename)) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+  const target = path.join(__dirname, filename);
+  if (path.dirname(target) !== __dirname || !fs.existsSync(target)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+  try {
+    fs.writeFileSync(target, content, 'utf8');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Write failed: ' + e.message });
+  }
+});
+
 app.get('/api/db', (req, res) => {
   const data = readData();
   if (!data) return res.status(200).json({});
@@ -773,6 +831,16 @@ function attachmentPath(id){
   if (!/^[A-Za-z0-9_-]{4,64}$/.test(String(id || ''))) return null;
   return path.join(ATTACHMENTS_DIR, `${id}.bin`);
 }
+// Small sidecar file recording { name, type } next to the binary. Needed
+// because inline images embedded directly in note markdown (pasted/dragged
+// into the editor) never get a matching entry in any note's `attachments`
+// array — the old MIME lookup (scanning data.json notes) silently missed
+// those and served them as application/octet-stream, which some browsers/
+// viewers won't render inline.
+function attachmentMetaPath(id){
+  const p = attachmentPath(id);
+  return p ? p.replace(/\.bin$/, '.meta.json') : null;
+}
 function parseDataUrl(dataUrl){
   // "data:image/png;base64,iVBORw0K..." → { mime, buffer }
   const m = /^data:([^;,]+);base64,(.+)$/.exec(String(dataUrl || ''));
@@ -792,8 +860,11 @@ app.post('/api/attachments', (req, res) => {
   if (!parsed) return res.status(400).json({ error: 'Invalid data url' });
   const target = attachmentPath(safeId);
   if (!target) return res.status(400).json({ error: 'Invalid id' });
+  const finalType = String(type || parsed.mime || 'application/octet-stream');
+  const finalName = String(name || 'attachment');
   try {
     fs.writeFileSync(target, parsed.buffer);
+    fs.writeFileSync(attachmentMetaPath(safeId), JSON.stringify({ name: finalName, type: finalType }));
   } catch (e) {
     console.error('attachment write failed', e);
     return res.status(500).json({ error: 'Write failed' });
@@ -801,43 +872,58 @@ app.post('/api/attachments', (req, res) => {
   res.json({
     ok: true,
     id: safeId,
-    name: String(name || 'attachment'),
-    type: String(type || parsed.mime || 'application/octet-stream'),
+    name: finalName,
+    type: finalType,
     size: parsed.buffer.length
   });
 });
 
-// GET /api/attachments/:id  — streams the binary with Content-Type from the
-// note's attachment record (looked up in data.json). Cacheable: the binary
-// for a given id is immutable.
+// GET /api/attachments/:id  — streams the binary with the correct Content-Type.
+// Cacheable: the binary for a given id is immutable.
 app.get('/api/attachments/:id', (req, res) => {
   const p = attachmentPath(req.params.id);
   if (!p) return res.status(400).json({ error: 'Invalid id' });
   if (!fs.existsSync(p)) return res.status(404).json({ error: 'Not found' });
-  // Look up MIME from data.json so we serve with the right Content-Type.
   let mime = 'application/octet-stream';
   let name = '';
+  // Preferred: the sidecar written at upload time (works for both note
+  // attachments AND inline images, which have no data.json record at all).
   try {
-    const d = readData();
-    outer: for (const n of (d && d.notes) || []) {
-      for (const a of (n.attachments || [])) {
-        if (a.id === req.params.id) { mime = a.type || mime; name = a.name || ''; break outer; }
-      }
+    const metaPath = attachmentMetaPath(req.params.id);
+    if (metaPath && fs.existsSync(metaPath)) {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      mime = meta.type || mime;
+      name = meta.name || '';
     }
   } catch (_) {}
+  // Fallback for attachments uploaded before the sidecar existed: scan
+  // data.json's note attachment records like before.
+  if (mime === 'application/octet-stream') {
+    try {
+      const d = readData();
+      outer: for (const n of (d && d.notes) || []) {
+        for (const a of (n.attachments || [])) {
+          if (a.id === req.params.id) { mime = a.type || mime; name = a.name || name; break outer; }
+        }
+      }
+    } catch (_) {}
+  }
   res.setHeader('Content-Type', mime);
   res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
   if (name) res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(name)}"`);
   fs.createReadStream(p).pipe(res);
 });
 
-// DELETE /api/attachments/:id  — remove the binary. Caller is responsible for
-// removing the metadata entry from data.json via the usual /api/db save.
+// DELETE /api/attachments/:id  — remove the binary + its sidecar. Caller is
+// responsible for removing the metadata entry from data.json (for note
+// attachments) via the usual /api/db save; inline images have no such entry.
 app.delete('/api/attachments/:id', (req, res) => {
   const p = attachmentPath(req.params.id);
   if (!p) return res.status(400).json({ error: 'Invalid id' });
   try {
     if (fs.existsSync(p)) fs.unlinkSync(p);
+    const metaPath = attachmentMetaPath(req.params.id);
+    if (metaPath && fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
     res.json({ ok: true });
   } catch (e) {
     console.error('attachment delete failed', e);
@@ -864,6 +950,12 @@ function migrateAttachmentsToDisk(){
         try {
           // Only strip the inline data after the file write succeeds.
           if (!fs.existsSync(target)) fs.writeFileSync(target, parsed.buffer);
+          // Write the sidecar too so GET /api/attachments/:id doesn't need to
+          // fall back to scanning data.json for this record's MIME type.
+          const metaPath = attachmentMetaPath(a.id);
+          if (metaPath && !fs.existsSync(metaPath)) {
+            fs.writeFileSync(metaPath, JSON.stringify({ name: a.name || '', type: a.type || parsed.mime || 'application/octet-stream' }));
+          }
           a.size = parsed.buffer.length;
           delete a.data;
           migrated++;
