@@ -2047,11 +2047,28 @@ const MD_TOOLBAR_ACTIONS = [
   {label:'\uD83D\uDD35', before:'==b:', after:'==',   ph:'text', title:'Highlight — blue'},
   {label:'\uD83D\uDCAC',  custom:'hlComment', title:'Highlight selection & add a margin note'},
 ];
+// Replace a textarea range with text WITHOUT breaking the browser's native
+// undo/redo stack. Plain `ta.setRangeText()` mutates .value directly and is
+// completely invisible to native undo — every toolbar button (Bold, wiki
+// link, highlight, inline image insert, journal timestamp, etc.) was
+// silently wiping out Ctrl+Z/Ctrl+Shift+Z for whatever the user had typed.
+// `document.execCommand('insertText', ...)` is deprecated but remains the
+// only cross-browser way to splice text into a plain <textarea> that still
+// participates in native undo (same trick long used by browser-based code
+// editors for this exact reason). Falls back to setRangeText only if
+// execCommand is unavailable/fails, so behavior never regresses.
+function _undoableReplaceRange(ta, start, end, text){
+  ta.focus();
+  ta.setSelectionRange(start, end);
+  let ok = false;
+  try { ok = document.execCommand('insertText', false, text); } catch(_) { ok = false; }
+  if(!ok) ta.setRangeText(text, start, end, 'end');
+}
 function insertMd(ta, before, after, ph){
   if(!ta) return;
   const s = ta.selectionStart, e = ta.selectionEnd;
   const sel = ta.value.substring(s, e) || ph || '';
-  ta.setRangeText(before + sel + after, s, e, 'end');
+  _undoableReplaceRange(ta, s, e, before + sel + after);
   if(!ta.value.substring(s, e) && ph){
     ta.setSelectionRange(s + before.length, s + before.length + ph.length);
   }
@@ -2068,7 +2085,7 @@ async function insertHighlightWithComment(ta){
   const sel = ta.value.substring(s, e) || 'text';
   const note = await showPrompt('Margin note for this highlight (optional):', '', 'Add', 'Skip');
   const suffix = (note && note.trim()) ? `^[${note.trim()}]` : '';
-  ta.setRangeText(`==${sel}==${suffix}`, s, e, 'end');
+  _undoableReplaceRange(ta, s, e, `==${sel}==${suffix}`);
   ta.focus();
   ta.dispatchEvent(new Event('input'));
 }
@@ -2095,12 +2112,12 @@ async function _uploadAndInsertImage(file, ta){
   const safeName = _mdSafeAlt(file.name);
   const placeholder = `![Uploading ${safeName}…](#${token})`;
   const s = ta.selectionStart, e = ta.selectionEnd;
-  ta.setRangeText(placeholder, s, e, 'end');
+  _undoableReplaceRange(ta, s, e, placeholder);
   ta.dispatchEvent(new Event('input'));
   const replacePlaceholder = (text) => {
     const idx = ta.value.indexOf(placeholder);
-    if(idx >= 0) ta.setRangeText(text, idx, idx + placeholder.length, 'end');
-    else ta.setRangeText(text, ta.value.length, ta.value.length, 'end'); // placeholder text got edited away
+    if(idx >= 0) _undoableReplaceRange(ta, idx, idx + placeholder.length, text);
+    else _undoableReplaceRange(ta, ta.value.length, ta.value.length, text); // placeholder text got edited away
     ta.dispatchEvent(new Event('input'));
   };
   try {
@@ -3450,7 +3467,7 @@ function renderToday(){
       const now=new Date();
       const ts=`\n\n---\n**${now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}** — `;
       const pos=journalEl.selectionEnd;
-      journalEl.setRangeText(ts, pos, pos, 'end');
+      _undoableReplaceRange(journalEl, pos, pos, ts);
       journalEl.focus(); journalEl.dispatchEvent(new Event('input'));
     };
   }
@@ -8458,18 +8475,35 @@ if(themeToggleBtn){
 // Global Tab key handler: insert two spaces instead of moving focus when editing text
 // This improves note-taking experience by allowing quick indentation in notes,
 // tasks and scratchpad fields. Only triggers for textarea and text input elements.
+// Skips the 4 textareas that editor-extras.js already manages (contentBox,
+// pgContent, dailyContent, dailyNewContent) — that file has its own, richer
+// Tab-indent (multi-line block indent/outdent) wired to the same keydown
+// event; without this guard BOTH handlers fired on every Tab press, which
+// silently double-indented (4 spaces instead of 2) and, worse, this handler
+// used to mutate `.value` directly, which completely destroys the browser's
+// native undo/redo stack. Kept here (now undo-safe via execCommand) only for
+// the handful of plain textareas/inputs that aren't in editor-extras.js's list.
+const _EDITOR_EXTRAS_MANAGED_IDS = ['contentBox', 'pgContent', 'dailyContent', 'dailyNewContent'];
 document.addEventListener('keydown', (e) => {
   if(e.key === 'Tab'){
     const el = e.target;
+    if(el && _EDITOR_EXTRAS_MANAGED_IDS.includes(el.id)) return; // editor-extras.js owns these
     if(el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type === 'text'))){
       e.preventDefault();
       const start = el.selectionStart;
       const end = el.selectionEnd;
-      const value = el.value;
       const insertion = '  '; // two spaces
-      el.value = value.slice(0, start) + insertion + value.slice(end);
-      const cursor = start + insertion.length;
-      el.selectionStart = el.selectionEnd = cursor;
+      el.focus();
+      el.setSelectionRange(start, end);
+      let ok = false;
+      try { ok = document.execCommand('insertText', false, insertion); } catch(_) { ok = false; }
+      if(!ok){
+        const value = el.value;
+        el.value = value.slice(0, start) + insertion + value.slice(end);
+        const cursor = start + insertion.length;
+        el.selectionStart = el.selectionEnd = cursor;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
     }
   }
 });

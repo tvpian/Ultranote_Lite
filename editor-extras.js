@@ -37,6 +37,25 @@
   function fireInput(ta) {
     try { ta.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
   }
+  // Splice text into a textarea while preserving the browser's native
+  // undo/redo stack. `ta.setRangeText()` mutates .value directly and does
+  // NOT participate in native undo — every editor nicety in this file
+  // (auto-pair, Tab indent, Alt+Up/Down move line, wiki/slash-menu
+  // insertion, smart paste, etc.) was silently breaking Ctrl+Z for the
+  // user despite the old comments here claiming setRangeText was safe.
+  // `execCommand('insertText')` is deprecated but remains the standard
+  // cross-browser trick for splicing into a plain <textarea> while keeping
+  // it undo-able (same technique used by browser-based code editors).
+  // Callers that need a specific resulting selection already call
+  // ta.setSelectionRange(...) right after this, so the exact cursor
+  // position execCommand leaves behind doesn't matter.
+  function undoableSetRangeText(ta, text, start, end) {
+    ta.focus();
+    ta.setSelectionRange(start, end);
+    let ok = false;
+    try { ok = document.execCommand('insertText', false, text); } catch (_) { ok = false; }
+    if (!ok) ta.setRangeText(text, start, end, 'end');
+  }
   function getLineBounds(ta) {
     const v = ta.value, p = ta.selectionStart;
     const start = v.lastIndexOf('\n', p - 1) + 1;
@@ -232,8 +251,7 @@
         const insert = title + (ctx.aliasPart || '');
         const after  = ta.value.slice(ctx.to);
         const closes = after.startsWith(']]') ? '' : ']]';
-        // setRangeText is undoable; raw ta.value=… would nuke the undo stack.
-        ta.setRangeText(insert + closes, ctx.from, ctx.to, 'end');
+        undoableSetRangeText(ta, insert + closes, ctx.from, ctx.to);
         const caret = ctx.from + insert.length + closes.length;
         ta.setSelectionRange(caret, caret);
         ta.focus();
@@ -320,7 +338,7 @@
       onPick: (it) => {
         const cmd = it.cmd;
         const snippet = cmd.insertContextual ? cmd.insertContextual(ta) : cmd.insert();
-        ta.setRangeText(snippet, ctx.from, ctx.to, 'end');
+        undoableSetRangeText(ta, snippet, ctx.from, ctx.to);
         const caretBack = cmd.caretBack || 0;
         const caret = ctx.from + snippet.length - caretBack;
         ta.setSelectionRange(caret, caret);
@@ -343,7 +361,7 @@
     if (!rest.trim()) {
       // empty list item -> break out of the list
       e.preventDefault();
-      ta.setRangeText('', start, end, 'end');
+      undoableSetRangeText(ta, '', start, end);
       fireInput(ta);
       return true;
     }
@@ -355,7 +373,7 @@
     nextMarker = nextMarker.replace(/\[[xX]\]/, '[ ]');
     e.preventDefault();
     const insertion = '\n' + indent + nextMarker;
-    ta.setRangeText(insertion, ta.selectionStart, ta.selectionStart, 'end');
+    undoableSetRangeText(ta, insertion, ta.selectionStart, ta.selectionStart);
     fireInput(ta);
     return true;
   }
@@ -372,7 +390,7 @@
       let newBlock;
       if (e.shiftKey) newBlock = block.replace(/^(  |\t)/gm, '');
       else newBlock = block.replace(/^/gm, '  ');
-      ta.setRangeText(newBlock, lineStart, blockEnd, 'preserve');
+      undoableSetRangeText(ta, newBlock, lineStart, blockEnd);
       ta.setSelectionRange(lineStart, lineStart + newBlock.length);
       fireInput(ta);
       return true;
@@ -383,14 +401,14 @@
       const line = v.slice(lineStart, v.indexOf('\n', s) === -1 ? v.length : v.indexOf('\n', s));
       const trimmed = line.replace(/^(  |\t)/, '');
       const removed = line.length - trimmed.length;
-      ta.setRangeText(trimmed, lineStart, lineStart + line.length, 'preserve');
+      undoableSetRangeText(ta, trimmed, lineStart, lineStart + line.length);
       ta.setSelectionRange(Math.max(lineStart, s - removed), Math.max(lineStart, eSel - removed));
       fireInput(ta);
       return true;
     }
     // plain tab: insert 2 spaces
     e.preventDefault();
-    ta.setRangeText('  ', s, eSel, 'end');
+    undoableSetRangeText(ta, '  ', s, eSel);
     fireInput(ta);
     return true;
   }
@@ -403,7 +421,7 @@
     if (s !== eSel) {
       e.preventDefault();
       const sel = ta.value.slice(s, eSel);
-      ta.setRangeText(ch + sel + PAIRS[ch], s, eSel, 'end');
+      undoableSetRangeText(ta, ch + sel + PAIRS[ch], s, eSel);
       ta.setSelectionRange(s + 1, s + 1 + sel.length);
       fireInput(ta);
       return true;
@@ -418,7 +436,7 @@
     // do NOT auto-pair * or _ in the middle of a word (would interfere with normal typing)
     if ((ch === '*' || ch === '_') && /\w/.test(ta.value[s - 1] || '')) return false;
     e.preventDefault();
-    ta.setRangeText(ch + PAIRS[ch], s, eSel, 'end');
+    undoableSetRangeText(ta, ch + PAIRS[ch], s, eSel);
     ta.setSelectionRange(s + 1, s + 1);
     fireInput(ta);
     return true;
@@ -433,15 +451,14 @@
       if (startL === 0) return false;
       const prevStart = v.lastIndexOf('\n', startL - 2) + 1;
       const prevLine  = v.slice(prevStart, startL - 1);
-      // setRangeText keeps Ctrl+Z working; raw ta.value= would not.
-      ta.setRangeText(block + '\n' + prevLine, prevStart, endL, 'preserve');
+      undoableSetRangeText(ta, block + '\n' + prevLine, prevStart, endL);
       const delta = startL - prevStart;
       ta.setSelectionRange(s - delta, eSel - delta);
     } else {
       if (endL === v.length) return false;
       const nextEnd = (v.indexOf('\n', endL + 1) === -1) ? v.length : v.indexOf('\n', endL + 1);
       const nextLine = v.slice(endL + 1, nextEnd);
-      ta.setRangeText(nextLine + '\n' + block, startL, nextEnd, 'preserve');
+      undoableSetRangeText(ta, nextLine + '\n' + block, startL, nextEnd);
       const delta = nextLine.length + 1;
       ta.setSelectionRange(s + delta, eSel + delta);
     }
@@ -455,7 +472,7 @@
     const endL   = (v.indexOf('\n', eSel) === -1) ? v.length : v.indexOf('\n', eSel);
     const block  = v.slice(startL, endL);
     const insertion = '\n' + block;
-    ta.setRangeText(insertion, endL, endL, 'preserve');
+    undoableSetRangeText(ta, insertion, endL, endL);
     const delta = insertion.length;
     ta.setSelectionRange(s + delta, eSel + delta);
     fireInput(ta);
@@ -476,7 +493,7 @@
     if (s !== eSel) {
       const sel = ta.value.slice(s, eSel);
       const md = `[${sel}](${trimmed})`;
-      ta.setRangeText(md, s, eSel, 'end');
+      undoableSetRangeText(ta, md, s, eSel);
     } else {
       let label;
       try {
@@ -485,7 +502,7 @@
         if (label.length > 50) label = label.slice(0, 47) + '…';
       } catch (_) { label = trimmed; }
       const md = `[${label}](${trimmed})`;
-      ta.setRangeText(md, s, eSel, 'end');
+      undoableSetRangeText(ta, md, s, eSel);
     }
     fireInput(ta);
     return true;
