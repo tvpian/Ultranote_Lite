@@ -2041,6 +2041,11 @@ const MD_TOOLBAR_ACTIONS = [
   {label:'[ ]',     before:'\n- [ ] ', after:'',      ph:'task',         title:'Task list item'},
   {label:'flow',    before:'\n```mermaid\nflowchart LR\n  A --> B\n', after:'\n```\n', ph:'', title:'Mermaid diagram'},
   {label:'\u2014',  before:'\n---\n', after:'',       ph:'',             title:'Horizontal rule'},
+  {label:'\uD83D\uDFE1', before:'==',   after:'==',   ph:'text', title:'Highlight — yellow'},
+  {label:'\uD83D\uDFE2', before:'==g:', after:'==',   ph:'text', title:'Highlight — green'},
+  {label:'\uD83E\uDD0D', before:'==p:', after:'==',   ph:'text', title:'Highlight — pink'},
+  {label:'\uD83D\uDD35', before:'==b:', after:'==',   ph:'text', title:'Highlight — blue'},
+  {label:'\uD83D\uDCAC',  custom:'hlComment', title:'Highlight selection & add a margin note'},
 ];
 function insertMd(ta, before, after, ph){
   if(!ta) return;
@@ -2050,6 +2055,20 @@ function insertMd(ta, before, after, ph){
   if(!ta.value.substring(s, e) && ph){
     ta.setSelectionRange(s + before.length, s + before.length + ph.length);
   }
+  ta.focus();
+  ta.dispatchEvent(new Event('input'));
+}
+// Wraps the current selection (or a placeholder) as a yellow highlight and
+// prompts for an optional margin note, appended as a `^[...]` footnote. One
+// click does both steps since a bare highlight and an annotated highlight
+// share the same underlying `==...==` syntax — no need for two separate tools.
+async function insertHighlightWithComment(ta){
+  if(!ta) return;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  const sel = ta.value.substring(s, e) || 'text';
+  const note = await showPrompt('Margin note for this highlight (optional):', '', 'Add', 'Skip');
+  const suffix = (note && note.trim()) ? `^[${note.trim()}]` : '';
+  ta.setRangeText(`==${sel}==${suffix}`, s, e, 'end');
   ta.focus();
   ta.dispatchEvent(new Event('input'));
 }
@@ -2143,7 +2162,9 @@ function bindMarkdownToolbar(textareaId){
       e.preventDefault();
       const ta = document.getElementById(btn.dataset.ta);
       const a = MD_TOOLBAR_ACTIONS[+btn.dataset.idx];
-      if(a && ta) insertMd(ta, a.before, a.after, a.ph);
+      if(!a || !ta) return;
+      if(a.custom === 'hlComment') insertHighlightWithComment(ta);
+      else insertMd(ta, a.before, a.after, a.ph);
     };
   });
 }
@@ -2492,6 +2513,34 @@ function _injectWikiLinks(html, tokens){
     return `<a class='wikilink missing' data-title='${htmlesc(tok.title)}' title='Click to create \u201C${htmlesc(tok.title)}\u201D'>${safe}</a>`;
   });
 }
+// Pre-process ==highlight== tokens out of markdown source (same technique as
+// wiki-links above) so marked doesn't mangle them, then stitch them back in
+// as <mark> after rendering. Supports an optional leading color code and an
+// optional trailing margin-comment footnote:
+//   ==text==            plain yellow highlight
+//   ==g:text==           colored highlight (y|g|p|b = yellow/green/pink/blue)
+//   ==text==^[a note]    highlight with a margin annotation (hover/click to read)
+//   ==g:text==^[a note]  both combined
+const HL_COLORS = { y: 'yellow', g: 'green', p: 'pink', b: 'blue' };
+function _hlPlaceholderFor(i){ return `xHiLiTexN${i}NxHiLiTex`; }
+function _extractHighlights(md){
+  const tokens = [];
+  const out = md.replace(/==(?:([ygpb]):)?([^=\n]+?)==(?:\^\[([^\]\n]*)\])?/g, (m, color, text, note) => {
+    const i = tokens.length;
+    tokens.push({ color: HL_COLORS[color] ? color : 'y', text, note: (note || '').trim() });
+    return _hlPlaceholderFor(i);
+  });
+  return { out, tokens };
+}
+function _injectHighlights(html, tokens){
+  return html.replace(/xHiLiTexN(\d+)NxHiLiTex/g, (m, i) => {
+    const tok = tokens[+i];
+    if (!tok) return m;
+    const noteAttr = tok.note ? ` data-note='${htmlesc(tok.note)}' title='\uD83D\uDCAC ${htmlesc(tok.note)}'` : '';
+    const badge = tok.note ? ` <sup class='hl-note-badge'>\uD83D\uDCAC</sup>` : '';
+    return `<mark class='hl hl-${tok.color}'${noteAttr}>${htmlesc(tok.text)}</mark>${badge}`;
+  });
+}
 function openNoteByTitle(rawTitle){
   const title = (rawTitle || '').trim();
   if (!title) return;
@@ -2553,7 +2602,8 @@ function _renderBlockMath(html, blocks){
 function markdownToHtml(md){
   if(!md) return '';
   const { out: mathStripped, blocks: mathBlocks } = _extractBlockMath(md);
-  const { out: stripped, tokens } = _extractWikiLinks(mathStripped);
+  const { out: wikiStripped, tokens } = _extractWikiLinks(mathStripped);
+  const { out: stripped, tokens: hlTokens } = _extractHighlights(wikiStripped);
   // Use marked.js if available for full markdown support
   if(typeof marked !== 'undefined'){
     try {
@@ -2626,9 +2676,9 @@ function markdownToHtml(md){
       // is preserved so the lazy renderer can recover the original source even
       // after mermaid has replaced the div with rendered SVG.
       const safe = (typeof DOMPurify !== 'undefined')
-        ? DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, ADD_ATTR: ['target','rel','data-mermaid-src'] })
+        ? DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, ADD_ATTR: ['target','rel','data-mermaid-src','data-note'] })
         : raw;
-      return _renderBlockMath(_injectWikiLinks(safe, tokens), mathBlocks);
+      return _renderBlockMath(_injectWikiLinks(_injectHighlights(safe, hlTokens), tokens), mathBlocks);
     } catch(error) {
       console.warn('marked.js failed, falling back to basic renderer:', error);
     }
@@ -2665,7 +2715,7 @@ function markdownToHtml(md){
   // Paragraphs: replace two or more newlines with <br><br>, single newline with <br>
   html = html.replace(/\n{2,}/g, '<br><br>');
   html = html.replace(/\n/g, '<br>');
-  return _renderBlockMath(_injectWikiLinks(html, tokens), mathBlocks);
+  return _renderBlockMath(_injectWikiLinks(_injectHighlights(html, hlTokens), tokens), mathBlocks);
 }
 
 // Lazy mermaid loader + post-processor. Call after setting innerHTML on any
@@ -6697,15 +6747,19 @@ function renderNotebookDetail(nbId){
           ${pages.map(p=>{
             const _raw = (p.content||'').replace(/^---[\s\S]*?---\s*/, '').replace(/`{1,3}[^`]*`{1,3}/g,' ').replace(/[#>*_~`\-]+/g,' ').replace(/!?\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/\s+/g,' ').trim();
             const _snippet = _raw ? _raw.slice(0, 220) + (_raw.length > 220 ? '…' : '') : '(empty page)';
-            const _tip = `${(p.title||'Untitled')}\n\n${_snippet}\n\nDouble-click to rename`;
+            const _isTpl = nb.templatePageId === p.id;
+            const _tip = `${(p.title||'Untitled')}\n\n${_snippet}\n\nDouble-click to rename${_isTpl ? '\n\n★ Used as the template for new pages' : ''}`;
             return `
             <div class='nb-toc-item' draggable='true' data-page-id='${p.id}' data-page-title='${htmlesc(p.title||'')}'
                  title='${htmlesc(_tip)}'
                  style='padding:7px 9px;border-radius:5px;cursor:pointer;font-size:13px;word-break:break-word;
-                        border:1px solid ${currentPageId===p.id?'var(--acc)':'var(--btn-border)'};
+                        display:flex;align-items:center;gap:6px;
+                        border:1px solid ${currentPageId===p.id?'var(--acc)':(_isTpl?'#f0b429':'var(--btn-border)')};
                         background:${currentPageId===p.id?'var(--acc)':'var(--card-bg)'};
                         color:${currentPageId===p.id?'#fff':'var(--fg)'};'>
-              <span class='nb-toc-title' style='display:inline-block;width:100%;'>${htmlesc(p.title||'Untitled')}</span>
+              <span class='nb-toc-title' style='display:inline-block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;'>${htmlesc(p.title||'Untitled')}</span>
+              <span class='nb-toc-star' data-page-id='${p.id}' title='${_isTpl ? 'Template for new pages — click to unset' : 'Use as template for new pages'}'
+                    style='flex-shrink:0;cursor:pointer;font-size:13px;opacity:${_isTpl?'1':'0.35'};'>${_isTpl?'\u2605':'\u2606'}</span>
             </div>`;
           }).join('')}
           ${pages.length===0?`<div class='muted' style='font-size:12px;text-align:center;margin-top:16px;'>No pages yet</div>`:''}
@@ -6734,8 +6788,15 @@ function renderNotebookDetail(nbId){
   };
   document.getElementById('newPage').onclick=()=>{
     // Frictionless: create an Untitled page instantly and focus its title.
-    // No modal — user just starts typing.
-    const p=createPage({title:'Untitled', notebookId:nbId});
+    // No modal — user just starts typing. If a template page is set for this
+    // notebook (starred in the TOC), seed the new page from its content/tags
+    // instead of starting blank.
+    const tplPage = nb.templatePageId ? pages.find(x=>x.id===nb.templatePageId) : null;
+    const p=createPage({
+      title:'Untitled', notebookId:nbId,
+      content: tplPage ? (tplPage.content||'') : '',
+      tags: tplPage ? [...(tplPage.tags||[])] : []
+    });
     currentPageId=p.id;
     renderNotebookDetail(nbId);
     // Defer focus until the page editor has been stamped into the DOM.
@@ -6766,6 +6827,19 @@ function renderNotebookDetail(nbId){
     titleSpan.addEventListener('dblclick', e=>{
       e.preventDefault(); e.stopPropagation();
       _startInlineRename(item, titleSpan, nbId);
+    });
+  });
+
+  // --- Template-page star toggle ---
+  // Exactly one page per notebook can be starred as the template; "+ New
+  // Page" seeds new pages from it. Click again to unset (back to blank pages).
+  content.querySelectorAll('.nb-toc-star').forEach(star=>{
+    star.addEventListener('click', e=>{
+      e.preventDefault(); e.stopPropagation();
+      const pid = star.dataset.pageId;
+      const next = nb.templatePageId === pid ? null : pid;
+      updateNotebook(nbId, { templatePageId: next });
+      renderNotebookDetail(nbId);
     });
   });
 
@@ -6872,6 +6946,8 @@ function openPageInNotebook(pageId, nbId){
         <button id='pgToggleModeBtn' class='btn acc' style='font-size:12px;' title='Cycle Edit → Split → Preview'>Split</button>
         <span style='font-size:11px;color:var(--muted);'>Ctrl+Shift+V cycles view</span>
       </div>
+      <div id='pgHeadingNav' style='display:none;margin-bottom:8px;padding:6px 8px;
+           border:1px solid var(--btn-border);border-radius:6px;max-height:130px;overflow-y:auto;'></div>
       ${markdownToolbarHtml('pgContent')}
       <div id='pgEditorPaneWrap' class='editor-pane-wrap' data-mode='edit'>
         <textarea id='pgContent' class='pane-editor' style='width:100%;min-height:320px;height:calc(100vh - 360px);
@@ -6893,6 +6969,51 @@ function openPageInNotebook(pageId, nbId){
   const tagsEl=document.getElementById('pgTags');
   const statusEl=()=>document.getElementById('pgSaveStatus');
 
+  // --- "On this page" heading mini-nav — pulled from the page's own
+  // H1/H2/H3 lines so long lecture-style pages are easy to jump around in.
+  // Correlates by order (Nth heading line ↔ Nth <h1..h3> in the preview),
+  // which holds as long as fenced code blocks don't contain literal "#"
+  // lines — a reasonable tradeoff to avoid depending on the optional
+  // CDN heading-id extension for anchor ids.
+  const pgHeadingNavEl = document.getElementById('pgHeadingNav');
+  function _pgExtractHeadings(md){
+    const heads = [];
+    const lines = (md || '').split('\n');
+    let offset = 0;
+    lines.forEach((line, idx) => {
+      const m = /^(#{1,3})\s+(.+?)\s*$/.exec(line);
+      if(m) heads.push({ level: m[1].length, text: m[2], line: idx, offset });
+      offset += line.length + 1;
+    });
+    return heads;
+  }
+  function renderPgHeadingNav(){
+    if(!pgHeadingNavEl) return;
+    const heads = _pgExtractHeadings(contentEl.value);
+    if(!heads.length){ pgHeadingNavEl.style.display='none'; pgHeadingNavEl.innerHTML=''; return; }
+    pgHeadingNavEl.style.display='block';
+    pgHeadingNavEl.innerHTML = `<div class='muted' style='font-size:10px;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px;'>On this page</div>` +
+      heads.map((h,i)=>`<div class='pg-heading-item' data-idx='${i}'
+        style='cursor:pointer;font-size:12px;padding:2px 0 2px ${(h.level-1)*12}px;color:var(--acc);
+               white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' title='${htmlesc(h.text)}'>${htmlesc(h.text)}</div>`).join('');
+    pgHeadingNavEl.querySelectorAll('.pg-heading-item').forEach(el=>{
+      el.onclick = () => {
+        const h = heads[+el.dataset.idx];
+        if(!h) return;
+        if(pgCurrentMode === 'edit'){
+          contentEl.focus();
+          contentEl.setSelectionRange(h.offset, h.offset + h.text.length + h.level + 1);
+          const total = contentEl.value.split('\n').length || 1;
+          contentEl.scrollTop = (h.line / total) * contentEl.scrollHeight;
+        } else {
+          const hEls = pgPreviewEl ? pgPreviewEl.querySelectorAll('h1,h2,h3') : [];
+          const target = hEls[+el.dataset.idx];
+          if(target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        }
+      };
+    });
+  }
+
   // --- Autosave: debounced (~500ms after last keystroke) so the user never
   // loses work by switching pages or clicking "← All". Ctrl+S / the Save
   // button still work and flush immediately. Both paths go through the same
@@ -6913,6 +7034,8 @@ function openPageInNotebook(pageId, nbId){
   [titleEl, contentEl, tagsEl].forEach(el=>{
     if(el) el.addEventListener('input', markDirty);
   });
+  contentEl.addEventListener('input', renderPgHeadingNav);
+  renderPgHeadingNav();
 
   // Bind markdown toolbar AFTER HTML is stamped into the DOM
   bindMarkdownToolbar('pgContent');

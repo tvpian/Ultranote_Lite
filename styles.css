@@ -4602,6 +4602,25 @@ a.wikilink.missing {
 }
 a.wikilink.missing:hover { color: var(--acc); border-bottom-color: var(--acc); }
 
+/* Text highlights (==text==) inside rendered markdown preview, with an
+   optional margin-annotation badge (💬) for notes attached via ^[...] */
+mark.hl {
+  padding: 0 2px;
+  border-radius: 2px;
+  color: #111;
+  cursor: default;
+}
+mark.hl-y { background: #ffe066; }
+mark.hl-g { background: #8ce99a; }
+mark.hl-p { background: #ffa8d2; }
+mark.hl-b { background: #a5d8ff; }
+mark.hl[data-note] { cursor: help; }
+sup.hl-note-badge {
+  font-size: 10px;
+  cursor: help;
+  margin-left: 1px;
+}
+
 /* Floating popup used by [[ autocomplete and / slash menu */
 .ed-popup {
   position: fixed;
