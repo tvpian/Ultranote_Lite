@@ -2547,10 +2547,225 @@ function _injectHighlights(html, tokens){
     const tok = tokens[+i];
     if (!tok) return m;
     const noteAttr = tok.note ? ` data-note='${htmlesc(tok.note)}' title='\uD83D\uDCAC ${htmlesc(tok.note)}'` : '';
-    const badge = tok.note ? ` <sup class='hl-note-badge'>\uD83D\uDCAC</sup>` : '';
-    return `<mark class='hl hl-${tok.color}'${noteAttr}>${htmlesc(tok.text)}</mark>${badge}`;
+    const badge = tok.note ? ` <sup class='hl-note-badge' data-hl-idx='${i}'>\uD83D\uDCAC</sup>` : '';
+    return `<mark class='hl hl-${tok.color}' data-hl-idx='${i}'${noteAttr}>${htmlesc(tok.text)}</mark>${badge}`;
   });
 }
+
+// ---------------------------------------------------------------------------
+// Highlight & margin-note creation directly from the rendered PREVIEW pane
+// (select-to-highlight, PDF-viewer style) — rather than only via the
+// editor toolbar buttons above, which require switching to Edit mode and
+// manually typing/selecting inside the raw textarea. This mirrors how you'd
+// annotate a PDF: select text where you're actually reading it, pick a
+// highlight color (or add a note), done.
+//
+// The tricky part is that the preview is rendered HTML, not the raw
+// markdown source — so a selection made in the preview has to be mapped
+// back to a character range in the textarea's raw value before we can
+// splice in `==...==` markup. `_locateSourceRange` does this via a plain
+// substring search of the selected text against the source, skipping over
+// any occurrence that's already wrapped in `==...==` so re-highlighting a
+// duplicate phrase elsewhere in the note doesn't quietly re-target text
+// that's already annotated.
+function _locateSourceRange(source, selText){
+  if(!selText) return null;
+  let from = 0, firstIdx = -1;
+  while(true){
+    const idx = source.indexOf(selText, from);
+    if(idx === -1) break;
+    if(firstIdx === -1) firstIdx = idx;
+    const already = source.slice(Math.max(0, idx-2), idx) === '=='
+      && source.slice(idx+selText.length, idx+selText.length+2) === '==';
+    if(!already) return { start: idx, end: idx+selText.length };
+    from = idx + 1;
+  }
+  return firstIdx === -1 ? null : { start: firstIdx, end: firstIdx+selText.length };
+}
+// Splices `text` into a textarea's raw value at [start,end). Uses the
+// undo-safe execCommand path when the textarea is actually visible/focusable
+// (Edit/Split mode); falls back to a direct .value splice when it's
+// display:none (pure Preview mode, where .focus() is a no-op and
+// execCommand would silently target the wrong element). The fallback isn't
+// a single Ctrl+Z step, but that's an acceptable trade-off for an edit made
+// while the raw editor isn't even on screen.
+function _replaceSourceRange(ta, start, end, text){
+  if(ta.offsetParent !== null){
+    _undoableReplaceRange(ta, start, end, text);
+  } else {
+    ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
+  }
+  ta.dispatchEvent(new Event('input'));
+}
+// Finds the Nth `==...==` highlight token in a raw markdown source string
+// (0-indexed, in document order) — used to map a click on a rendered
+// <mark data-hl-idx> back to its exact source range for editing/removal.
+// Order is stable because highlight extraction (_extractHighlights) always
+// scans left-to-right over the source, same as this regex does here.
+function _locateHighlightToken(source, idx){
+  const re = /==(?:([ygpb]):)?([^=\n]+?)==(?:\^\[([^\]\n]*)\])?/g;
+  let m, i = 0;
+  while((m = re.exec(source))){
+    if(i === idx){
+      return { start: m.index, end: m.index + m[0].length, color: HL_COLORS[m[1]] ? m[1] : 'y', text: m[2], note: (m[3]||'').trim() };
+    }
+    i++;
+  }
+  return null;
+}
+// Floating mini-toolbar shown when text is selected inside a rendered
+// preview pane: 4 color swatches (plain highlight) + a note button
+// (yellow highlight + prompt for a margin note), matching the same actions
+// already available from the editor toolbar's highlight buttons.
+let _hlSelectPopupEl = null;
+function _ensureHlSelectPopup(){
+  if(_hlSelectPopupEl) return _hlSelectPopupEl;
+  const el = document.createElement('div');
+  el.className = 'hl-select-popup';
+  el.innerHTML = `
+    <button type="button" data-hl-color="y" title="Highlight — yellow">\uD83D\uDFE1</button>
+    <button type="button" data-hl-color="g" title="Highlight — green">\uD83D\uDFE2</button>
+    <button type="button" data-hl-color="p" title="Highlight — pink">\uD83E\uDD0D</button>
+    <button type="button" data-hl-color="b" title="Highlight — blue">\uD83D\uDD35</button>
+    <button type="button" data-hl-note title="Highlight & add a note">\uD83D\uDCAC</button>
+  `;
+  document.body.appendChild(el);
+  _hlSelectPopupEl = el;
+  return el;
+}
+function _hideHlSelectPopup(){
+  if(_hlSelectPopupEl) _hlSelectPopupEl.classList.remove('show');
+}
+// Wires select-to-highlight into one preview pane. `previewEl` is the
+// rendered `.markdown-preview` element; `ta` is its paired source textarea
+// (may be hidden if currently in pure Preview mode — handled by
+// `_replaceSourceRange`). Safe to call once per time the pane is (re)opened;
+// listeners are scoped to `previewEl`/`ta`, which are fresh DOM nodes each
+// time openNote()/openPageInNotebook() runs.
+function _wireHighlightSelectionPopup(previewEl, ta){
+  if(!previewEl || !ta) return;
+  const popup = _ensureHlSelectPopup();
+  let pendingRange = null; // {start,end} in ta.value, set right before showing the popup
+  function applyAction(action){
+    if(!pendingRange) return;
+    const { start, end } = pendingRange;
+    const selText = ta.value.slice(start, end);
+    (async () => {
+      if(action === 'note'){
+        const note = await showPrompt('Margin note for this highlight (optional):', '', 'Add', 'Skip');
+        const suffix = (note && note.trim()) ? `^[${note.trim()}]` : '';
+        _replaceSourceRange(ta, start, end, `==${selText}==${suffix}`);
+      } else {
+        const wrapped = action === 'y' ? `==${selText}==` : `==${action}:${selText}==`;
+        _replaceSourceRange(ta, start, end, wrapped);
+      }
+    })();
+    window.getSelection().removeAllRanges();
+    _hideHlSelectPopup();
+    pendingRange = null;
+  }
+  popup.querySelectorAll('[data-hl-color]').forEach(btn => {
+    // mousedown (not click) + preventDefault so the browser never collapses
+    // the live text selection before we've read it.
+    btn.onmousedown = (e) => { e.preventDefault(); applyAction(btn.dataset.hlColor); };
+  });
+  const noteBtn = popup.querySelector('[data-hl-note]');
+  if(noteBtn) noteBtn.onmousedown = (e) => { e.preventDefault(); applyAction('note'); };
+
+  previewEl.addEventListener('mouseup', () => {
+    setTimeout(() => { // let the browser finish updating the selection first
+      const sel = window.getSelection();
+      const text = sel && sel.toString();
+      if(!text || !text.trim() || sel.isCollapsed
+         || !previewEl.contains(sel.anchorNode) || !previewEl.contains(sel.focusNode)){
+        _hideHlSelectPopup();
+        return;
+      }
+      const range = _locateSourceRange(ta.value, text);
+      if(!range){ _hideHlSelectPopup(); return; }
+      pendingRange = range;
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      popup.classList.add('show');
+      const pw = popup.offsetWidth || 160, ph = popup.offsetHeight || 34;
+      let left = rect.left + rect.width/2 - pw/2;
+      left = Math.max(6, Math.min(left, window.innerWidth - pw - 6));
+      let top = rect.top - ph - 8;
+      if(top < 6) top = rect.bottom + 8;
+      popup.style.left = `${left}px`;
+      popup.style.top = `${top}px`;
+    }, 0);
+  });
+}
+document.addEventListener('mousedown', (e) => {
+  if(_hlSelectPopupEl && !_hlSelectPopupEl.contains(e.target)) _hideHlSelectPopup();
+});
+document.addEventListener('keydown', (e) => { if(e.key === 'Escape') _hideHlSelectPopup(); });
+
+// PDF-viewer-style annotation popover: clicking an existing highlight (or
+// its 💬 badge) in ANY rendered preview opens a small card showing the
+// margin note (if any) with Edit/Remove actions, instead of only a native
+// hover tooltip. Registered once, delegated at the document level (like the
+// wikilink click handler above) since preview panes are re-rendered
+// (innerHTML replaced) on every keystroke — per-element listeners would be
+// lost on each render, a delegated listener is not.
+let _hlNotePopoverEl = null;
+function _ensureHlNotePopover(){
+  if(_hlNotePopoverEl) return _hlNotePopoverEl;
+  const el = document.createElement('div');
+  el.className = 'hl-note-popover';
+  document.body.appendChild(el);
+  _hlNotePopoverEl = el;
+  return el;
+}
+function _hideHlNotePopover(){
+  if(_hlNotePopoverEl) _hlNotePopoverEl.classList.remove('show');
+}
+document.addEventListener('click', (e) => {
+  const mark = e.target.closest && e.target.closest('mark.hl, sup.hl-note-badge');
+  if(!mark){
+    if(_hlNotePopoverEl && !_hlNotePopoverEl.contains(e.target)) _hideHlNotePopover();
+    return;
+  }
+  const wrap = mark.closest('.editor-pane-wrap');
+  const ta = wrap && wrap.querySelector('textarea');
+  const idx = +mark.dataset.hlIdx;
+  if(!ta || Number.isNaN(idx)) return;
+  const tok = _locateHighlightToken(ta.value, idx);
+  if(!tok) return;
+  const popover = _ensureHlNotePopover();
+  popover.innerHTML = `
+    <div class="hl-note-popover-body">${tok.note ? htmlesc(tok.note) : '<em>No note yet</em>'}</div>
+    <div class="hl-note-popover-actions">
+      <button type="button" data-hl-act="note">${tok.note ? '\u270F\uFE0F Edit' : '\u2795 Add note'}</button>
+      <button type="button" data-hl-act="remove">\uD83D\uDDD1 Remove</button>
+    </div>`;
+  popover.querySelector('[data-hl-act="note"]').onclick = async () => {
+    const note = await showPrompt('Margin note for this highlight:', tok.note || '', 'Save', 'Cancel');
+    if(note === null){ return; } // cancelled
+    const fresh = _locateHighlightToken(ta.value, idx); // re-locate; source may have shifted
+    if(!fresh) return;
+    const suffix = note.trim() ? `^[${note.trim()}]` : '';
+    const prefix = fresh.color === 'y' ? '' : `${fresh.color}:`;
+    _replaceSourceRange(ta, fresh.start, fresh.end, `==${prefix}${fresh.text}==${suffix}`);
+    _hideHlNotePopover();
+  };
+  popover.querySelector('[data-hl-act="remove"]').onclick = () => {
+    const fresh = _locateHighlightToken(ta.value, idx);
+    if(!fresh) return;
+    _replaceSourceRange(ta, fresh.start, fresh.end, fresh.text);
+    _hideHlNotePopover();
+  };
+  const rect = mark.getBoundingClientRect();
+  popover.classList.add('show');
+  const pw = popover.offsetWidth || 220, ph = popover.offsetHeight || 80;
+  let left = rect.left;
+  left = Math.max(6, Math.min(left, window.innerWidth - pw - 6));
+  let top = rect.bottom + 8;
+  if(top + ph > window.innerHeight - 6) top = rect.top - ph - 8;
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+});
+
 function openNoteByTitle(rawTitle){
   const title = (rawTitle || '').trim();
   if (!title) return;
@@ -2686,7 +2901,7 @@ function markdownToHtml(md){
       // is preserved so the lazy renderer can recover the original source even
       // after mermaid has replaced the div with rendered SVG.
       const safe = (typeof DOMPurify !== 'undefined')
-        ? DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, ADD_ATTR: ['target','rel','data-mermaid-src','data-note'] })
+        ? DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, ADD_ATTR: ['target','rel','data-mermaid-src','data-note','data-hl-idx'] })
         : raw;
       return _renderBlockMath(_injectWikiLinks(_injectHighlights(safe, hlTokens), tokens), mathBlocks);
     } catch(error) {
@@ -7265,6 +7480,7 @@ function openPageInNotebook(pageId, nbId){
   let pgCurrentMode = (db.settings && PG_MODES.includes(db.settings.noteViewMode))
     ? db.settings.noteViewMode : 'edit';
   if (pgCurrentMode === 'split' && pgNarrow()) pgCurrentMode = 'edit';
+  _wireHighlightSelectionPopup(pgPreviewEl, contentEl);
   let _pgPreviewRaf = 0;
   function renderPgPreview() {
     if (!pgPreviewEl) return;
@@ -8028,6 +8244,7 @@ function openNote(id){
   let currentMode = (db.settings && MODES.includes(db.settings.noteViewMode))
     ? db.settings.noteViewMode : 'edit';
   if (currentMode === 'split' && narrow()) currentMode = 'edit';
+  _wireHighlightSelectionPopup(previewEl, contentBoxEl);
 
   let _previewRaf = 0;
   function renderPreview() {

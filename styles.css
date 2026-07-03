@@ -4613,23 +4613,88 @@ a.wikilink.missing {
 a.wikilink.missing:hover { color: var(--acc); border-bottom-color: var(--acc); }
 
 /* Text highlights (==text==) inside rendered markdown preview, with an
-   optional margin-annotation badge (💬) for notes attached via ^[...] */
+   optional margin-annotation badge (💬) for notes attached via ^[...].
+   Clickable (not just hoverable) — opens a PDF-viewer-style annotation
+   popover (.hl-note-popover) to read/edit/remove the note. */
 mark.hl {
   padding: 0 2px;
   border-radius: 2px;
   color: #111;
-  cursor: default;
+  cursor: pointer;
 }
 mark.hl-y { background: #ffe066; }
 mark.hl-g { background: #8ce99a; }
 mark.hl-p { background: #ffa8d2; }
 mark.hl-b { background: #a5d8ff; }
-mark.hl[data-note] { cursor: help; }
 sup.hl-note-badge {
   font-size: 10px;
-  cursor: help;
+  cursor: pointer;
   margin-left: 1px;
 }
+
+/* Floating mini-toolbar shown on text selection inside a rendered preview
+   pane (select-to-highlight, mirrors the editor toolbar's highlight
+   buttons but usable directly where you're reading). */
+.hl-select-popup {
+  position: fixed;
+  z-index: 11000;
+  display: none;
+  gap: 2px;
+  padding: 4px;
+  background: var(--card-bg, #1a1d24);
+  border: 1px solid var(--btn-border, #2a2f3a);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+}
+.hl-select-popup.show { display: flex; }
+.hl-select-popup button {
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  padding: 5px 7px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.hl-select-popup button:hover { background: var(--acc, #4ea1ff); }
+
+/* PDF-viewer-style annotation popover — opens on clicking an existing
+   highlight or its 💬 badge. Lets you read the note, edit it, or remove
+   the highlight entirely, instead of only a native hover tooltip. */
+.hl-note-popover {
+  position: fixed;
+  z-index: 11000;
+  display: none;
+  max-width: 260px;
+  padding: 10px;
+  background: var(--card-bg, #1a1d24);
+  border: 1px solid var(--btn-border, #2a2f3a);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+  font-size: 13px;
+  color: var(--fg);
+}
+.hl-note-popover.show { display: block; }
+.hl-note-popover-body {
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.hl-note-popover-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.hl-note-popover-actions button {
+  border: 1px solid var(--btn-border, #2a2f3a);
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.hl-note-popover-actions button:hover { background: var(--acc, #4ea1ff); color: #fff; }
 
 /* Floating popup used by [[ autocomplete and / slash menu */
 .ed-popup {
