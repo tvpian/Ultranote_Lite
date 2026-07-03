@@ -6371,6 +6371,39 @@ async function getPromptContent(p){
 
 // Wire up the View/Copy/Edit buttons rendered by renderReferencePromptsCard()
 // within the given root element (defaults to the global #content).
+// Copy `text` to the clipboard, robust to environments where the async
+// Clipboard API silently fails (e.g. "NotAllowedError: Document is not
+// focused", which can fire even from a genuine click depending on focus
+// timing) — falls back to the classic hidden-textarea + execCommand('copy')
+// approach, which doesn't have the same focus requirement. Returns true only
+// if a copy method actually reported success, so callers can show accurate
+// success/failure feedback instead of silently leaving the old clipboard
+// contents in place (which looked like "it copied the wrong thing").
+async function copyTextToClipboard(text){
+  try{
+    await navigator.clipboard.writeText(text);
+    return true;
+  }catch(_){
+    try{
+      const ta=document.createElement('textarea');
+      ta.value=text;
+      ta.setAttribute('readonly','');
+      ta.style.position='fixed';
+      ta.style.top='0';
+      ta.style.left='-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, text.length);
+      const ok=document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    }catch(_e){
+      return false;
+    }
+  }
+}
+
 function wireReferencePromptsCard(root){
   const scope = root || content;
   scope.querySelectorAll('[data-view-prompt]').forEach(b=>b.onclick=async()=>{
@@ -6383,8 +6416,8 @@ function wireReferencePromptsCard(root){
     const orig=b.textContent;
     try{
       const txt=await getPromptContent(p);
-      await navigator.clipboard.writeText(txt);
-      b.textContent='Copied ✓';
+      const ok=await copyTextToClipboard(txt);
+      b.textContent = ok ? 'Copied ✓' : 'Copy failed';
     }catch(_){
       b.textContent='Copy failed';
     }
@@ -6528,8 +6561,8 @@ async function showPromptViewer(p){
   const okBtn=modal.querySelector('#modalOk');
   okBtn.disabled=false;
   okBtn.onclick=async()=>{
-    try{ await navigator.clipboard.writeText(text); }catch(_){ }
-    okBtn.textContent='Copied ✓';
+    const ok=await copyTextToClipboard(text);
+    okBtn.textContent = ok ? 'Copied ✓' : 'Copy failed';
     setTimeout(()=>{ if(document.body.contains(overlay)) okBtn.textContent='Copy to clipboard'; },1200);
   };
 }
