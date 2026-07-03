@@ -2305,6 +2305,11 @@ function _navPop() {
   currentPageId      = st.pageId;
   selectedDailyDate  = st.dailyDate || selectedDailyDate;
   window._openNoteId = st.noteId;
+  // openNote()/renderNotebookDetail() only touch #content, not the nav
+  // sidebar's active-route highlight — refresh it here so the highlighted
+  // tab always matches the route we just popped back to.
+  window.route = route;
+  renderNav();
   if (st.noteId) {
     // Was looking at a note editor — reopen it without pushing again
     openNote(st.noteId);
@@ -2368,6 +2373,15 @@ function _navRestoreSession() {
     currentNotebookId  = st.notebookId  || null;
     currentPageId      = st.pageId      || null;
     if (st.dailyDate)  selectedDailyDate = st.dailyDate;
+    // openNote()/renderNotebookDetail() only touch #content, not the primary
+    // nav sidebar (#nav) — that's fine for normal in-app navigation since
+    // renderNav() already ran for whatever view came before, but on a fresh
+    // page load nothing has rendered #nav yet. Without this, a reload that
+    // restores straight into a note or notebook page leaves the entire nav
+    // bar blank until the user manually switches views.
+    applyTheme();
+    renderNav();
+    window.route = route;
     if (st.noteId && (db.notes||[]).some(n => n.id === st.noteId && !n.deletedAt)) {
       window._openNoteId = st.noteId;
       try { openNote(st.noteId); } catch(_) { render(); }
@@ -6707,7 +6721,16 @@ function renderNotebookDetail(nbId){
 
   document.getElementById('backToNbs').onclick=()=>{
     if(typeof window._pgFlush === 'function'){ try { window._pgFlush(); } catch(_) {} window._pgFlush=null; }
-    _navPop();
+    // "All" always means "the Notebooks list" — that's the one and only
+    // parent of this view, so jump there directly instead of trusting
+    // _navPop()/the history stack. The stack approach is fragile: any single
+    // call path elsewhere that forgets to push (or pushes an extra time)
+    // makes "All" land on a random unrelated view instead of the list, which
+    // isn't how hierarchical back navigation should behave. Still pop one
+    // stack entry (discarding its contents) purely to keep the stack's depth
+    // in sync with the browser's native Back button.
+    if (window._navHistory && window._navHistory.length) window._navHistory.pop();
+    currentNotebookId=null; currentPageId=null; route='notebooks'; render();
   };
   document.getElementById('newPage').onclick=()=>{
     // Frictionless: create an Untitled page instantly and focus its title.
