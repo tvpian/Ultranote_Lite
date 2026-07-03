@@ -7002,6 +7002,7 @@ function openPageInNotebook(pageId, nbId){
       <div id='pgFollowupsSection' style='margin-top:12px;'></div>
       <div class='row' style='margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center;'>
         <button id='pgSave' class='btn acc'>Save</button>
+        <button id='pgExportMd' class='btn' style='font-size:12px;' title='Download just this page as a Markdown file'>⬇ Export page</button>
         <button id='pgDelete' class='btn' style='border-color:#ff6b6b;color:#ff6b6b;'>Delete Page</button>
         <span class='muted' id='pgSaveStatus' style='font-size:12px;'></span>
       </div>
@@ -7266,6 +7267,21 @@ function openPageInNotebook(pageId, nbId){
   window._pgFlush = () => { if(_autosaveTimer) doSavePage(true); };
 
   document.getElementById('pgSave').onclick = doSavePage;
+
+  document.getElementById('pgExportMd').onclick = () => {
+    // Flush any pending edit first so the export matches what's on screen.
+    if(_autosaveTimer){ clearTimeout(_autosaveTimer); _autosaveTimer=null; doSavePage(true); }
+    const lines = [`# ${titleEl.value.trim() || 'Untitled'}`];
+    const tagVals = (tagsEl.value||'').split(/\s+/).map(t=>t.startsWith('#')?t.slice(1):t).filter(Boolean);
+    if(tagVals.length) lines.push('', '_Tags:_ ' + tagVals.map(t=>'`#'+t+'`').join(' '));
+    lines.push('', contentEl.value.trim() || '_(empty page)_');
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${(titleEl.value.trim()||'page').replace(/[^a-z0-9]+/gi,'_')}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
   document.getElementById('pgDelete').onclick=async()=>{
     const ok=await showConfirm(`Delete page "${p.title}"? It can be restored from Review.`,'Delete','Cancel');
