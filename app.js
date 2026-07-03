@@ -4419,12 +4419,16 @@ function renderPeople() {
 
   if (indexNote) {
     const ix = $get('pplOpenIndex');
-    if (ix) ix.onclick = () => { _navPush(); openNote(indexNote.id); };
+    // openNote() already pushes its own nav-history snapshot before switching
+    // views, so an extra _navPush() here double-pushed — Back had to be
+    // pressed twice to actually leave the People view (the first press just
+    // popped a duplicate "People" snapshot). Let openNote() own the push.
+    if (ix) ix.onclick = () => { openNote(indexNote.id); };
   }
 
   // Row click → open the person note.
   content.querySelectorAll('tr[data-ppl-id]').forEach(tr => {
-    tr.onclick = () => { _navPush(); openNote(tr.dataset.pplId); };
+    tr.onclick = () => { openNote(tr.dataset.pplId); };
   });
 }
 
@@ -6492,6 +6496,12 @@ function renderNotebooks(){
     if(!title||!title.trim()) return;
     const desc=await showPrompt('Description (optional):','');
     const nb=createNotebook({title:title.trim(), description:(desc||'').trim()});
+    // Push nav state BEFORE entering the new notebook's detail view — same as
+    // the data-open-nb click handler below — so "← All" correctly pops back
+    // to this notebooks list instead of whatever view was open before the
+    // Notebooks tool itself was opened (the bug: without this push, the nav
+    // stack's top entry was stale/unrelated, so Back landed somewhere wrong).
+    _navPush();
     currentNotebookId=nb.id; currentPageId=null;
     renderNotebookDetail(nb.id);
   };

@@ -1335,9 +1335,13 @@ Things outside UltraNote that compound. Adopt one at a time.
             renderTriage();
           } else if (act === 'paper') {
             const text = stripFiledPrefix(stripDeferPrefix(allLines[idx].text));
+            // newPaperNote() already navigates to the newly-created note via
+            // openNote() (which owns its own nav-history push). Re-rendering
+            // triage here would immediately overwrite that note view — the
+            // user would see it flash then get bounced straight back to
+            // triage instead of landing on the note they just promoted.
             await newPaperNote(text);
             removeInboxLineByIdx(idx);
-            renderTriage();
           } else if (act === 'topic') {
             const text = stripFiledPrefix(stripDeferPrefix(allLines[idx].text));
             const result = await newOrOpenTopicMap(text);
@@ -1360,12 +1364,26 @@ Things outside UltraNote that compound. Adopt one at a time.
                   if (wasCreated && page) { page.deletedAt = nowISO(); page.updatedAt = page.deletedAt; }
                   window.save();
                   toast('Undone' + (wasCreated ? ' — topic map removed' : ''));
+                  // Undo can fire well after the user has navigated away from
+                  // Research entirely (9s toast window) — calling renderTriage()
+                  // directly would stomp whatever view is currently on screen
+                  // without updating window.route, leaving nav state and the
+                  // DOM out of sync. Route through the app's own navigation
+                  // instead so both agree.
                   researchView = 'triage';
-                  renderTriage();
+                  window.route = 'research';
+                  if (typeof window.render === 'function') window.render();
+                  else renderTriage();
                 }
               });
             }
-            renderTriage();
+            // newOrOpenTopicMap() already navigated to the topic map note via
+            // openNote() when a result was returned — re-rendering triage here
+            // would immediately overwrite that view (visible flash, then
+            // bounced back to triage instead of landing on the topic map).
+            // Only re-render triage if the promotion was cancelled (no result),
+            // since in that case we never left the triage view.
+            if (!result) renderTriage();
           } else if (act === 'unfile') {
             const raw = allLines[idx].text;
             const topic = extractFiledTopic(raw);
