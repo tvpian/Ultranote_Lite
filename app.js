@@ -2214,20 +2214,13 @@ function getNotebookPages(notebookId){
   return db.notes.filter(n=>n.notebookId===notebookId && !n.deletedAt && n.type==='page')
     .sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0));
 }
-function createPage({title, notebookId, content='', tags=[]}){
+function createPage({title, notebookId, content='', tags=[], parentPageId=null}){
   const pages=getNotebookPages(notebookId);
   const maxOrder=pages.length ? Math.max(...pages.map(p=>p.sortOrder||0)) : -1;
   const n={id:uid(), title, content, tags, projectId:null, dateIndex:null, type:'page',
-    pinned:false, notebookId, sortOrder:maxOrder+1,
+    pinned:false, notebookId, parentPageId, sortOrder:maxOrder+1,
     createdAt:nowISO(), updatedAt:nowISO(), attachments:[], links:[]};
   db.notes.push(n); save(); return n;
-}
-function savePageReorder(notebookId, orderedIds){
-  orderedIds.forEach((id,i)=>{
-    const p=db.notes.find(x=>x.id===id);
-    if(p) p.sortOrder=i;
-  });
-  save();
 }
 // Inline TOC rename. Replaces a .nb-toc-title span with an input; Enter
 // commits, Esc cancels. Persists via updateNote so wiki-link backlinks and
@@ -6761,24 +6754,66 @@ function renderNotebookDetail(nbId){
         <input id='nbTocFilter' type='text' placeholder='Search titles & content…' autocomplete='off'
                style='width:100%;font-size:12px;padding:5px 7px;margin-top:2px;box-sizing:border-box;' />
         <div id='tocList' style='display:flex;flex-direction:column;gap:3px;margin-top:4px;'>
-          ${pages.map(p=>{
-            const _raw = (p.content||'').replace(/^---[\s\S]*?---\s*/, '').replace(/`{1,3}[^`]*`{1,3}/g,' ').replace(/[#>*_~`\-]+/g,' ').replace(/!?\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/\s+/g,' ').trim();
-            const _snippet = _raw ? _raw.slice(0, 220) + (_raw.length > 220 ? '…' : '') : '(empty page)';
-            const _isTpl = nb.templatePageId === p.id;
-            const _tip = `${(p.title||'Untitled')}\n\n${_snippet}\n\nDouble-click to rename${_isTpl ? '\n\n★ Used as the template for new pages' : ''}`;
-            return `
-            <div class='nb-toc-item' draggable='true' data-page-id='${p.id}' data-page-title='${htmlesc(p.title||'')}'
-                 title='${htmlesc(_tip)}'
-                 style='padding:7px 9px;border-radius:5px;cursor:pointer;font-size:13px;word-break:break-word;
-                        display:flex;align-items:center;gap:6px;
-                        border:1px solid ${currentPageId===p.id?'var(--acc)':(_isTpl?'#f0b429':'var(--btn-border)')};
-                        background:${currentPageId===p.id?'var(--acc)':'var(--card-bg)'};
-                        color:${currentPageId===p.id?'#fff':'var(--fg)'};'>
-              <span class='nb-toc-title' style='display:inline-block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;'>${htmlesc(p.title||'Untitled')}</span>
-              <span class='nb-toc-star' data-page-id='${p.id}' title='${_isTpl ? 'Template for new pages — click to unset' : 'Use as template for new pages'}'
-                    style='flex-shrink:0;cursor:pointer;font-size:13px;opacity:${_isTpl?'1':'0.35'};'>${_isTpl?'\u2605':'\u2606'}</span>
-            </div>`;
-          }).join('')}
+          ${(() => {
+            // Build a display order that interleaves each top-level page with
+            // its direct sub-pages (one level of nesting only — a sub-page
+            // cannot itself have sub-pages, enforced at reparent-time below).
+            // Sort within each group by sortOrder, same as the old flat list.
+            const bySort = (a,b)=>(a.sortOrder||0)-(b.sortOrder||0);
+            const topPages = pages.filter(p=>!p.parentPageId).sort(bySort);
+            const childrenByParent = new Map();
+            pages.forEach(p=>{
+              if(!p.parentPageId) return;
+              if(!childrenByParent.has(p.parentPageId)) childrenByParent.set(p.parentPageId, []);
+              childrenByParent.get(p.parentPageId).push(p);
+            });
+            childrenByParent.forEach(arr=>arr.sort(bySort));
+            const collapsed = new Set(nb.collapsedPageIds||[]);
+            const rows = [];
+            const seen = new Set();
+            topPages.forEach(p=>{
+              const kids = childrenByParent.get(p.id) || [];
+              rows.push({ page:p, depth:0, hasChildren: kids.length>0, collapsed: collapsed.has(p.id) });
+              seen.add(p.id);
+              // Mark children as accounted-for regardless of collapse state
+              // (only whether they're actually pushed as visible rows should
+              // depend on collapse) — otherwise the orphan safety-net below
+              // mistakes a collapsed child for one whose parent vanished and
+              // re-adds it as an un-indented top-level row.
+              kids.forEach(c=>seen.add(c.id));
+              if(kids.length && !collapsed.has(p.id)){
+                kids.forEach(c=>{ rows.push({ page:c, depth:1, hasChildren:false, collapsed:false }); });
+              }
+            });
+            // Safety net: pages whose parentPageId points at a page that no
+            // longer exists (deleted elsewhere without the orphan-promotion
+            // below running) would otherwise silently vanish from the TOC.
+            pages.forEach(p=>{ if(!seen.has(p.id)) rows.push({ page:p, depth:0, hasChildren:false, collapsed:false }); });
+
+            return rows.map(({page:p, depth, hasChildren, collapsed:isCollapsed})=>{
+              const _raw = (p.content||'').replace(/^---[\s\S]*?---\s*/, '').replace(/`{1,3}[^`]*`{1,3}/g,' ').replace(/[#>*_~`\-]+/g,' ').replace(/!?\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/\s+/g,' ').trim();
+              const _snippet = _raw ? _raw.slice(0, 220) + (_raw.length > 220 ? '…' : '') : '(empty page)';
+              const _isTpl = nb.templatePageId === p.id;
+              const _tip = `${(p.title||'Untitled')}\n\n${_snippet}\n\nDouble-click to rename${_isTpl ? '\n\n★ Used as the template for new pages' : ''}`;
+              const chevron = hasChildren
+                ? `<span class='nb-toc-chevron' data-page-id='${p.id}' style='flex-shrink:0;cursor:pointer;font-size:11px;width:12px;display:inline-block;color:var(--muted);'>${isCollapsed?'\u25b8':'\u25be'}</span>`
+                : (depth>0 ? `<span style='flex-shrink:0;width:12px;'></span>` : '');
+              return `
+              <div class='nb-toc-item' draggable='true' data-page-id='${p.id}' data-page-title='${htmlesc(p.title||'')}'
+                   data-parent-page-id='${p.parentPageId||''}' data-depth='${depth}'
+                   title='${htmlesc(_tip)}'
+                   style='padding:7px 9px 7px ${9+depth*18}px;border-radius:5px;cursor:pointer;font-size:13px;word-break:break-word;
+                          display:flex;align-items:center;gap:6px;
+                          border:1px solid ${currentPageId===p.id?'var(--acc)':(_isTpl?'#f0b429':'var(--btn-border)')};
+                          background:${currentPageId===p.id?'var(--acc)':'var(--card-bg)'};
+                          color:${currentPageId===p.id?'#fff':'var(--fg)'};'>
+                ${chevron}
+                <span class='nb-toc-title' style='display:inline-block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;'>${htmlesc(p.title||'Untitled')}</span>
+                <span class='nb-toc-star' data-page-id='${p.id}' title='${_isTpl ? 'Template for new pages — click to unset' : 'Use as template for new pages'}'
+                      style='flex-shrink:0;cursor:pointer;font-size:13px;opacity:${_isTpl?'1':'0.35'};'>${_isTpl?'\u2605':'\u2606'}</span>
+              </div>`;
+            }).join('');
+          })()}
           ${pages.length===0?`<div class='muted' style='font-size:12px;text-align:center;margin-top:16px;'>No pages yet</div>`:''}
         </div>
       </div>
@@ -6913,9 +6948,43 @@ function renderNotebookDetail(nbId){
     el.onclick=()=>{ currentPageId=el.dataset.pageId; openPageInNotebook(el.dataset.pageId, nbId); };
   });
 
-  // Drag-to-reorder
+  // --- Expand/collapse chevron for pages with sub-pages ---
+  content.querySelectorAll('.nb-toc-chevron').forEach(ch=>{
+    ch.addEventListener('click', e=>{
+      e.preventDefault(); e.stopPropagation();
+      const pid = ch.dataset.pageId;
+      const set = new Set(nb.collapsedPageIds||[]);
+      if(set.has(pid)) set.delete(pid); else set.add(pid);
+      updateNotebook(nbId, { collapsedPageIds:[...set] });
+      renderNotebookDetail(nbId);
+    });
+  });
+
+  // Drag-to-reorder / drag-to-nest (one level of nesting only). Dropping on
+  // the middle 50% of a top-level page nests the dragged page as its child;
+  // dropping on the top/bottom edge of any item reorders the dragged page
+  // as a sibling, adopting that item's own parent. A page that already has
+  // its own sub-pages always stays top-level when dropped (keeps nesting to
+  // a single level rather than trying to support arbitrary depth).
   let _dragSrc=null;
   const tocList=document.getElementById('tocList');
+  function reorderWithinGroup(pageId, newParentId, referenceId, position){
+    const p = db.notes.find(x=>x.id===pageId);
+    if(!p) return;
+    p.parentPageId = newParentId || null;
+    p.updatedAt = nowISO();
+    const groupPages = db.notes.filter(x=>x.notebookId===p.notebookId && !x.deletedAt && x.type==='page'
+      && (x.parentPageId||null)===(newParentId||null) && x.id!==pageId)
+      .sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0));
+    let insertAt = groupPages.length;
+    if(referenceId && position!=='end'){
+      const idx = groupPages.findIndex(x=>x.id===referenceId);
+      if(idx>=0) insertAt = position==='before' ? idx : idx+1;
+    }
+    groupPages.splice(insertAt, 0, p);
+    groupPages.forEach((x,i)=>{ x.sortOrder=i; });
+    save();
+  }
   content.querySelectorAll('.nb-toc-item').forEach(el=>{
     el.addEventListener('dragstart', e=>{
       _dragSrc=el; el.style.opacity='0.45';
@@ -6924,25 +6993,39 @@ function renderNotebookDetail(nbId){
     });
     el.addEventListener('dragend', ()=>{
       el.style.opacity='';
-      content.querySelectorAll('.nb-toc-item').forEach(x=>x.classList.remove('nb-drag-over'));
+      content.querySelectorAll('.nb-toc-item').forEach(x=>x.classList.remove('nb-drag-over','nb-drag-before','nb-drag-after','nb-drag-nest'));
     });
     el.addEventListener('dragover', e=>{
       e.preventDefault(); e.dataTransfer.dropEffect='move';
-      content.querySelectorAll('.nb-toc-item').forEach(x=>x.classList.remove('nb-drag-over'));
-      el.classList.add('nb-drag-over');
+      content.querySelectorAll('.nb-toc-item').forEach(x=>{ if(x!==el) x.classList.remove('nb-drag-over','nb-drag-before','nb-drag-after','nb-drag-nest'); });
+      const rect = el.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const isTopLevel = el.dataset.depth==='0';
+      let zone;
+      if(isTopLevel && y > rect.height*0.25 && y < rect.height*0.75) zone='nest';
+      else zone = y < rect.height*0.5 ? 'before' : 'after';
+      el.dataset.dropZone = zone;
+      el.classList.remove('nb-drag-before','nb-drag-after','nb-drag-nest');
+      el.classList.add(zone==='nest' ? 'nb-drag-nest' : (zone==='before' ? 'nb-drag-before' : 'nb-drag-after'));
     });
     el.addEventListener('drop', e=>{
       e.preventDefault();
+      content.querySelectorAll('.nb-toc-item').forEach(x=>x.classList.remove('nb-drag-over','nb-drag-before','nb-drag-after','nb-drag-nest'));
       if(!_dragSrc || _dragSrc===el) return;
-      content.querySelectorAll('.nb-toc-item').forEach(x=>x.classList.remove('nb-drag-over'));
-      const allItems=[...tocList.querySelectorAll('.nb-toc-item')];
-      const srcIdx=allItems.indexOf(_dragSrc);
-      const dstIdx=allItems.indexOf(el);
-      if(srcIdx<dstIdx) tocList.insertBefore(_dragSrc, el.nextSibling);
-      else tocList.insertBefore(_dragSrc, el);
-      // Persist new order
-      const newOrder=[...tocList.querySelectorAll('.nb-toc-item')].map(x=>x.dataset.pageId);
-      savePageReorder(nbId, newOrder);
+      const srcId = _dragSrc.dataset.pageId;
+      const dstId = el.dataset.pageId;
+      const dstParent = el.dataset.parentPageId || null;
+      const zone = el.dataset.dropZone || 'after';
+      const srcHasChildren = pages.some(x=>x.parentPageId===srcId);
+      if(srcHasChildren){
+        const anchorId = dstParent || dstId;
+        reorderWithinGroup(srcId, null, anchorId, 'after');
+      } else if(zone==='nest' && el.dataset.depth==='0'){
+        reorderWithinGroup(srcId, dstId, null, 'end');
+      } else {
+        reorderWithinGroup(srcId, dstParent, dstId, zone==='nest' ? 'after' : zone);
+      }
+      renderNotebookDetail(nbId);
     });
   });
 
@@ -6984,12 +7067,18 @@ function openPageInNotebook(pageId, nbId){
       })()}
       <input id='pgTitle' type='text' value='${htmlesc(p.title)}'
              style='width:100%;font-size:17px;font-weight:600;margin-bottom:8px;box-sizing:border-box;' />
+      ${(() => {
+        if(!p.parentPageId) return '';
+        const parent = db.notes.find(x=>x.id===p.parentPageId && !x.deletedAt);
+        return parent ? `<div class='muted' style='font-size:11px;margin:-4px 0 8px;'>\u21b3 Sub-page of <strong>${htmlesc(parent.title||'Untitled')}</strong></div>` : '';
+      })()}
       <input id='pgTags' type='text' placeholder='Tags (e.g. #ml #ros2)'
              value='${(p.tags||[]).map(t=>'#'+t).join(' ')}'
              style='width:100%;margin-bottom:8px;font-size:13px;box-sizing:border-box;' />
-      <div class='row' style='margin-bottom:8px;gap:8px;align-items:center;'>
+      <div class='row' style='margin-bottom:8px;gap:8px;align-items:center;flex-wrap:wrap;'>
         <button id='pgToggleModeBtn' class='btn acc' style='font-size:12px;' title='Cycle Edit → Split → Preview'>Split</button>
         <span style='font-size:11px;color:var(--muted);'>Ctrl+Shift+V cycles view</span>
+        ${!p.parentPageId ? `<button id='pgAddSubpage' class='btn' style='font-size:11px;margin-left:auto;' title='Create a sub-page nested under this one'>+ Sub-page</button>` : ''}
       </div>
       <div id='pgHeadingNav' style='display:none;margin-bottom:8px;padding:6px 8px;
            border:1px solid var(--btn-border);border-radius:6px;max-height:130px;overflow-y:auto;'></div>
@@ -7268,6 +7357,20 @@ function openPageInNotebook(pageId, nbId){
 
   document.getElementById('pgSave').onclick = doSavePage;
 
+  const pgAddSubpageBtn = document.getElementById('pgAddSubpage');
+  if(pgAddSubpageBtn){
+    pgAddSubpageBtn.onclick = () => {
+      if(_autosaveTimer){ clearTimeout(_autosaveTimer); _autosaveTimer=null; doSavePage(true); }
+      const sub = createPage({ title:'Untitled', notebookId:nbId, parentPageId:p.id });
+      currentPageId = sub.id;
+      renderNotebookDetail(nbId);
+      setTimeout(()=>{
+        const t=document.getElementById('pgTitle');
+        if(t){ t.focus(); t.select(); }
+      }, 0);
+    };
+  }
+
   document.getElementById('pgExportMd').onclick = () => {
     // Flush any pending edit first so the export matches what's on screen.
     if(_autosaveTimer){ clearTimeout(_autosaveTimer); _autosaveTimer=null; doSavePage(true); }
@@ -7284,7 +7387,9 @@ function openPageInNotebook(pageId, nbId){
   };
 
   document.getElementById('pgDelete').onclick=async()=>{
-    const ok=await showConfirm(`Delete page "${p.title}"? It can be restored from Review.`,'Delete','Cancel');
+    const childCount = getNotebookPages(nbId).filter(x=>x.parentPageId===p.id).length;
+    const warn = childCount ? ` Its ${childCount} sub-page${childCount===1?'':'s'} will be promoted to top-level pages.` : '';
+    const ok=await showConfirm(`Delete page "${p.title}"?${warn} It can be restored from Review.`,'Delete','Cancel');
     if(!ok) return;
     // Cancel any pending autosave so it doesn't resurrect the row we just nuked.
     if(_autosaveTimer){ clearTimeout(_autosaveTimer); _autosaveTimer=null; }
@@ -7292,6 +7397,10 @@ function openPageInNotebook(pageId, nbId){
     document.removeEventListener('keydown', window._pgKeyHandler, true);
     document.removeEventListener('keydown', window._pgKeyHandler);
     window._pgKeyHandler = null;
+    // Promote any sub-pages to top-level rather than cascade-deleting them —
+    // deleting a parent shouldn't silently take its children down with it.
+    db.notes.filter(x=>x.notebookId===nbId && !x.deletedAt && x.type==='page' && x.parentPageId===p.id)
+      .forEach(x=>{ x.parentPageId=null; x.updatedAt=nowISO(); });
     softDeleteNote(p.id);
     currentPageId=null;
     renderNotebookDetail(nbId);
