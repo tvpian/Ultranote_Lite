@@ -1539,7 +1539,11 @@ Things outside UltraNote that compound. Adopt one at a time.
     };
     const newBtn = content.querySelector('[data-act="new"]');
     if (newBtn && cfg.newAction) {
-      newBtn.onclick = async () => { await cfg.newAction(); renderManage(kind); };
+      // cfg.newAction (newPaperNote / newOrOpenTopicMap / newOrOpenSynthesis)
+      // already navigates to the new/opened note via openNote() internally.
+      // Re-rendering the manage list here would immediately clobber that note
+      // view — same bug already fixed in the triage promote handlers.
+      newBtn.onclick = async () => { await cfg.newAction(); };
     }
 
     content.querySelectorAll('.triage-row').forEach(row => {

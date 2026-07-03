@@ -4485,18 +4485,21 @@ function openTaskContext(taskId){
     }
   }
   if(t.projectId){
+    _navPush();
     route='projects';
     render();
     const btn = document.querySelector(`[data-project-id="${t.projectId}"]`);
     if(btn) btn.scrollIntoView({behavior:'smooth', block:'center'});
     return;
   }
+  _navPush();
   route='today';
   render();
 }
 
 function openProjectContext(projectId){
   if(!projectId) return;
+  _navPush();
   currentProjectId = projectId;
   route='projects';
   render();
@@ -5063,7 +5066,7 @@ function renderReview(){
     setTaskStatus(id,'TODO');
     renderReview();
   });
-  content.querySelectorAll('[data-tag]').forEach(b=> b.onclick=()=>{ route='vault'; document.getElementById('q').value='#'+b.dataset.tag; render(); });
+  content.querySelectorAll('[data-tag]').forEach(b=> b.onclick=()=>{ _navPush(); route='vault'; document.getElementById('q').value='#'+b.dataset.tag; render(); });
 
   // Trash handlers
   content.querySelectorAll('[data-open-task-modal]').forEach(b=> b.onclick=()=>{ openTaskModal(b.dataset.openTaskModal); });
