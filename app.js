@@ -2597,6 +2597,45 @@ function _replaceSourceRange(ta, start, end, text){
   }
   ta.dispatchEvent(new Event('input'));
 }
+// Small floating "<message> · Undo" snackbar, shown after every preview-
+// triggered highlight/note action (create, edit note, remove). Native
+// Ctrl+Z already works for these edits when the textarea is visible, but it
+// silently CAN'T reach it in pure Preview mode (`_replaceSourceRange`'s
+// fallback there is a direct .value splice — a hidden textarea can't be
+// focused, so execCommand has nothing to target). Rather than have undo
+// work in some modes and not others, every preview action gets this single,
+// explicit, always-reliable "Undo" affordance — the same pattern readers
+// like Kindle/Apple Books use for "highlight added" confirmations, and it
+// doubles as an obvious "delete this" path for anyone who didn't notice the
+// click-to-open annotation popover's own Remove button.
+let _undoToastEl = null;
+function _showUndoToast(message, onUndo){
+  if(!_undoToastEl){
+    _undoToastEl = document.createElement('div');
+    _undoToastEl.className = 'hl-undo-toast';
+    document.body.appendChild(_undoToastEl);
+  }
+  clearTimeout(_undoToastEl._hideT);
+  _undoToastEl.innerHTML = `<span>${htmlesc(message)}</span><button type="button" data-undo>\u21A9 Undo</button>`;
+  _undoToastEl.querySelector('[data-undo]').onclick = () => {
+    onUndo();
+    _undoToastEl.classList.remove('show');
+    clearTimeout(_undoToastEl._hideT);
+  };
+  _undoToastEl.classList.add('show');
+  _undoToastEl._hideT = setTimeout(() => _undoToastEl.classList.remove('show'), 6000);
+}
+// Same as `_replaceSourceRange`, but captures whatever text currently sits
+// in [start,end) first and offers it back through the undo toast above —
+// one explicit, mode-independent way to reverse any single highlight/note
+// action instead of relying solely on native (sometimes unreachable) undo.
+function _replaceSourceRangeWithUndo(ta, start, end, text, message){
+  const original = ta.value.slice(start, end);
+  _replaceSourceRange(ta, start, end, text);
+  _showUndoToast(message, () => {
+    _replaceSourceRange(ta, start, start + text.length, original);
+  });
+}
 // Finds the Nth `==...==` highlight token in a raw markdown source string
 // (0-indexed, in document order) — used to map a click on a rendered
 // <mark data-hl-idx> back to its exact source range for editing/removal.
@@ -2654,10 +2693,10 @@ function _wireHighlightSelectionPopup(previewEl, ta){
       if(action === 'note'){
         const note = await showPrompt('Margin note for this highlight (optional):', '', 'Add', 'Skip');
         const suffix = (note && note.trim()) ? `^[${note.trim()}]` : '';
-        _replaceSourceRange(ta, start, end, `==${selText}==${suffix}`);
+        _replaceSourceRangeWithUndo(ta, start, end, `==${selText}==${suffix}`, suffix ? 'Highlight & note added' : 'Highlighted');
       } else {
         const wrapped = action === 'y' ? `==${selText}==` : `==${action}:${selText}==`;
-        _replaceSourceRange(ta, start, end, wrapped);
+        _replaceSourceRangeWithUndo(ta, start, end, wrapped, 'Highlighted');
       }
     })();
     window.getSelection().removeAllRanges();
@@ -2746,13 +2785,13 @@ document.addEventListener('click', (e) => {
     if(!fresh) return;
     const suffix = note.trim() ? `^[${note.trim()}]` : '';
     const prefix = fresh.color === 'y' ? '' : `${fresh.color}:`;
-    _replaceSourceRange(ta, fresh.start, fresh.end, `==${prefix}${fresh.text}==${suffix}`);
+    _replaceSourceRangeWithUndo(ta, fresh.start, fresh.end, `==${prefix}${fresh.text}==${suffix}`, tok.note ? 'Note updated' : 'Note added');
     _hideHlNotePopover();
   };
   popover.querySelector('[data-hl-act="remove"]').onclick = () => {
     const fresh = _locateHighlightToken(ta.value, idx);
     if(!fresh) return;
-    _replaceSourceRange(ta, fresh.start, fresh.end, fresh.text);
+    _replaceSourceRangeWithUndo(ta, fresh.start, fresh.end, fresh.text, 'Highlight removed');
     _hideHlNotePopover();
   };
   const rect = mark.getBoundingClientRect();
