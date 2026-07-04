@@ -5676,14 +5676,43 @@ html { scrollbar-gutter: stable; }
 }
 
 /* Collapsible "Pages" panel (← All / + New Page / Export .md / search /
-   TOC list) — user-toggleable via the ▾/▸ button in its header, so it
-   doesn't have to permanently eat viewport space above the page editor
-   on mobile (where it stacks above rather than beside the editor). Keep
-   the sidebar's own width unchanged when collapsed (only its body content
-   is hidden via inline display:none) — an earlier attempt to also shrink
-   the width to `auto` backfired: with the header row's title span set to
-   `flex:1`, a `width:auto` parent has nothing to constrain that flex
-   basis against, so the row (and the whole sidebar) grew WIDER than the
-   230px expanded state instead of narrower. Not worth the complexity for
-   a purely cosmetic desktop width tweak — the real goal (reclaiming
-   vertical space on mobile) doesn't need it. */
+   TOC list) — user-toggleable via the button in its header.
+   - On mobile (panel stacks ABOVE the editor, handled above): collapsing
+     only hides the list body — the panel stays full-width (nothing to
+     gain by narrowing a panel that's already on its own row), reclaiming
+     vertical space instead.
+   - On tablet/desktop (panel sits BESIDE the editor, min-width:701px):
+     collapsing actually shrinks the panel down to a slim 40px icon rail,
+     handing that reclaimed horizontal space to the page editor — a
+     collapse that doesn't shrink anything isn't worth having here, since
+     the panel isn't in the way of reading/scrolling the note the way it
+     is when stacked above it on mobile. The back button and notebook
+     title are hidden in rail mode (both remain one click away — just
+     expand first); only the toggle button remains, in a vertical/rotated
+     label via `writing-mode` so "Pages" is still readable in a narrow
+     column. Pure CSS (media query + class), no JS viewport branching, so
+     it also responds correctly if the window is resized/rotated without
+     a full re-render. */
+@media (min-width: 701px) {
+  #nbToc.nb-toc-collapsed {
+    width: 40px !important;
+    min-width: 40px !important;
+    padding: 10px 4px !important;
+    align-items: center;
+  }
+  #nbToc.nb-toc-collapsed #nbTocHeaderRow {
+    flex-direction: column;
+  }
+  #nbToc.nb-toc-collapsed #backToNbs,
+  #nbToc.nb-toc-collapsed .nbTocTitleLabel {
+    display: none;
+  }
+  #nbToc.nb-toc-collapsed #nbTocToggle {
+    width: 100%;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    padding: 10px 2px;
+    white-space: nowrap;
+  }
+}
+

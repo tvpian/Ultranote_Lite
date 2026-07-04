@@ -7134,15 +7134,19 @@ function renderNotebookDetail(nbId){
   if(currentPageId && !pages.find(p=>p.id===currentPageId)) currentPageId=null;
 
   // The "Pages" panel (← All / + New Page / Export .md / search / TOC list)
-  // is a permanent side-by-side sidebar on desktop, but on narrow screens it
-  // stacks ABOVE the page editor (see styles.css @media max-width:700px) —
-  // without a way to collapse it, it eats a big chunk of the viewport above
-  // the actual note content the user came to edit. Make it collapsible with
-  // a manual toggle; default to auto-collapsed on mobile whenever a page is
-  // already open (the common "I'm editing, get this out of my way" case),
-  // but expanded when no page is selected yet (so there's something to pick
-  // from). Once the user manually toggles it, that explicit choice sticks
-  // for the rest of the session regardless of which page is open.
+  // sits beside the page editor on tablet/desktop but stacks ABOVE it on
+  // narrow screens (see styles.css @media max-width:700px) — either way it
+  // can eat viewport space the user would rather give to the note they're
+  // actually editing. Make it collapsible with a manual toggle; default to
+  // auto-collapsed on mobile whenever a page is already open (the common
+  // "I'm editing, get this out of my way" case), but expanded when no page
+  // is selected yet (so there's something to pick from) or on desktop/
+  // tablet (collapsing there is a deliberate, less urgent choice — see
+  // styles.css for how collapse behaves differently there: a slim icon
+  // rail that reclaims horizontal space, vs. mobile where it just hides
+  // the list and keeps the header's full width). Once the user manually
+  // toggles it, that explicit choice sticks for the rest of the session
+  // regardless of which page is open.
   const isMobileNb = (() => { try { return window.matchMedia('(max-width:700px)').matches; } catch(_) { return false; } })();
   const nbTocCollapsed = (window._nbTocCollapsed !== undefined) ? window._nbTocCollapsed : !!(isMobileNb && currentPageId);
 
@@ -7152,12 +7156,12 @@ function renderNotebookDetail(nbId){
       <div id='nbToc' class='${nbTocCollapsed?'nb-toc-collapsed':''}' style='width:230px;min-width:160px;flex-shrink:0;overflow-y:auto;
            border-right:1px solid var(--btn-border);padding:10px;box-sizing:border-box;
            display:flex;flex-direction:column;gap:6px;'>
-        <div class='row' style='align-items:center;gap:6px;flex-wrap:wrap;'>
+        <div id='nbTocHeaderRow' class='row' style='align-items:center;gap:6px;flex-wrap:wrap;'>
           <button id='backToNbs' class='btn' style='font-size:11px;flex-shrink:0;padding:4px 8px;'>\u2190 All</button>
-          <span style='font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;'
+          <span class='nbTocTitleLabel' style='font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;'
                 title='${htmlesc(nb.title)}'>${htmlesc(nb.title)}</span>
           <button id='nbTocToggle' class='btn' title='${nbTocCollapsed?'Show pages list':'Hide pages list'}'
-                  style='font-size:11px;flex-shrink:0;padding:4px 8px;'>${nbTocCollapsed?'\u25b8 Pages':'\u25be'}</button>
+                  style='font-size:11px;flex-shrink:0;padding:4px 8px;'>${nbTocCollapsed?'\u25b8 Pages':'\u25be Hide'}</button>
         </div>
         <div id='nbTocBody' style='display:${nbTocCollapsed?'none':'flex'};flex-direction:column;gap:6px;'>
         <button id='newPage' class='btn acc' style='font-size:12px;width:100%;'>+ New Page</button>
