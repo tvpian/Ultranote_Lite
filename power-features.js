@@ -405,6 +405,16 @@
     const box = document.getElementById('contentBox');
     const src = (box ? box.value : (note.content || '')) || '';
 
+    // Fast bail for the common case (no checklist markers at all): a single
+    // indexOf scan instead of splitting the whole note into lines and
+    // regex-testing each one. This runs on every keystroke (rAF-debounced),
+    // so for large notes (tens/hundreds of KB) the full split+regex pass was
+    // a real source of typing lag even when there was nothing to promote.
+    if (src.indexOf('- [') === -1) {
+      if (panel.dataset.sig) { panel.innerHTML = ''; panel.dataset.sig = ''; }
+      return;
+    }
+
     const items = [];
     src.split('\n').forEach((line, idx) => {
       const m = line.match(/^\s*-\s*\[\s*([ xX])\s*\]\s*(.+?)\s*$/);

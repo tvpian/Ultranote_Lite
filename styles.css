@@ -4591,37 +4591,6 @@ input[type="datetime-local"] {
   transform: translateX(-50%) translateY(0);
 }
 
-/* "<message> · Undo" snackbar shown after a highlight/note is created,
-   edited, or removed from a preview pane — see _showUndoToast in app.js. */
-.hl-undo-toast {
-  position: fixed; left: 50%; bottom: 32px;
-  transform: translateX(-50%) translateY(20px);
-  display: flex; align-items: center; gap: 12px;
-  background: var(--card);
-  color: var(--fg);
-  border: 1px solid var(--acc);
-  border-radius: 10px;
-  padding: 8px 10px 8px 16px;
-  font-size: 14px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-  opacity: 0;
-  transition: opacity 160ms ease, transform 160ms ease;
-  z-index: 10001;
-  pointer-events: none;
-}
-.hl-undo-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
-.hl-undo-toast button {
-  background: transparent;
-  border: 1px solid var(--acc);
-  color: var(--acc);
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.hl-undo-toast button:hover { background: var(--acc); color: #111; }
-
 /* ============================================================
    Section H — Editor extras (wiki-links, slash menu, autocomplete,
    backlinks, focus mode). Added with editor-extras.js.

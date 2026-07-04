@@ -2732,45 +2732,13 @@ function _wireSplitScrollSync(ta, previewEl, paneWrap){
   previewEl.addEventListener('scroll', () => syncScroll(previewEl, ta));
   return syncHeight;
 }
-// Small floating "<message> · Undo" snackbar, shown after every preview-
-// triggered highlight/note action (create, edit note, remove). Native
-// Ctrl+Z already works for these edits when the textarea is visible, but it
-// silently CAN'T reach it in pure Preview mode (`_replaceSourceRange`'s
-// fallback there is a direct .value splice — a hidden textarea can't be
-// focused, so execCommand has nothing to target). Rather than have undo
-// work in some modes and not others, every preview action gets this single,
-// explicit, always-reliable "Undo" affordance — the same pattern readers
-// like Kindle/Apple Books use for "highlight added" confirmations, and it
-// doubles as an obvious "delete this" path for anyone who didn't notice the
-// click-to-open annotation popover's own Remove button.
-let _undoToastEl = null;
-function _showUndoToast(message, onUndo){
-  if(!_undoToastEl){
-    _undoToastEl = document.createElement('div');
-    _undoToastEl.className = 'hl-undo-toast';
-    document.body.appendChild(_undoToastEl);
-  }
-  clearTimeout(_undoToastEl._hideT);
-  _undoToastEl.innerHTML = `<span>${htmlesc(message)}</span><button type="button" data-undo>\u21A9 Undo</button>`;
-  _undoToastEl.querySelector('[data-undo]').onclick = () => {
-    onUndo();
-    _undoToastEl.classList.remove('show');
-    clearTimeout(_undoToastEl._hideT);
-  };
-  _undoToastEl.classList.add('show');
-  _undoToastEl._hideT = setTimeout(() => _undoToastEl.classList.remove('show'), 6000);
-}
-// Same as `_replaceSourceRange`, but captures whatever text currently sits
-// in [start,end) first and offers it back through the undo toast above —
-// one explicit, mode-independent way to reverse any single highlight/note
-// action instead of relying solely on native (sometimes unreachable) undo.
-function _replaceSourceRangeWithUndo(ta, start, end, text, message){
-  const original = ta.value.slice(start, end);
-  _replaceSourceRange(ta, start, end, text);
-  _showUndoToast(message, () => {
-    _replaceSourceRange(ta, start, start + text.length, original);
-  });
-}
+// Deleting/editing an existing highlight or note is done the same way PDF
+// readers do it: click the highlighted text (or its 💬 badge) to open the
+// annotation popover below (`_ensureHlNotePopover`), which has an explicit
+// "Remove" button. There is deliberately no separate "undo" affordance for
+// preview-triggered highlight actions — it was confusing (a second, less
+// discoverable way to remove a highlight that only worked for ~6s) and
+// duplicated what the popover's Remove button already does at any time.
 // Finds the Nth `==...==` highlight token in a raw markdown source string
 // (0-indexed, in document order) — used to map a click on a rendered
 // <mark data-hl-idx> back to its exact source range for editing/removal.
@@ -2828,10 +2796,10 @@ function _wireHighlightSelectionPopup(previewEl, ta){
       if(action === 'note'){
         const note = await showPrompt('Margin note for this highlight (optional):', '', 'Add', 'Skip');
         const suffix = (note && note.trim()) ? `^[${note.trim()}]` : '';
-        _replaceSourceRangeWithUndo(ta, start, end, `==${selText}==${suffix}`, suffix ? 'Highlight & note added' : 'Highlighted');
+        _replaceSourceRange(ta, start, end, `==${selText}==${suffix}`);
       } else {
         const wrapped = action === 'y' ? `==${selText}==` : `==${action}:${selText}==`;
-        _replaceSourceRangeWithUndo(ta, start, end, wrapped, 'Highlighted');
+        _replaceSourceRange(ta, start, end, wrapped);
       }
     })();
     window.getSelection().removeAllRanges();
@@ -2924,13 +2892,13 @@ document.addEventListener('click', (e) => {
     if(!fresh) return;
     const suffix = note.trim() ? `^[${note.trim()}]` : '';
     const prefix = fresh.color === 'y' ? '' : `${fresh.color}:`;
-    _replaceSourceRangeWithUndo(ta, fresh.start, fresh.end, `==${prefix}${fresh.text}==${suffix}`, tok.note ? 'Note updated' : 'Note added');
+    _replaceSourceRange(ta, fresh.start, fresh.end, `==${prefix}${fresh.text}==${suffix}`);
     _hideHlNotePopover();
   };
   popover.querySelector('[data-hl-act="remove"]').onclick = () => {
     const fresh = _locateHighlightToken(ta.value, idx);
     if(!fresh) return;
-    _replaceSourceRangeWithUndo(ta, fresh.start, fresh.end, fresh.text, 'Highlight removed');
+    _replaceSourceRange(ta, fresh.start, fresh.end, fresh.text);
     _hideHlNotePopover();
   };
   const rect = mark.getBoundingClientRect();
@@ -7559,6 +7527,13 @@ function openPageInNotebook(pageId, nbId){
   function renderPgFollowupsPanel(){
     if(!pgFollowupsEl) return;
     const src = contentEl.value || '';
+    // Fast bail for the common case (no checklist markers at all): a single
+    // indexOf scan instead of splitting the whole page into lines and
+    // regex-testing each one on every keystroke.
+    if(src.indexOf('- [') === -1){
+      if(_pgFollowupsSig){ pgFollowupsEl.innerHTML=''; _pgFollowupsSig=''; }
+      return;
+    }
     const items = [];
     src.split('\n').forEach((line, idx) => {
       const m = line.match(/^\s*-\s*\[\s*([ xX])\s*\]\s*(.+?)\s*$/);
@@ -7618,7 +7593,15 @@ function openPageInNotebook(pageId, nbId){
       };
     });
   }
-  contentEl.addEventListener('input', renderPgFollowupsPanel);
+  // rAF-debounced: coalesces bursts of input events (fast typing, paste) into
+  // one recompute per frame instead of one per keystroke — both scan the
+  // full page content, which was a measurable source of typing lag on large
+  // notebook pages.
+  let _pgFollowupsRaf = 0;
+  contentEl.addEventListener('input', () => {
+    if(_pgFollowupsRaf) cancelAnimationFrame(_pgFollowupsRaf);
+    _pgFollowupsRaf = requestAnimationFrame(() => { _pgFollowupsRaf = 0; renderPgFollowupsPanel(); });
+  });
   renderPgFollowupsPanel();
 
   // --- Autosave: debounced (~500ms after last keystroke) so the user never
@@ -7641,7 +7624,14 @@ function openPageInNotebook(pageId, nbId){
   [titleEl, contentEl, tagsEl].forEach(el=>{
     if(el) el.addEventListener('input', markDirty);
   });
-  contentEl.addEventListener('input', renderPgHeadingNav);
+  // rAF-debounced (see renderPgFollowupsPanel above for why): re-extracting
+  // headings from the full page content on every single keystroke was
+  // unnecessary work most keystrokes don't need.
+  let _pgHeadingNavRaf = 0;
+  contentEl.addEventListener('input', () => {
+    if(_pgHeadingNavRaf) cancelAnimationFrame(_pgHeadingNavRaf);
+    _pgHeadingNavRaf = requestAnimationFrame(() => { _pgHeadingNavRaf = 0; renderPgHeadingNav(); });
+  });
   renderPgHeadingNav();
 
   // Bind markdown toolbar AFTER HTML is stamped into the DOM
@@ -7659,7 +7649,7 @@ function openPageInNotebook(pageId, nbId){
     ? db.settings.noteViewMode : 'edit';
   if (pgCurrentMode === 'split' && pgNarrow()) pgCurrentMode = 'edit';
   _wireHighlightSelectionPopup(pgPreviewEl, contentEl);
-  let _pgPreviewRaf = 0;
+  let _pgPreviewDebounce = 0;
   function renderPgPreview() {
     if (!pgPreviewEl) return;
     const sH = pgPreviewEl.scrollHeight || 1;
@@ -7671,8 +7661,10 @@ function openPageInNotebook(pageId, nbId){
   }
   function schedulePgPreview() {
     if (pgCurrentMode === 'edit') return;
-    if (_pgPreviewRaf) cancelAnimationFrame(_pgPreviewRaf);
-    _pgPreviewRaf = requestAnimationFrame(() => { _pgPreviewRaf = 0; renderPgPreview(); });
+    // See schedulePreview() in openNote() for why this is a trailing
+    // debounce rather than a plain next-frame rAF.
+    clearTimeout(_pgPreviewDebounce);
+    _pgPreviewDebounce = setTimeout(() => { _pgPreviewDebounce = 0; renderPgPreview(); }, 180);
   }
   function applyPgMode(mode) {
     if (!PG_MODES.includes(mode)) mode = 'edit';
@@ -8420,7 +8412,7 @@ function openNote(id){
   if (currentMode === 'split' && narrow()) currentMode = 'edit';
   _wireHighlightSelectionPopup(previewEl, contentBoxEl);
 
-  let _previewRaf = 0;
+  let _previewDebounce = 0;
   function renderPreview() {
     if (!previewEl) return;
     // Preserve scroll proportion so live edits don't jump the preview.
@@ -8434,8 +8426,14 @@ function openNote(id){
   }
   function schedulePreview() {
     if (currentMode === 'edit') return;
-    if (_previewRaf) cancelAnimationFrame(_previewRaf);
-    _previewRaf = requestAnimationFrame(() => { _previewRaf = 0; renderPreview(); });
+    // Trailing debounce (not just next-frame rAF): markdownToHtml() re-parses
+    // the ENTIRE note (marked + DOMPurify + wiki/highlight/math extraction)
+    // on every call. For large notes, doing that on literally every
+    // keystroke while typing continuously caused real, noticeable input lag.
+    // Waiting for a short pause keeps the preview feeling live while cutting
+    // reparse frequency dramatically during fast/continuous typing.
+    clearTimeout(_previewDebounce);
+    _previewDebounce = setTimeout(() => { _previewDebounce = 0; renderPreview(); }, 180);
   }
 
   function applyMode(mode) {
