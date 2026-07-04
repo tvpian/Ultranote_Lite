@@ -553,6 +553,12 @@ app.post('/api/db', (req, res) => {
   // client (or directly on disk) after the stale client's last fetch.
   const current = readData() || {};
 
+  // Notes the client explicitly confirmed shrinking (after being warned by
+  // a previous request's `refusedShrinks` response) — bypasses the guard
+  // below for just these ids, on just this request.
+  const forceShrinkIds = new Set(Array.isArray(incoming.__forceShrinkIds) ? incoming.__forceShrinkIds : []);
+  const refusedShrinks = [];
+
   function mergeById(serverArr = [], clientArr = [], collection = '') {
     const ts = r => Date.parse(r.updatedAt || r.createdAt || 0);
     const map = new Map();
@@ -567,12 +573,21 @@ app.post('/api/db', (req, res) => {
     // the right fix is to never let a single save erase >50% of a note's
     // existing content. Edits never shrink notes that violently; this only
     // ever triggers on bug-induced or stale-state overwrites.
+    //
+    // IMPORTANT: a refusal here is NOT silent — it's collected into
+    // `refusedShrinks` and echoed back to the client, which prompts the user
+    // to confirm ("did you really mean to delete most of this note?") and,
+    // if so, resends with this note's id in `__forceShrinkIds` to bypass the
+    // guard on the retry. Without this round-trip, a legitimate large
+    // trim/rewrite would look to the user exactly like "my save silently
+    // reverted to the old version" the next time the app reloaded from disk.
     const NOTE_SHRINK_FLOOR = 500;       // bytes — only protect non-trivial notes
     const NOTE_SHRINK_RATIO = 0.5;       // refuse if new < server * ratio
     function isDangerousNoteShrink(server, client) {
       if (collection !== 'notes') return false;
       if (!server || !client) return false;
       if (client.deletedAt) return false; // explicit deletion is allowed
+      if (forceShrinkIds.has(client.id)) return false; // user already confirmed
       const sLen = (server.content || '').length;
       const cLen = (client.content || '').length;
       if (sLen < NOTE_SHRINK_FLOOR) return false;
@@ -600,6 +615,7 @@ app.post('/api/db', (req, res) => {
       }
       if (isDangerousNoteShrink(s, r)) {
         console.warn(`[merge-guard] refused content shrink on note ${r.id} ("${(s.title||'').slice(0,40)}"): ${(s.content||'').length} → ${(r.content||'').length} bytes; keeping server copy`);
+        refusedShrinks.push({ id: r.id, title: s.title || r.title || '', serverLen: (s.content||'').length, clientLen: (r.content||'').length });
         return;
       }
       if (ts(r) > ts(s)) {
@@ -626,9 +642,9 @@ app.post('/api/db', (req, res) => {
   // doubles every save's payload. Clients can opt out via ?noEcho=1 and rely
   // on the autosync layer for cross-device pickup instead.
   if (req.query.noEcho === '1') {
-    return res.json({ ok: true });
+    return res.json(refusedShrinks.length ? { ok: true, refusedShrinks } : { ok: true });
   }
-  res.json({ ok: true, db: merged });
+  res.json(refusedShrinks.length ? { ok: true, db: merged, refusedShrinks } : { ok: true, db: merged });
 });
 
 // ── Agent-friendly query endpoints ─────────────────────────────────────────

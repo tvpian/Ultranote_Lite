@@ -150,7 +150,10 @@ async function persistDB(){
         // presence proves the request originated from our own JS.
         'X-Requested-With': 'XMLHttpRequest'
       },
-      body: JSON.stringify(db)
+      // __forceShrinkIds: note ids the user has already confirmed shrinking
+      // by >50% (see _handleRefusedShrinks below) — server strips this field
+      // out of the persisted db, it only affects this request's merge guard.
+      body: JSON.stringify({ ...db, __forceShrinkIds: Array.from(window._forceShrinkIds || []) })
     });
     // Server now returns the merged result so this device immediately picks up any
     // records added by other clients since our last fetch — without waiting for the
@@ -191,6 +194,13 @@ async function persistDB(){
           }
         }
       }
+      // The server refused to persist a >50%-shrunk note (see server.js's
+      // isDangerousNoteShrink) to avoid a stale-tab silently wiping content.
+      // Surface this to the user instead of letting it look like a save that
+      // "silently reverted to the old version" on the next reload.
+      if (result && Array.isArray(result.refusedShrinks) && result.refusedShrinks.length) {
+        _handleRefusedShrinks(result.refusedShrinks);
+      }
     }
     window.db = db;
   } catch (e) {
@@ -207,6 +217,47 @@ async function persistDB(){
     // surface a useful banner without exposing stale full-DB data.
     localStorage.setItem(storeKey + ':lastSync', new Date().toISOString());
   } catch(err) { /* ignore */ }
+}
+
+// Session-scoped memory of which shrink refusals we've already asked the
+// user about, keyed by note id -> the clientLen we prompted for. Prevents
+// re-prompting on every autosave/persistDB tick for the exact same rejected
+// edit (the user's answer is remembered until they edit that note further).
+window._forceShrinkIds = window._forceShrinkIds || new Set();
+window._shrinkPromptedFor = window._shrinkPromptedFor || new Map();
+async function _handleRefusedShrinks(refused){
+  for (const r of refused) {
+    if (window._shrinkPromptedFor.get(r.id) === r.clientLen) continue;
+    const n = db.notes.find(x => x.id === r.id);
+    // If the note has since changed size again (user kept editing before we
+    // got here), skip — the next save will re-check against the new size.
+    if (!n || (n.content || '').length !== r.clientLen) continue;
+    window._shrinkPromptedFor.set(r.id, r.clientLen);
+    const ok = await showConfirm(
+      `"${r.title || 'Untitled'}" shrank from ${r.serverLen} to ${r.clientLen} characters — this would remove over half its saved content, so the save was blocked to prevent accidental data loss.\n\nClick "Save Anyway" if this was intentional, or "Keep Old Version" to discard this change.`,
+      'Save Anyway', 'Keep Old Version'
+    );
+    if (ok) {
+      window._forceShrinkIds.add(r.id);
+      await persistDB(); // retry now that the guard will be bypassed for this id
+    } else {
+      // Pull back whatever the server actually kept, so the local db (and,
+      // if open, the visible editor) reflect what's really persisted instead
+      // of silently drifting until the next reload reveals the discrepancy.
+      try {
+        const fresh = await fetchDB();
+        const serverNote = fresh && Array.isArray(fresh.notes) ? fresh.notes.find(x => x.id === r.id) : null;
+        if (serverNote) {
+          Object.assign(n, serverNote);
+          window._shrinkPromptedFor.delete(r.id);
+          if (window._openNoteId === r.id) {
+            window._editorDirty = false;
+            openNote(r.id);
+          }
+        }
+      } catch(_) {}
+    }
+  }
 }
 
 // Upload a File/Blob to the out-of-band attachment store (server writes it to
