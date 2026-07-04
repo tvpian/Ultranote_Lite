@@ -2041,12 +2041,13 @@ const MD_TOOLBAR_ACTIONS = [
   {label:'[ ]',     before:'\n- [ ] ', after:'',      ph:'task',         title:'Task list item'},
   {label:'flow',    before:'\n```mermaid\nflowchart LR\n  A --> B\n', after:'\n```\n', ph:'', title:'Mermaid diagram'},
   {label:'\u2014',  before:'\n---\n', after:'',       ph:'',             title:'Horizontal rule'},
-  {label:'\uD83D\uDFE1', before:'==',   after:'==',   ph:'text', title:'Highlight — yellow'},
-  {label:'\uD83D\uDFE2', before:'==g:', after:'==',   ph:'text', title:'Highlight — green'},
-  {label:'\uD83E\uDD0D', before:'==p:', after:'==',   ph:'text', title:'Highlight — pink'},
-  {label:'\uD83D\uDD35', before:'==b:', after:'==',   ph:'text', title:'Highlight — blue'},
-  {label:'\uD83D\uDCAC',  custom:'hlComment', title:'Highlight selection & add a margin note'},
 ];
+// Highlights/margin notes (==text==, ==color:text==, ==text==^[note]) are
+// intentionally NOT in this toolbar — they only make sense to add while
+// reading, so they're created by selecting text directly in the rendered
+// Preview pane instead (see _wireHighlightSelectionPopup below), the same
+// way a PDF reader's highlight tool works. The underlying insertMd()-based
+// mechanism here is unchanged; only the highlight-specific buttons moved.
 // Replace a textarea range with text WITHOUT breaking the browser's native
 // undo/redo stack. Plain `ta.setRangeText()` mutates .value directly and is
 // completely invisible to native undo — every toolbar button (Bold, wiki
@@ -2072,20 +2073,6 @@ function insertMd(ta, before, after, ph){
   if(!ta.value.substring(s, e) && ph){
     ta.setSelectionRange(s + before.length, s + before.length + ph.length);
   }
-  ta.focus();
-  ta.dispatchEvent(new Event('input'));
-}
-// Wraps the current selection (or a placeholder) as a yellow highlight and
-// prompts for an optional margin note, appended as a `^[...]` footnote. One
-// click does both steps since a bare highlight and an annotated highlight
-// share the same underlying `==...==` syntax — no need for two separate tools.
-async function insertHighlightWithComment(ta){
-  if(!ta) return;
-  const s = ta.selectionStart, e = ta.selectionEnd;
-  const sel = ta.value.substring(s, e) || 'text';
-  const note = await showPrompt('Margin note for this highlight (optional):', '', 'Add', 'Skip');
-  const suffix = (note && note.trim()) ? `^[${note.trim()}]` : '';
-  _undoableReplaceRange(ta, s, e, `==${sel}==${suffix}`);
   ta.focus();
   ta.dispatchEvent(new Event('input'));
 }
@@ -2180,8 +2167,7 @@ function bindMarkdownToolbar(textareaId){
       const ta = document.getElementById(btn.dataset.ta);
       const a = MD_TOOLBAR_ACTIONS[+btn.dataset.idx];
       if(!a || !ta) return;
-      if(a.custom === 'hlComment') insertHighlightWithComment(ta);
-      else insertMd(ta, a.before, a.after, a.ph);
+      insertMd(ta, a.before, a.after, a.ph);
     };
   });
 }
