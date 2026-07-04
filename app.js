@@ -2622,6 +2622,65 @@ function _replaceSourceRange(ta, start, end, text){
   }
   ta.dispatchEvent(new Event('input'));
 }
+
+// Keeps the editor textarea and rendered preview scrolled to the same
+// proportional position in Split mode, in BOTH directions.
+//
+// `.editor-pane-wrap > ... { max-height: none !important }` deliberately
+// uncaps `.markdown-preview` so Split mode doesn't look shorter than a
+// (user-resizable, `resize:vertical`) textarea — but that also means the
+// preview has NO scrollable overflow of its own: its content just grows to
+// whatever height it needs, and the whole PAGE scrolls instead. Meanwhile
+// the textarea DOES scroll internally once its height is shorter than its
+// content. That mismatch is exactly why scrolling drifted out of sync:
+// scrolling the editor had nothing to move in the preview (its scrollTop
+// was always 0), and scrolling the preview (really scrolling the whole
+// page) never touched the textarea's own internal scroll position.
+//
+// Fix: give the preview an explicit inline `height` that always mirrors
+// the textarea's actual rendered height (via ResizeObserver, so dragging
+// the textarea's resize handle keeps tracking it live). That restores a
+// real internal scrollbar on the preview (`.markdown-preview` already has
+// `overflow-y:auto` in its base rule — `max-height:none` just removes the
+// cap, it doesn't remove scrolling), so a plain proportional scrollTop
+// sync between the two now actually has something to move on both sides —
+// the same architecture as Split view in Obsidian/Typora/VS Code preview.
+// Returns a `syncHeight()` function callers can invoke immediately after
+// switching modes, so the height is correct before any scroll happens.
+function _wireSplitScrollSync(ta, previewEl, paneWrap){
+  if(!ta || !previewEl || !paneWrap) return () => {};
+  function syncHeight(){
+    if(paneWrap.dataset.mode === 'split'){
+      previewEl.style.height = ta.getBoundingClientRect().height + 'px';
+    } else {
+      previewEl.style.height = '';
+    }
+  }
+  syncHeight();
+  if(typeof ResizeObserver !== 'undefined'){
+    new ResizeObserver(syncHeight).observe(ta);
+  } else {
+    window.addEventListener('resize', syncHeight);
+  }
+  // Re-entrancy guard: programmatically setting one side's scrollTop fires
+  // that side's own 'scroll' listener too — without this it would try to
+  // sync straight back to the original source, ping-ponging forever.
+  let syncing = false;
+  function syncScroll(source, target){
+    if(syncing || paneWrap.dataset.mode !== 'split') return;
+    syncing = true;
+    const sh = source.scrollHeight - source.clientHeight;
+    if(sh > 0){
+      const r = source.scrollTop / sh;
+      const th = target.scrollHeight - target.clientHeight;
+      target.scrollTop = r * th;
+    }
+    requestAnimationFrame(() => { syncing = false; });
+  }
+  ta.addEventListener('scroll', () => syncScroll(ta, previewEl));
+  previewEl.addEventListener('scroll', () => syncScroll(previewEl, ta));
+  return syncHeight;
+}
 // Small floating "<message> · Undo" snackbar, shown after every preview-
 // triggered highlight/note action (create, edit note, remove). Native
 // Ctrl+Z already works for these edits when the textarea is visible, but it
@@ -7571,6 +7630,7 @@ function openPageInNotebook(pageId, nbId){
     if (pgPaneWrap) pgPaneWrap.setAttribute('data-mode', mode);
     if (pgToggleModeBtn) pgToggleModeBtn.textContent = PG_NEXT_LABEL[mode];
     if (mode !== 'edit') renderPgPreview();
+    syncPgSplitHeight();
     if (mode === 'edit') contentEl.focus();
     else if (mode === 'preview') pgPreviewEl.focus();
     if (db && db.settings) {
@@ -7582,18 +7642,13 @@ function openPageInNotebook(pageId, nbId){
     const i = PG_MODES.indexOf(pgCurrentMode);
     applyPgMode(PG_MODES[(i + 1) % PG_MODES.length]);
   }
+  // Bidirectional proportional scroll-sync in split mode — scrolling either
+  // the editor or the preview moves the other by the same relative amount.
+  // Must be wired before applyPgMode() runs, since it calls
+  // syncPgSplitHeight() to size the preview correctly right away.
+  const syncPgSplitHeight = _wireSplitScrollSync(contentEl, pgPreviewEl, pgPaneWrap);
   applyPgMode(pgCurrentMode);
   contentEl.addEventListener('input', schedulePgPreview);
-  if (contentEl && pgPreviewEl) {
-    contentEl.addEventListener('scroll', () => {
-      if (pgCurrentMode !== 'split') return;
-      const sh = contentEl.scrollHeight - contentEl.clientHeight;
-      if (sh <= 0) return;
-      const r = contentEl.scrollTop / sh;
-      const psh = pgPreviewEl.scrollHeight - pgPreviewEl.clientHeight;
-      pgPreviewEl.scrollTop = r * psh;
-    });
-  }
   if (pgToggleModeBtn) pgToggleModeBtn.onclick = cyclePgMode;
   if (pgPreviewEl) pgPreviewEl.setAttribute('tabindex', '0');
 
@@ -8339,6 +8394,7 @@ function openNote(id){
     if (paneWrap) paneWrap.setAttribute('data-mode', mode);
     if (toggleModeBtn) toggleModeBtn.textContent = NEXT_LABEL[mode];
     if (mode !== 'edit') renderPreview();
+    syncSplitHeight();
     if (mode === 'edit') contentBoxEl.focus();
     else if (mode === 'preview') previewEl.focus();
     // Persist preference (debounced via save()).
@@ -8352,22 +8408,17 @@ function openNote(id){
     const next = MODES[(i + 1) % MODES.length];
     applyMode(next);
   }
+
+  // Bidirectional proportional scroll-sync in split mode — scrolling either
+  // the editor or the preview moves the other by the same relative amount.
+  // Must be wired before applyMode() runs, since applyMode calls
+  // syncSplitHeight() to size the preview correctly right away.
+  const syncSplitHeight = _wireSplitScrollSync(contentBoxEl, previewEl, paneWrap);
+
   applyMode(currentMode);
 
   // Live preview while typing.
   if (contentBoxEl) contentBoxEl.addEventListener('input', schedulePreview);
-
-  // Proportional scroll-sync in split mode: editor drives the preview.
-  if (contentBoxEl && previewEl) {
-    contentBoxEl.addEventListener('scroll', () => {
-      if (currentMode !== 'split') return;
-      const sh = contentBoxEl.scrollHeight - contentBoxEl.clientHeight;
-      if (sh <= 0) return;
-      const r = contentBoxEl.scrollTop / sh;
-      const psh = previewEl.scrollHeight - previewEl.clientHeight;
-      previewEl.scrollTop = r * psh;
-    });
-  }
 
   if (toggleModeBtn) toggleModeBtn.onclick = cycleMode;
 

@@ -4937,7 +4937,18 @@ body.focus-mode #pgContent {
 .editor-pane-wrap {
   display: flex;
   gap: 12px;
-  align-items: stretch;
+  /* flex-start (NOT stretch): the textarea's rendered height must be its own
+     independent value (CSS min-height, or whatever the user dragged the
+     native resize handle to) — completely decoupled from the preview's own
+     content height. With align-items:stretch, the flex row's height (and
+     thus the "stretched" textarea) was actually driven BY the preview's
+     natural content size, which meant the preview's own JS-set height
+     (see _wireSplitScrollSync in app.js) could never end up shorter than
+     its own content — a circular dependency that silently prevented the
+     preview from ever having real internal overflow/scroll of its own in
+     the common case, breaking scroll-sync. JS now explicitly mirrors the
+     textarea's independent height onto the preview instead. */
+  align-items: flex-start;
 }
 .editor-pane-wrap > #contentBox,
 .editor-pane-wrap > #markdownPreview,
@@ -4946,11 +4957,12 @@ body.focus-mode #pgContent {
   flex: 1 1 0;
   min-width: 0;
   /* The preview (.markdown-preview) normally caps itself at max-height:400px
-     with its own scrollbar. Inside the editor pane, though, it must instead
-     stretch to match the textarea's actual height (including whatever the
-     user drags it to via the resize handle) — otherwise Split/Preview looks
-     visibly shorter/cut off compared to the edit pane. align-items:stretch
-     on the flex parent only works if nothing caps the child's height. */
+     with its own scrollbar. Inside the editor pane, that cap is removed —
+     app.js's _wireSplitScrollSync sets an explicit inline `height` that
+     mirrors the textarea's own (now independent, see align-items above)
+     rendered height instead, so Split mode doesn't look shorter/cut off
+     compared to the edit pane, while still leaving `overflow-y:auto` (from
+     the base rule) free to actually scroll once content exceeds that height. */
   max-height: none !important;
 }
 .editor-pane-wrap[data-mode="edit"]    > #markdownPreview,
