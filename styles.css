@@ -1877,6 +1877,21 @@ a {
   border-color: var(--acc);
 }
 
+/* Multi-line variant of the prompt modal (showPrompt with {multiline:true}),
+   used for margin notes — sized like an actual sticky note instead of the
+   single-line <input> other prompts use, since a real note needs room for
+   more than a few words. */
+.modal.modal-sticky-note {
+  max-width: 340px;
+}
+.sticky-note-input {
+  min-height: 160px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 /* Project sidebar buttons */
 .projBtn {
   width: 100%;

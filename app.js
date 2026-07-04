@@ -2568,11 +2568,17 @@ function _injectWikiLinks(html, tokens){
 //   ==g:text==           colored highlight (y|g|p|b = yellow/green/pink/blue)
 //   ==text==^[a note]    highlight with a margin annotation (hover/click to read)
 //   ==g:text==^[a note]  both combined
+// The highlighted text itself can't span multiple lines, but the note (the
+// `^[...]` part) CAN contain literal newlines — the note is edited via a
+// multi-line "sticky note" textarea (see showPrompt's `multiline` option),
+// and since the whole `==...==^[...]` token is swapped for a single-line
+// placeholder before marked.parse ever runs, newlines inside the note don't
+// interfere with markdown's own paragraph/line parsing.
 const HL_COLORS = { y: 'yellow', g: 'green', p: 'pink', b: 'blue' };
 function _hlPlaceholderFor(i){ return `xHiLiTexN${i}NxHiLiTex`; }
 function _extractHighlights(md){
   const tokens = [];
-  const out = md.replace(/==(?:([ygpb]):)?([^=\n]+?)==(?:\^\[([^\]\n]*)\])?/g, (m, color, text, note) => {
+  const out = md.replace(/==(?:([ygpb]):)?([^=\n]+?)==(?:\^\[([^\]]*)\])?/g, (m, color, text, note) => {
     const i = tokens.length;
     tokens.push({ color: HL_COLORS[color] ? color : 'y', text, note: (note || '').trim() });
     return _hlPlaceholderFor(i);
@@ -2745,7 +2751,7 @@ function _wireSplitScrollSync(ta, previewEl, paneWrap){
 // Order is stable because highlight extraction (_extractHighlights) always
 // scans left-to-right over the source, same as this regex does here.
 function _locateHighlightToken(source, idx){
-  const re = /==(?:([ygpb]):)?([^=\n]+?)==(?:\^\[([^\]\n]*)\])?/g;
+  const re = /==(?:([ygpb]):)?([^=\n]+?)==(?:\^\[([^\]]*)\])?/g;
   let m, i = 0;
   while((m = re.exec(source))){
     if(i === idx){
@@ -2794,7 +2800,7 @@ function _wireHighlightSelectionPopup(previewEl, ta){
     const selText = ta.value.slice(start, end);
     (async () => {
       if(action === 'note'){
-        const note = await showPrompt('Margin note for this highlight (optional):', '', 'Add', 'Skip');
+        const note = await showPrompt('Margin note for this highlight (optional):', '', 'Add', 'Skip', { multiline: true });
         const suffix = (note && note.trim()) ? `^[${note.trim()}]` : '';
         _replaceSourceRange(ta, start, end, `==${selText}==${suffix}`);
       } else {
@@ -2886,7 +2892,7 @@ document.addEventListener('click', (e) => {
       <button type="button" data-hl-act="remove">\uD83D\uDDD1 Remove</button>
     </div>`;
   popover.querySelector('[data-hl-act="note"]').onclick = async () => {
-    const note = await showPrompt('Margin note for this highlight:', tok.note || '', 'Save', 'Cancel');
+    const note = await showPrompt('Margin note for this highlight:', tok.note || '', 'Save', 'Cancel', { multiline: true });
     if(note === null){ return; } // cancelled
     const fresh = _locateHighlightToken(ta.value, idx); // re-locate; source may have shifted
     if(!fresh) return;
@@ -3180,17 +3186,26 @@ function showConfirm(message, okText = 'OK', cancelText = 'Cancel'){
  * @param {string} defaultValue Default value for the input.
  * @param {string} okText OK button text.
  * @param {string} cancelText Cancel button text.
+ * @param {{multiline?: boolean}} opts Pass `{multiline:true}` to use a
+ *   resizable, sticky-note-sized textarea instead of a single-line input
+ *   (used for margin notes, which are actual freeform notes and need more
+ *   room than a single line — a plain `<input>` made them feel unusably
+ *   cramped for anything beyond a couple words).
  * @returns {Promise<string|null>} The entered value or null if cancelled.
  */
-function showPrompt(message, defaultValue = '', okText = 'OK', cancelText = 'Cancel'){
+function showPrompt(message, defaultValue = '', okText = 'OK', cancelText = 'Cancel', opts = {}){
   return new Promise(resolve => {
+    const multiline = !!opts.multiline;
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     const modal = document.createElement('div');
-    modal.className = 'modal';
+    modal.className = 'modal' + (multiline ? ' modal-sticky-note' : '');
+    const fieldHtml = multiline
+      ? `<textarea id="modalInput" class="sticky-note-input" placeholder="Write your note\u2026">${htmlesc(defaultValue)}</textarea>`
+      : `<input id="modalInput" type="text" value="${htmlesc(defaultValue)}" />`;
     modal.innerHTML = `
       <div class="modal-body">${htmlesc(message)}</div>
-      <input id="modalInput" type="text" value="${htmlesc(defaultValue)}" />
+      ${fieldHtml}
       <div class="modal-footer">
         <button class="btn" id="modalCancel">${htmlesc(cancelText)}</button>
         <button class="btn acc" id="modalOk">${htmlesc(okText)}</button>
@@ -3199,12 +3214,27 @@ function showPrompt(message, defaultValue = '', okText = 'OK', cancelText = 'Can
     document.body.appendChild(overlay);
     const inputEl = modal.querySelector('#modalInput');
     inputEl.focus();
-    // handle Enter key to confirm
-    inputEl.addEventListener('keydown', (e)=>{
-      if(e.key === 'Enter'){
-        modal.querySelector('#modalOk').click();
-      }
-    });
+    if(multiline){
+      // Caret at the end (rather than the browser's default "select all")
+      // so re-editing an existing note doesn't require re-positioning.
+      const len = inputEl.value.length;
+      inputEl.setSelectionRange(len, len);
+      // Plain Enter inserts a newline (expected textarea behavior, and the
+      // whole point of making this multi-line); Ctrl/Cmd+Enter submits.
+      inputEl.addEventListener('keydown', (e)=>{
+        if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){
+          e.preventDefault();
+          modal.querySelector('#modalOk').click();
+        }
+      });
+    } else {
+      // handle Enter key to confirm
+      inputEl.addEventListener('keydown', (e)=>{
+        if(e.key === 'Enter'){
+          modal.querySelector('#modalOk').click();
+        }
+      });
+    }
     modal.querySelector('#modalOk').onclick = ()=>{
       const val = inputEl.value;
       document.body.removeChild(overlay);
