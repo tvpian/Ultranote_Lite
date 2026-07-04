@@ -5308,7 +5308,11 @@ function renderReview(){
       <div style="margin-top:8px;"><button class="btn" data-goto-research="1" style="font-size:11px;width:100%;">Open Research dashboard →</button></div>`;
   }
 
-  const _aliveNbs = (db.notebooks||[]).filter(n => !n.deletedAt && !n.system);
+  // Exclude system notebooks AND the legacy People container — that record
+  // uses a {name, emoji} schema instead of {title} (see renderNotebooks()'s
+  // identical guard above), so without this it shows up here as a stray
+  // untitled entry with no real page/update data of its own.
+  const _aliveNbs = (db.notebooks||[]).filter(n => !n.deletedAt && !n.system && n.name!=='People' && n.title);
   const _nbStats = _aliveNbs.map(nb => {
     const pgs = (db.notes||[]).filter(n => n.notebookId === nb.id && !n.deletedAt);
     const recent = pgs.filter(n => n.updatedAt && new Date(n.updatedAt).getTime() > _weekAgoMs).length;
