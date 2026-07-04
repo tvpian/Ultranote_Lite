@@ -1585,10 +1585,12 @@ function moveToBacklog(id, reason) {
   t.status = 'BACKLOG';
   t.updatedAt = nowISO();
   save();
-  // If it's a project task (belongs to a project but not attached to a note) then update the
-  // project task button counter on the Today page. This ensures the badge reflects the new
-  // backlog status without automatically revealing the list.
-  if (t.projectId && !t.noteId && typeof updateProjectTasksButton === 'function') {
+  // If it's a project task then update the project task button counter on the Today
+  // page (its inclusion there depends on status + whether its noteId matches the
+  // currently-viewed day, not just whether it has a noteId at all — recompute
+  // rather than trying to predict it here). This ensures the badge reflects the
+  // new backlog status without automatically revealing the list.
+  if (t.projectId && typeof updateProjectTasksButton === 'function') {
     updateProjectTasksButton();
   }
 }
@@ -1664,9 +1666,21 @@ function deleteTask(id){
   save();
   // If deleting a project task, update the Today page project task counter. Removing
   // the task from the DB should immediately reflect in the badge count.
-  if (t.projectId && !t.noteId && typeof updateProjectTasksButton === 'function') {
+  if (t.projectId && typeof updateProjectTasksButton === 'function') {
     updateProjectTasksButton();
   }
+}
+
+// Returns the id of the daily note for whichever date is currently being
+// viewed on the Today page (selectedDailyDate, or actual today if unset).
+// Returns null if that day has no daily note yet. Used to decide whether a
+// project task is already visible in the day's own task list (and should
+// therefore be excluded from the separate "project tasks" pool) vs. stuck
+// on some OTHER day (and should still count/show in that pool).
+function currentDailyNoteId() {
+  const key = (typeof selectedDailyDate !== 'undefined' && selectedDailyDate) || todayKey();
+  const n = db.notes.find((x) => x.type === 'daily' && x.dateIndex === key && !x.deletedAt);
+  return n ? n.id : null;
 }
 
 // Helper to update the project tasks button count on the Today page. This is used to reflect
@@ -1681,10 +1695,17 @@ function updateProjectTasksButton() {
   // ignored deletedAt flags for legacy datasets, but this caused confusion when
   // tasks remained visible after deletion. Now we treat deleted tasks as
   // removed from the count.
+  // A project task only stays OUT of this pool while it's attached to the day
+  // currently being viewed (it's already visible in that day's own task list).
+  // If auto-carry stamped it onto a PAST day that's no longer being viewed, it
+  // has nowhere else to surface, so it still counts here even though it has a
+  // noteId — this is the whole point of the toggle: see every active project
+  // task not already sitting in the list you're looking at right now.
+  const viewedDailyId = currentDailyNoteId();
   const count = db.tasks.filter(
     (t) =>
       t.projectId &&
-      !t.noteId &&
+      (!t.noteId || t.noteId !== viewedDailyId) &&
       t.status !== 'BACKLOG' &&
       t.status !== 'DROPPED' &&
       t.status !== 'DONE' &&
@@ -1692,7 +1713,7 @@ function updateProjectTasksButton() {
   ).length;
   ptBtn.textContent = `${count} project tasks`;
   const backlogCount = db.tasks.filter(t => t.projectId && !t.noteId && t.status === 'BACKLOG' && !t.deletedAt).length;
-  ptBtn.title = `Active (TODO) tasks linked to a project — excludes tasks parked in a project's Backlog${backlogCount ? ' ('+backlogCount+' currently backlogged)' : ''} and already-Done tasks. Open a project and restore a backlog task to make it count here.`;
+  ptBtn.title = `Active (TODO) tasks linked to a project that aren't already in the list you're viewing — excludes tasks parked in a project's Backlog${backlogCount ? ' ('+backlogCount+' currently backlogged)' : ''} and already-Done tasks. Click to view/manage them without cluttering your daily list.`;
 
   // If the project task list is currently visible on the Today page, re-render it so
   // that newly added or removed tasks appear immediately. Without this check, users
@@ -3640,15 +3661,17 @@ function renderToday(){
   // For an existing daily note, inject any monthly tasks that were added after
   // the note was originally created (or that weren't present on last open).
   if(daily) syncMonthlyTasksToDaily(daily, key);
-  // Exclude archived tasks (deletedAt) when gathering project tasks pool
-  // Gather project tasks for today. Exclude backlog tasks and completed tasks so
-  // that only outstanding items appear in the Today view. Deleted tasks are
-  // also excluded.
+  // Exclude archived tasks (deletedAt) when gathering project tasks pool.
+  // A project task is only excluded from this pool while it's attached to
+  // THIS day's own note (already visible in the regular task list below).
+  // Auto-carry can stamp a noteId onto a task for some OTHER (usually past)
+  // day; if that day isn't the one being viewed, the task has nowhere else
+  // to surface, so it still belongs in this pool despite having a noteId.
   const projectTasks = db.tasks
     .filter(
       (t) =>
         t.projectId &&
-        !t.noteId &&
+        (!t.noteId || t.noteId !== daily?.id) &&
         t.status !== 'BACKLOG' &&
         t.status !== 'DROPPED' &&
         t.status !== 'DONE' &&
@@ -3726,7 +3749,7 @@ function renderToday(){
         <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
           <strong>${key===todayKey()?"Today's Tasks":"Tasks"}</strong>
           <div class="row" style="gap:6px;">
-            <button id="showProjectTasks" class="btn" style="font-size:12px;" title="Active (TODO) tasks linked to a project — excludes tasks parked in a project's Backlog${projectBacklogCount ? ' ('+projectBacklogCount+' currently backlogged)' : ''} and already-Done tasks. Open a project and restore a backlog task to make it count here.">${projectTasks.length} project tasks</button>
+            <button id="showProjectTasks" class="btn" style="font-size:12px;" title="Active (TODO) tasks linked to a project that aren't already in this list — excludes tasks parked in a project's Backlog${projectBacklogCount ? ' ('+projectBacklogCount+' currently backlogged)' : ''} and already-Done tasks. Click to view/manage them without cluttering your daily list.">${projectTasks.length} project tasks</button>
             <button id="toggleBacklog" class="btn" style="font-size:12px;">Backlog ▾</button>
           </div>
         </div>
@@ -4103,14 +4126,8 @@ function renderToday(){
     if(prevList) {
       const prevDayIds = new Set((db.notes||[]).filter(n => n.type==='daily' && !n.deletedAt && n.dateIndex < todayStr).map(n => n.id));
       const monthlyTitles = new Set((db.monthly||[]).filter(m => !m.deletedAt).map(m => m.title.toLowerCase()));
-      // Include project tasks here too: once a project task is auto-carried onto a
-      // daily note (t.noteId set) and that day passes without being finished, it no
-      // longer shows on that old day's list (wrong day) nor in the 'project tasks'
-      // pool on Today (already claimed by a noteId) — without this, it would be
-      // invisible anywhere except the project's own page. Surfacing it here lets the
-      // user complete it, pull it to today, or send it back to the project backlog.
       const prevTasks = (db.tasks||[]).filter(t =>
-        t.status==='TODO' && !t.deletedAt &&
+        t.status==='TODO' && !t.deletedAt && !t.projectId &&
         prevDayIds.has(t.noteId) && !monthlyTitles.has((t.title||'').toLowerCase())
       );
       if(prevTasks.length) {
@@ -4160,10 +4177,6 @@ function renderToday(){
           const task = db.tasks.find(t => t.id === b.dataset.ppull);
           if (!task) return;
           task.noteId = daily.id;
-          // Project tasks need carriedToNoteId set too, otherwise the daily task-list
-          // filter (which requires carriedToNoteId===daily.id for project tasks) would
-          // still hide it on today's own list even though noteId now points here.
-          if (task.projectId) task.carriedToNoteId = daily.id;
           task.updatedAt = nowISO();
           save();
           showQuickToast('➡️ Pulled to today');
@@ -4215,12 +4228,13 @@ function renderToday(){
     const list = $("#projectTaskList");
     if(!list) return;
     // Gather outstanding project tasks that are neither completed nor backlogged and have not
-    // been deleted. Filtering out tasks with a deletedAt flag ensures that once a user
-    // removes a task from a project it no longer appears in the Today page. Sorting
+    // been deleted. A task only stays out of this list while it's attached to THIS day's own
+    // note (already visible in the regular task list above) — tasks auto-carried onto some
+    // OTHER day still show here since that's their only remaining way to surface. Sorting
     // prioritizes high-priority tasks first.
     const tasks = db.tasks
       .filter(t =>
-        t.projectId && !t.noteId && t.status !== 'BACKLOG' && t.status !== 'DROPPED' && t.status !== 'DONE' && !t.deletedAt
+        t.projectId && (!t.noteId || t.noteId !== daily?.id) && t.status !== 'BACKLOG' && t.status !== 'DROPPED' && t.status !== 'DONE' && !t.deletedAt
       )
       .sort((a, b) => {
         const priorities = { high: 3, medium: 2, low: 1 };
