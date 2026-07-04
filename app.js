@@ -3764,8 +3764,8 @@ function renderToday(){
         <div id="dueBanner"></div>
         <div id="taskList" class="list" style="margin-top:8px;"></div>
         <div id="prevTaskList" class="list"></div>
-        <div id="backlogList" class="list" style="margin-top:8px;display:none;border-top:1px solid #281f3e;padding-top:8px;"></div>
         <div id="projectTaskList" class="list" style="margin-top:8px;display:none;"></div>
+        <div id="backlogList" class="list" style="margin-top:8px;display:none;border-top:1px solid #281f3e;padding-top:8px;"></div>
       </div>
       <div class="card">
         <div class="muted">Quick Capture (today only)</div>
@@ -4001,7 +4001,22 @@ function renderToday(){
     return days <= 2 ? 'due-soon' : '';
   }
   $("#captureBtn")?.addEventListener('click', handleQuickCapture);
-  $("#showProjectTasks").onclick = ()=>{ const list = $("#projectTaskList"); const isVisible = list.style.display !== 'none'; list.style.display = isVisible? 'none':'block'; drawProjectTasks(); };
+  $("#showProjectTasks").onclick = ()=>{
+    const list = $("#projectTaskList");
+    const prevList = $("#prevTaskList");
+    const isVisible = list.style.display !== 'none';
+    if(isVisible){
+      // Turning OFF — hide project tasks and bring back "Unfinished from previous days" in its place.
+      list.style.display = 'none';
+      if(prevList) prevList.style.display = '';
+      drawTasks();
+    } else {
+      // Turning ON — show project tasks in the same slot, hiding the unfinished-from-previous-days panel.
+      if(prevList) prevList.style.display = 'none';
+      list.style.display = 'block';
+      drawProjectTasks();
+    }
+  };
   $("#toggleBacklog").onclick = ()=>{ const bl = $("#backlogList"); bl.style.display = bl.style.display==='none'? 'block':'none'; drawBacklog(); };
   function drawTasks(){
     const list = $("#taskList"); if(!list) return;
@@ -4046,10 +4061,10 @@ function renderToday(){
           <span>🔁 Recurring (${recurring.filter(r=>!r.completed).length} open of ${recurring.length})</span>
         </div>
         ${recCollapsed ? '' : recurring.map(r => `
-          <div class='row' style='justify-content:space-between;padding:2px 0;'>
-            <label class='row' style='gap:8px;cursor:pointer;'>
-              <input type='checkbox' ${r.completed?'checked':''} data-rec-id='${r.m.id}'/>
-              <span class='${r.completed?'muted':''}' style='border-left:3px solid #8b6dff;padding-left:8px;font-size:13px;'>${htmlesc(r.m.title)}</span>
+          <div class='row' style='justify-content:space-between;align-items:flex-start;flex-wrap:wrap;padding:2px 0;'>
+            <label class='row' style='gap:8px;cursor:pointer;flex:1;min-width:0;'>
+              <input type='checkbox' ${r.completed?'checked':''} data-rec-id='${r.m.id}' style='flex-shrink:0;margin-top:2px;'/>
+              <span class='${r.completed?'muted':''}' style='border-left:3px solid #8b6dff;padding-left:8px;font-size:13px;word-break:break-word;flex:1;min-width:0;'>${htmlesc(r.m.title)}</span>
             </label>
           </div>`).join('')}
       </div>` : '';
@@ -4070,12 +4085,12 @@ function renderToday(){
         else if(t.status!=='DONE' && ds==='due-soon')  duePill=`<span class='pill' style='background:#78350f;color:#fef3c7;'>Due ${formatDateString(t.due)}</span>`;
         else duePill=`<span class='pill'>${formatDateString(t.due)}</span>`;
       }
-      return `<div class='row' style='justify-content:space-between;padding:2px 0;'>
-      <label class='row' style='gap:8px;'>
-        <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}'/>
-        <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${borderColor};padding-left:8px;'>${htmlesc(t.title)}${duePill ? ' '+duePill : ''}</span>
+      return `<div class='row' style='justify-content:space-between;align-items:flex-start;flex-wrap:wrap;padding:2px 0;'>
+      <label class='row' style='gap:8px;flex:1;min-width:0;'>
+        <input type='checkbox' ${t.status==='DONE'? 'checked':''} data-id='${t.id}' style='flex-shrink:0;margin-top:2px;'/>
+        <span class='${t.status==='DONE'?'muted':''}' style='border-left:3px solid ${borderColor};padding-left:8px;word-break:break-word;flex:1;min-width:0;'>${htmlesc(t.title)}${duePill ? ' '+duePill : ''}</span>
       </label>
-      <div class='row' style='gap:6px;'>
+      <div class='row' style='gap:6px;flex-shrink:0;'>
         <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
         ${t.status!=='DONE'?`<button class='btn' data-b='${t.id}' style='font-size:13px;padding:2px 6px;' title='Send to backlog (optional reason)'>📦</button>`:''}
         ${t.status!=='DONE'?`<button class='btn' data-drop='${t.id}' style='font-size:13px;padding:2px 6px;color:#f88;' title='Drop with required reason'>⊘</button>`:''}
@@ -4137,10 +4152,10 @@ function renderToday(){
           const source = proj ? proj.name : noteDate;
           const ds = dueStatus(t.due);
           let dp = t.due ? (ds==='overdue' ? `<span class='pill' style='background:#ff4444;color:#fff;font-size:10px;'>OVERDUE</span>` : `<span class='pill' style='font-size:10px;'>${formatDateString(t.due)}</span>`) : '';
-          return `<div class='row' style='justify-content:space-between;'>
-            <div class='row' style='gap:8px;align-items:center;'>
-              <input type='checkbox' data-pid='${t.id}' style='cursor:pointer;flex-shrink:0;' title='Mark done'/>
-              <span style='font-size:13px;border-left:2px dashed var(--btn-border);padding-left:8px;user-select:text;'>${htmlesc(t.title)} ${dp}${source ? `<span class='pill' style='font-size:10px;opacity:0.6;'>from ${htmlesc(source)}</span>` : ''}</span>
+          return `<div class='row' style='justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;'>
+            <div class='row' style='gap:8px;align-items:flex-start;flex:1;min-width:0;'>
+              <input type='checkbox' data-pid='${t.id}' style='cursor:pointer;flex-shrink:0;margin-top:2px;' title='Mark done'/>
+              <span style='font-size:13px;border-left:2px dashed var(--btn-border);padding-left:8px;user-select:text;word-break:break-word;flex:1;min-width:0;'>${htmlesc(t.title)} ${dp}${source ? `<span class='pill' style='font-size:10px;opacity:0.6;'>from ${htmlesc(source)}</span>` : ''}</span>
             </div>
             <div class='row' style='gap:4px;flex-shrink:0;'>
               <button class='btn' data-ppull='${t.id}' style='font-size:11px;' title='Pull to today — re-attach to today&apos;s daily'>➡️</button>
@@ -4199,9 +4214,9 @@ function renderToday(){
     if (tasks.length) {
       html += tasks
         .map(t =>
-          `<div class='row' style='justify-content:space-between;'>
-      <span class='muted' style='font-size:12px;'>${htmlesc(t.title)}</span>
-      <div class='row' style='gap:6px;'>
+          `<div class='row' style='justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;'>
+      <span class='muted' style='font-size:12px;word-break:break-word;flex:1;min-width:0;'>${htmlesc(t.title)}</span>
+      <div class='row' style='gap:6px;flex-shrink:0;'>
         <button class='btn' data-r='${t.id}' style='font-size:11px;'>Restore</button>
         <button class='btn' data-del='${t.id}' style='font-size:11px;'>✕</button>
       </div>
@@ -4249,12 +4264,12 @@ function renderToday(){
           else if(ds==='due-soon')  duePill=`<span class='pill' style='background:#78350f;color:#fef3c7;'>Due ${formatDateString(t.due)}</span>`;
           else                      duePill=`<span class='pill'>${formatDateString(t.due)}</span>`;
         }
-        return `<div class='row' style='justify-content:space-between;'>
-      <label class='row' style='gap:8px;'>
-        <input type='checkbox' ${t.status === 'DONE' ? 'checked' : ''} data-id='${t.id}'/>
-        <span class='${t.status === 'DONE' ? 'muted' : ''}' style='border-left:3px solid ${borderColor};padding-left:8px;'>${htmlesc(t.title)}${duePill ? ' '+duePill : ''} <span class='pill'>${proj ? htmlesc(proj.name) : 'Unknown'}</span></span>
+        return `<div class='row' style='justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;'>
+      <label class='row' style='gap:8px;flex:1;min-width:0;'>
+        <input type='checkbox' ${t.status === 'DONE' ? 'checked' : ''} data-id='${t.id}' style='flex-shrink:0;margin-top:2px;'/>
+        <span class='${t.status === 'DONE' ? 'muted' : ''}' style='border-left:3px solid ${borderColor};padding-left:8px;word-break:break-word;flex:1;min-width:0;'>${htmlesc(t.title)}${duePill ? ' '+duePill : ''} <span class='pill'>${proj ? htmlesc(proj.name) : 'Unknown'}</span></span>
       </label>
-      <div class='row' style='gap:6px;'>
+      <div class='row' style='gap:6px;flex-shrink:0;'>
         <button class='btn' data-edit='${t.id}' style='font-size:11px;'>✎</button>
         ${t.status !== 'DONE' ? `<button class='btn' data-b='${t.id}' style='font-size:13px;padding:2px 6px;' title='Send to backlog (optional reason)'>📦</button>` : ''}
         ${t.status !== 'DONE' ? `<button class='btn' data-drop='${t.id}' style='font-size:13px;padding:2px 6px;color:#f88;' title='Drop with required reason'>⊘</button>` : ''}
@@ -5529,7 +5544,7 @@ function renderReview(){
     </details>
     <details class="card" open>
       <summary style="cursor:pointer;list-style:none;"><strong>📅 Recent Daily Logs</strong></summary>
-      <div class="list" style="margin-top:8px;">${db.notes.filter(n=>n.type==='daily' && !n.deletedAt).slice(-7).reverse().map(n=> `<div class='row' style='justify-content:space-between;'><span>${htmlesc(n.title)}</span><button class='btn' data-open='${n.id}' style='font-size:11px;'>View →</button></div>`).join('')}</div>
+      <div class="list" style="margin-top:8px;">${db.notes.filter(n=>n.type==='daily' && !n.deletedAt).slice(-7).reverse().map(n=> `<div class='row' style='justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;'><span style='word-break:break-word;flex:1;min-width:0;'>${htmlesc(n.title)}</span><button class='btn' data-open='${n.id}' style='font-size:11px;flex-shrink:0;'>View →</button></div>`).join('')}</div>
     </details>
     <details class="card" open>
       <summary style="cursor:pointer;list-style:none;"><strong>🏷️ Tag Cloud</strong></summary>
@@ -6790,9 +6805,9 @@ function renderVault(){
     ${query && linkMatches.length? `<div class='card'>
       <strong style='font-size:14px;'>🔗 Links (${linkMatches.length})</strong>
       <div class='list' style='margin-top:8px;'>${linkMatches.map(l=>`<div class='card' style='padding:10px;'>
-        <div class='row' style='justify-content:space-between;'>
-          <span style='flex:1;overflow:hidden;text-overflow:ellipsis;'>${l.pinned?'📌 ':''}<a href='${htmlesc(l.url)}' data-open-link='${htmlesc(l.url)}' target='_blank' rel='noopener' style='color:var(--acc);text-decoration:none;'>${highlight(l.title||l.url)}</a></span>
-          <div class='row' style='gap:6px;'>
+        <div class='row' style='justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;'>
+          <span style='word-break:break-word;flex:1;min-width:0;'>${l.pinned?'📌 ':''}<a href='${htmlesc(l.url)}' data-open-link='${htmlesc(l.url)}' target='_blank' rel='noopener' style='color:var(--acc);text-decoration:none;'>${highlight(l.title||l.url)}</a></span>
+          <div class='row' style='gap:6px;flex-shrink:0;'>
             <button class='btn' data-pin-link='${l.id}' style='font-size:11px;'>${l.pinned?'Unpin':'Pin'}</button>
           </div>
         </div>
@@ -6801,17 +6816,17 @@ function renderVault(){
     </div>`:''}
     ${query && projectMatches.length? `<div class='card'>
       <strong style='font-size:14px;'>📁 Projects (${projectMatches.length})</strong>
-      <div class='list' style='margin-top:8px;'>${projectMatches.map(p=>`<div class='card' style='padding:10px;'><div class='row' style='justify-content:space-between;'>
-        <span data-open-project='${p.id}' style='cursor:pointer;'>${highlight(p.name)}</span>
-        <button class='btn' data-open-project='${p.id}' style='font-size:11px;'>Open</button>
+      <div class='list' style='margin-top:8px;'>${projectMatches.map(p=>`<div class='card' style='padding:10px;'><div class='row' style='justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;'>
+        <span data-open-project='${p.id}' style='cursor:pointer;word-break:break-word;flex:1;min-width:0;'>${highlight(p.name)}</span>
+        <button class='btn' data-open-project='${p.id}' style='font-size:11px;flex-shrink:0;'>Open</button>
       </div></div>`).join('')}</div>
     </div>`:''}
     ${query && taskMatches.length? `<div class='card'>
       <strong style='font-size:14px;'>✅ Tasks (${taskMatches.length})</strong>
       <div class='list' style='margin-top:8px;'>${taskMatches.map(t=>{ const note=t.noteId? db.notes.find(n=>n.id===t.noteId):null; const proj=t.projectId? db.projects.find(p=>p.id===t.projectId):null; return `<div class='card' style='padding:8px;'>
-        <div class='row' style='justify-content:space-between;'>
-          <span>${highlight(t.title)} ${(note&&note.type==='daily')?`<span class='pill'>${note.dateIndex}</span>`:''} ${proj?`<span class='pill'>${htmlesc(proj.name)}</span>`:''}</span>
-          <div class='row' style='gap:4px;'>
+        <div class='row' style='justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;'>
+          <span style='word-break:break-word;flex:1;min-width:0;'>${highlight(t.title)} ${(note&&note.type==='daily')?`<span class='pill'>${note.dateIndex}</span>`:''} ${proj?`<span class='pill'>${htmlesc(proj.name)}</span>`:''}</span>
+          <div class='row' style='gap:4px;flex-shrink:0;'>
             ${note?`<button class='btn' data-open='${note.id}' style='font-size:11px;'>Note</button>`:''}
             ${proj?`<button class='btn' data-open-project='${proj.id}' style='font-size:11px;'>Project</button>`:''}
           </div>
@@ -6821,9 +6836,9 @@ function renderVault(){
   function noteRow(n,isPinned){
     const preview = (n.content||'').slice(0,140).replace(/\n/g,' ');
     return `<div class='card' style='padding:10px;'>
-      <div class='row' style='justify-content:space-between;'>
-        <span style='cursor:pointer;' data-open='${n.id}'>${highlight(n.title)}${n.type==='daily'?` <span class='pill'>${n.dateIndex||''}</span>`:''}${n.type==='idea'?` <span class='pill'>idea</span>`:''}${statusBadge(n.status)}</span>
-        <div class='row' style='gap:6px;'>
+      <div class='row' style='justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;'>
+        <span style='cursor:pointer;word-break:break-word;flex:1;min-width:0;' data-open='${n.id}'>${highlight(n.title)}${n.type==='daily'?` <span class='pill'>${n.dateIndex||''}</span>`:''}${n.type==='idea'?` <span class='pill'>idea</span>`:''}${statusBadge(n.status)}</span>
+        <div class='row' style='gap:6px;flex-shrink:0;'>
           <button class='btn' data-pin='${n.id}' style='font-size:11px;'>${isPinned?'Unpin':'Pin'}</button>
           <button class='btn' data-open='${n.id}' style='font-size:11px;'>Open</button>
           <button class='btn' data-del='${n.id}' style='font-size:11px;'>✕</button>
@@ -9265,9 +9280,9 @@ document.getElementById("manageTemplates").onclick = ()=> {
     <div class="list" id="templateList">
       ${db.templates.map(t=>`
         <div class="card">
-          <div class="row" style="justify-content:space-between;">
-            <strong>${htmlesc(t.name)}</strong>
-            <button class="btn" data-del="${t.id}">Delete</button>
+          <div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+            <strong style="word-break:break-word;flex:1;min-width:0;">${htmlesc(t.name)}</strong>
+            <button class="btn" data-del="${t.id}" style="flex-shrink:0;">Delete</button>
           </div>
           <div class="muted" style="margin-top:4px;">${htmlesc(t.content.slice(0,100))}...</div>
         </div>
