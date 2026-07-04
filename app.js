@@ -4776,7 +4776,11 @@ function renderPeople() {
 
   function tableHTML(rows) {
     if (!rows.length) return `<div class="muted" style="padding:14px;">No people match the current filters.</div>`;
+    // Wrapped in .table-scroll so narrow (mobile/tablet) viewports get a
+    // horizontally-scrolling table instead of every column being squeezed
+    // down to an unreadable, letter-wrapped sliver (see styles.css).
     return `
+      <div class="table-scroll">
       <table style="width:100%;border-collapse:collapse;">
         <thead>
           <tr style="text-align:left;border-bottom:2px solid var(--btn-border);">
@@ -4788,7 +4792,8 @@ function renderPeople() {
           </tr>
         </thead>
         <tbody>${rows.map(rowHTML).join('')}</tbody>
-      </table>`;
+      </table>
+      </div>`;
   }
 
   let bodyHTML = '';
@@ -7129,7 +7134,7 @@ function renderNotebookDetail(nbId){
   if(currentPageId && !pages.find(p=>p.id===currentPageId)) currentPageId=null;
 
   content.innerHTML=`
-    <div style='display:flex;height:calc(100vh - 70px);min-height:400px;overflow:hidden;'>
+    <div id='nbDetailWrap' style='display:flex;height:calc(100vh - 70px);min-height:400px;overflow:hidden;'>
       <!-- TOC sidebar -->
       <div id='nbToc' style='width:230px;min-width:160px;flex-shrink:0;overflow-y:auto;
            border-right:1px solid var(--btn-border);padding:10px;box-sizing:border-box;

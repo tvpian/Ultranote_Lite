@@ -1517,6 +1517,16 @@ nav button.active {
   gap: 8px;
 }
 
+/* Prevent CSS Grid's default `min-width:auto` on direct children from
+   forcing row items (title + action buttons) wider than their container.
+   Without this, a `.row` with fixed-width sub-elements (progress bars,
+   date labels, buttons) can silently overflow the whole page horizontally
+   on narrow/mobile screens, even though the row itself has flex-wrap set —
+   the grid item just grows instead of wrapping its own children. */
+.list > * {
+  min-width: 0;
+}
+
 /*
  * Ensure task titles wrap cleanly on small screens or when very long.
  * Without this, long titles can overflow and push action buttons off screen.
@@ -5586,3 +5596,76 @@ html { scrollbar-gutter: stable; }
 
 /* Project name in the sidebar — double-click to rename. Subtle text cursor hint. */
 .projBtn .projName { cursor: pointer; }
+
+/* ==================================================================
+   Mobile / tablet responsiveness pass.
+   ================================================================== */
+
+/* (1) Button-label letter-wrapping bug. `.card { overflow-wrap: anywhere; }`
+   (added earlier to stop long URLs/titles from blowing out card width) is
+   inherited by every descendant, including <button> labels. Flex items
+   default to min-width:auto, but overflow-wrap:anywhere lets the browser
+   treat a short word like "Unpin" as breakable at any character, so once
+   a card's button row (e.g. Vault's Open/Unpin/Delete group) is squeezed
+   on a phone-width screen, the buttons shrink to near-zero width and each
+   letter ends up stacked on its own line instead of the row wrapping as
+   whole buttons. white-space:nowrap keeps button labels intact; .row
+   getting flex-wrap means the row wraps to a second line instead of
+   force-shrinking its children when it doesn't fit.  */
+.btn {
+  white-space: nowrap;
+}
+.row {
+  flex-wrap: wrap;
+}
+
+/* (2) Note Map chips. `.map-chip` has a fixed `max-width:320px` but no
+   `min-width:0`, so as a flex child of `.map-node` it can't shrink below
+   its un-wrapped text's intrinsic width — long note titles then overflow
+   past the right edge of the viewport on narrow screens instead of being
+   ellipsis-truncated as intended. */
+.map-chip {
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .map-chip {
+    max-width: 60vw;
+  }
+}
+
+/* (3) People table (Vault-style plain <table>) doesn't reflow on narrow
+   screens — columns get squeezed until header words wrap letter-by-letter.
+   Wrapped in app.js with a `.table-scroll` container; give the table a
+   sane minimum width so columns stay readable and the container scrolls
+   horizontally instead of crushing every column. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.table-scroll table {
+  min-width: 640px;
+}
+
+/* (4) Notebook page view (TOC + page editor) uses a fixed-width
+   (230px) inline-styled two-pane flex layout that never stacks, so on a
+   phone-width screen the page editor is squeezed into a ~140px sliver.
+   Stack the two panes vertically below 700px; the TOC becomes a capped-
+   height, horizontally-full list above the editor. !important is
+   required to win over the element's inline `style="width:230px;..."`. */
+@media (max-width: 700px) {
+  #nbDetailWrap {
+    flex-direction: column !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+  #nbToc {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-height: 38vh;
+    border-right: none !important;
+    border-bottom: 1px solid var(--btn-border);
+  }
+  #nbPageEditor {
+    min-height: 300px;
+  }
+}
