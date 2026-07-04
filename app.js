@@ -1691,6 +1691,8 @@ function updateProjectTasksButton() {
       !t.deletedAt
   ).length;
   ptBtn.textContent = `${count} project tasks`;
+  const backlogCount = db.tasks.filter(t => t.projectId && !t.noteId && t.status === 'BACKLOG' && !t.deletedAt).length;
+  ptBtn.title = `Active (TODO) tasks linked to a project — excludes tasks parked in a project's Backlog${backlogCount ? ' ('+backlogCount+' currently backlogged)' : ''} and already-Done tasks. Open a project and restore a backlog task to make it count here.`;
 
   // If the project task list is currently visible on the Today page, re-render it so
   // that newly added or removed tasks appear immediately. Without this check, users
@@ -3656,6 +3658,10 @@ function renderToday(){
       const priorities = { high: 3, medium: 2, low: 1 };
       return (priorities[b.priority] || 2) - (priorities[a.priority] || 2);
     });
+  // Count only, for the button's tooltip below — clarifies that a low/zero
+  // "project tasks" count doesn't mean projects have no work, just that
+  // nothing is currently pulled out of Backlog into an active TODO state.
+  const projectBacklogCount = db.tasks.filter(t => t.projectId && !t.noteId && t.status === 'BACKLOG' && !t.deletedAt).length;
   if(!daily){
     // For today: silently auto-create so the user always lands directly in the editor.
     // For past/future dates: still show the prompt so it's an explicit action.
@@ -3720,7 +3726,7 @@ function renderToday(){
         <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
           <strong>${key===todayKey()?"Today's Tasks":"Tasks"}</strong>
           <div class="row" style="gap:6px;">
-            <button id="showProjectTasks" class="btn" style="font-size:12px;">${projectTasks.length} project tasks</button>
+            <button id="showProjectTasks" class="btn" style="font-size:12px;" title="Active (TODO) tasks linked to a project — excludes tasks parked in a project's Backlog${projectBacklogCount ? ' ('+projectBacklogCount+' currently backlogged)' : ''} and already-Done tasks. Open a project and restore a backlog task to make it count here.">${projectTasks.length} project tasks</button>
             <button id="toggleBacklog" class="btn" style="font-size:12px;">Backlog ▾</button>
           </div>
         </div>
