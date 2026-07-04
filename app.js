@@ -72,21 +72,16 @@ function createDailyNoteFor(dateKey, contentOverride){
     // and keeps today's task list focused on what you actually planned today.
     // The db.settings.rollover toggle is preserved for backward compatibility
     // but is now effectively a no-op for the auto-move behavior.
-    if(db.settings.autoCarryTasks){
-      const priorities={high:3,medium:2,low:1};
-      const projectPool = db.tasks.filter(t=> t.projectId && !t.noteId && t.status==='TODO')
-        .sort((a,b)=>(priorities[b.priority]||2)-(priorities[a.priority]||2))
-        .slice(0,5);
-      // Move existing project tasks to the new daily note rather than cloning them.
-      // carriedToNoteId lets the daily filter let these through even though they
-      // still have a projectId (the leak guard otherwise hides any project task).
-      projectPool.forEach(t=>{
-        t.noteId = daily.id;
-        t.carriedToNoteId = daily.id;
-        t.updatedAt = nowISO();
-      });
-      if(projectPool.length) save();
-    }
+    //
+    // REMOVED (2026-07-04): auto-carry used to silently stamp up to 5 project
+    // tasks' noteId/carriedToNoteId onto each new daily note, injecting them
+    // into that day's regular task list alongside plain daily tasks. This
+    // conflicted with wanting a clean daily list (project tasks visible ONLY
+    // via the explicit "project tasks" toggle on Today) and was the root
+    // cause of tasks silently going stale/stuck once their carried-to day
+    // passed. Project tasks now stay in the project-tasks pool until
+    // explicitly acted on (from the project page or the Today toggle) —
+    // nothing carries them onto a daily note automatically anymore.
   }
   // Insert recurring monthly tasks for the given date. Delegated to
   // syncMonthlyTasksToDaily which is also called on existing notes in renderToday.
@@ -298,7 +293,7 @@ function attachmentSrc(att){
 
 const seed = {
   version:2,
-  settings:{rollover:true, seenTip:false, autoCarryTasks:true, autoReload:false, dailyTemplate:"# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"},
+  settings:{rollover:true, seenTip:false, autoReload:false, dailyTemplate:"# Top 3\n- [ ] \n- [ ] \n- [ ] \n\n## Tasks\n\n## Journal\n\n## Wins\n"},
   projects:[{id:"p1", name:"Sample Project", createdAt:nowISO()}],
   notes:[
     {id:"n1", title:"2025-01-01 — Daily", content:"# Top 3\n- [ ] Example task A\n- [ ] Example task B\n\n## Journal\nTried UltraNote Lite.\n", tags:[], projectId:null, dateIndex:"2025-01-01", type:"daily", createdAt:nowISO(), updatedAt:nowISO(), pinned:false},
@@ -4028,11 +4023,12 @@ function renderToday(){
       return true;
     };
     // --- Main task list ---
-    // Exclude anything with a projectId — those belong to the project page,
-    // never the daily task list, even if they also carry a noteId.
-    // Exception: tasks intentionally auto-carried into this daily note
-    // (carriedToNoteId === daily.id) are allowed through so the auto-carry
-    // feature actually surfaces them here while preserving the project link.
+    // Exclude anything with a projectId — those belong to the project page
+    // (or the Today "project tasks" toggle), never the daily task list.
+    // Exception: `carriedToNoteId===daily.id` is a legacy escape hatch from
+    // the now-removed auto-carry feature — some existing tasks in older data
+    // may still carry that flag pointing at a specific day; kept so those
+    // don't regress, but nothing sets it anymore going forward.
     const tasks = db.tasks.filter(t=> t.noteId===daily.id && (!t.projectId || t.carriedToNoteId===daily.id) && t.status!=='BACKLOG' && t.status!=='DROPPED' && !t.deletedAt && !isUndivergedRecurring(t))
       .sort((a,b)=> { if(a.status!==b.status) return a.status==='DONE'?1:-1; const p={high:3,medium:2,low:1}; return (p[b.priority]||2)-(p[a.priority]||2); });
     // Virtual recurring rows for the displayed date.
@@ -8907,11 +8903,6 @@ function render(){
   }
   document.getElementById("dailyRollover").checked = !!db.settings.rollover;
   document.getElementById("dailyRollover").onchange = ()=>{ db.settings.rollover = document.getElementById("dailyRollover").checked; save(); };
-  const autoCarryEl = document.getElementById("autoCarryTasks");
-  if(autoCarryEl){
-    autoCarryEl.checked = !!db.settings.autoCarryTasks;
-    autoCarryEl.onchange = ()=>{ db.settings.autoCarryTasks = autoCarryEl.checked; save(); };
-  }
 
   // Bind auto-reload toggle. If undefined, default to true for legacy DBs.
   const autoReloadEl = document.getElementById('autoReload');

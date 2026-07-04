@@ -90,7 +90,6 @@
       <input id="importFile" type="file" accept="application/json" class="hidden" />
       <button id="exportBtn" class="btn acc">Export</button>
       <label class="muted" style="margin-left:8px;"><input id="dailyRollover" type="checkbox"> Rollover incomplete tasks daily</label>
-      <label class="muted" style="margin-left:8px;"><input id="autoCarryTasks" type="checkbox"> Auto-carry project tasks</label>
       <!-- Auto reload toggle to allow disabling periodic sync -->
   <label class="muted" style="margin-left:8px;"><input id="autoReload" type="checkbox"> Auto-sync</label>
   <button id="syncNowBtn" class="btn" title="Manually sync now" aria-label="Sync now" style="font-size:12px;">Sync Now</button>
@@ -140,9 +139,6 @@
         <div class="muted" style="margin-top:12px;">Settings</div>
         <label class="muted" style="display:flex;align-items:center;gap:8px;margin-top:6px;">
           <input type="checkbox" data-mirror="#dailyRollover"> Rollover incomplete tasks daily
-        </label>
-        <label class="muted" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
-          <input type="checkbox" data-mirror="#autoCarryTasks"> Auto-carry project tasks
         </label>
         <label class="muted" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
           <input type="checkbox" data-mirror="#autoReload"> Auto-sync
