@@ -4103,8 +4103,14 @@ function renderToday(){
     if(prevList) {
       const prevDayIds = new Set((db.notes||[]).filter(n => n.type==='daily' && !n.deletedAt && n.dateIndex < todayStr).map(n => n.id));
       const monthlyTitles = new Set((db.monthly||[]).filter(m => !m.deletedAt).map(m => m.title.toLowerCase()));
+      // Include project tasks here too: once a project task is auto-carried onto a
+      // daily note (t.noteId set) and that day passes without being finished, it no
+      // longer shows on that old day's list (wrong day) nor in the 'project tasks'
+      // pool on Today (already claimed by a noteId) — without this, it would be
+      // invisible anywhere except the project's own page. Surfacing it here lets the
+      // user complete it, pull it to today, or send it back to the project backlog.
       const prevTasks = (db.tasks||[]).filter(t =>
-        t.status==='TODO' && !t.deletedAt && !t.projectId &&
+        t.status==='TODO' && !t.deletedAt &&
         prevDayIds.has(t.noteId) && !monthlyTitles.has((t.title||'').toLowerCase())
       );
       if(prevTasks.length) {
@@ -4154,6 +4160,10 @@ function renderToday(){
           const task = db.tasks.find(t => t.id === b.dataset.ppull);
           if (!task) return;
           task.noteId = daily.id;
+          // Project tasks need carriedToNoteId set too, otherwise the daily task-list
+          // filter (which requires carriedToNoteId===daily.id for project tasks) would
+          // still hide it on today's own list even though noteId now points here.
+          if (task.projectId) task.carriedToNoteId = daily.id;
           task.updatedAt = nowISO();
           save();
           showQuickToast('➡️ Pulled to today');
