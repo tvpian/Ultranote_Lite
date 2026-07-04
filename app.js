@@ -2568,19 +2568,58 @@ function _injectHighlights(html, tokens){
 // any occurrence that's already wrapped in `==...==` so re-highlighting a
 // duplicate phrase elsewhere in the note doesn't quietly re-target text
 // that's already annotated.
-function _locateSourceRange(source, selText){
+//
+// A bare substring search alone is NOT enough: if the selected text (a
+// common word, a repeated phrase/heading, etc.) occurs more than once in
+// the note, `indexOf` always finds the FIRST occurrence — which silently
+// highlights the wrong spot whenever the user selects a LATER occurrence
+// of the same text. `approxRatio` (the selection's position as a 0..1
+// fraction of the way through the rendered preview's plain text, computed
+// by the caller) disambiguates: among all matching candidates, we pick the
+// one whose position (as the same fraction of the source length) is
+// closest to that ratio. Markdown syntax means source length and rendered
+// text length aren't identical, so this is approximate, but document order
+// is preserved end-to-end, so the closest-by-ratio candidate is reliably
+// the one actually selected — a single duplicate word could theoretically
+// still be borderline, but a whole selected phrase is unambiguous in
+// practice.
+function _locateSourceRange(source, selText, approxRatio){
   if(!selText) return null;
-  let from = 0, firstIdx = -1;
+  const candidates = [];
+  let from = 0;
   while(true){
     const idx = source.indexOf(selText, from);
     if(idx === -1) break;
-    if(firstIdx === -1) firstIdx = idx;
     const already = source.slice(Math.max(0, idx-2), idx) === '=='
       && source.slice(idx+selText.length, idx+selText.length+2) === '==';
-    if(!already) return { start: idx, end: idx+selText.length };
+    if(!already) candidates.push(idx);
     from = idx + 1;
   }
-  return firstIdx === -1 ? null : { start: firstIdx, end: firstIdx+selText.length };
+  if(!candidates.length) return null;
+  if(candidates.length === 1 || approxRatio == null){
+    return { start: candidates[0], end: candidates[0]+selText.length };
+  }
+  const expectedPos = approxRatio * source.length;
+  let best = candidates[0], bestDist = Infinity;
+  for(const c of candidates){
+    const d = Math.abs(c - expectedPos);
+    if(d < bestDist){ bestDist = d; best = c; }
+  }
+  return { start: best, end: best+selText.length };
+}
+// Computes a linear character offset of (node, offset) within all the text
+// content of `container`, by walking its text nodes in DOM order and
+// summing lengths. Used to figure out roughly how far through the rendered
+// preview's plain text a selection starts, for `_locateSourceRange`'s
+// `approxRatio` disambiguation.
+function _textOffsetInContainer(container, node, offset){
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let total = 0, cur;
+  while((cur = walker.nextNode())){
+    if(cur === node) return total + offset;
+    total += cur.textContent.length;
+  }
+  return total;
 }
 // Splices `text` into a textarea's raw value at [start,end). Uses the
 // undo-safe execCommand path when the textarea is actually visible/focusable
@@ -2720,10 +2759,14 @@ function _wireHighlightSelectionPopup(previewEl, ta){
         _hideHlSelectPopup();
         return;
       }
-      const range = _locateSourceRange(ta.value, text);
+      const selRange = sel.getRangeAt(0);
+      const previewTextLen = previewEl.textContent.length;
+      const startOffset = _textOffsetInContainer(previewEl, selRange.startContainer, selRange.startOffset);
+      const approxRatio = previewTextLen > 0 ? startOffset / previewTextLen : null;
+      const range = _locateSourceRange(ta.value, text, approxRatio);
       if(!range){ _hideHlSelectPopup(); return; }
       pendingRange = range;
-      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      const rect = selRange.getBoundingClientRect();
       popup.classList.add('show');
       const pw = popup.offsetWidth || 160, ph = popup.offsetHeight || 34;
       let left = rect.left + rect.width/2 - pw/2;
