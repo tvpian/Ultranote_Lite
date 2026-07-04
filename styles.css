@@ -5668,4 +5668,22 @@ html { scrollbar-gutter: stable; }
   #nbPageEditor {
     min-height: 300px;
   }
+  /* Collapsed on mobile: just the "← All / title / ▸ Pages" header bar,
+     no fixed max-height needed since there's nothing tall left inside. */
+  #nbToc.nb-toc-collapsed {
+    max-height: none;
+  }
 }
+
+/* Collapsible "Pages" panel (← All / + New Page / Export .md / search /
+   TOC list) — user-toggleable via the ▾/▸ button in its header, so it
+   doesn't have to permanently eat viewport space above the page editor
+   on mobile (where it stacks above rather than beside the editor). Keep
+   the sidebar's own width unchanged when collapsed (only its body content
+   is hidden via inline display:none) — an earlier attempt to also shrink
+   the width to `auto` backfired: with the header row's title span set to
+   `flex:1`, a `width:auto` parent has nothing to constrain that flex
+   basis against, so the row (and the whole sidebar) grew WIDER than the
+   230px expanded state instead of narrower. Not worth the complexity for
+   a purely cosmetic desktop width tweak — the real goal (reclaiming
+   vertical space on mobile) doesn't need it. */
