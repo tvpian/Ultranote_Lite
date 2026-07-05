@@ -2673,7 +2673,7 @@ const HL_COLORS = { y: 'yellow', g: 'green', p: 'pink', b: 'blue', n: 'none' };
 function _hlPlaceholderFor(i){ return `xHiLiTexN${i}NxHiLiTex`; }
 function _extractHighlights(md){
   const tokens = [];
-  const out = md.replace(/==(?:([ygpbn]):)?([^=\n]+?)==(?:\^\[([^\]]*)\])?/g, (m, color, text, note) => {
+  const out = md.replace(/==(?:([ygpbn]):)?([^=\n]+?)==(?:\^\[((?:[^\[\]]|\[[^\]]*\])*)\])?/g, (m, color, text, note) => {
     const i = tokens.length;
     tokens.push({ color: HL_COLORS[color] ? color : 'y', text, note: (note || '').trim() });
     return _hlPlaceholderFor(i);
@@ -2846,7 +2846,7 @@ function _wireSplitScrollSync(ta, previewEl, paneWrap){
 // Order is stable because highlight extraction (_extractHighlights) always
 // scans left-to-right over the source, same as this regex does here.
 function _locateHighlightToken(source, idx){
-  const re = /==(?:([ygpbn]):)?([^=\n]+?)==(?:\^\[([^\]]*)\])?/g;
+  const re = /==(?:([ygpbn]):)?([^=\n]+?)==(?:\^\[((?:[^\[\]]|\[[^\]]*\])*)\])?/g;
   let m, i = 0;
   while((m = re.exec(source))){
     if(i === idx){
@@ -2961,6 +2961,22 @@ document.addEventListener('keydown', (e) => { if(e.key === 'Escape') _hideHlSele
 // wikilink click handler above) since preview panes are re-rendered
 // (innerHTML replaced) on every keystroke — per-element listeners would be
 // lost on each render, a delegated listener is not.
+// Renders a margin-note's text as small inline markdown (bold/italic/code/
+// links etc.) instead of raw escaped text, so the popover matches what the
+// user typed the same way the main preview pane does. Kept intentionally
+// lightweight (no highlights/wikilinks/math extensions) since notes are
+// short annotations, not full documents.
+function _renderNotePreviewHtml(note){
+  try {
+    const raw = marked.parse(note, { breaks: true, gfm: true });
+    return (typeof DOMPurify !== 'undefined')
+      ? DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, ADD_ATTR: ['target','rel'] })
+      : raw;
+  } catch(e){
+    console.warn('note preview render failed, falling back to escaped text:', e);
+    return htmlesc(note);
+  }
+}
 let _hlNotePopoverEl = null;
 function _ensureHlNotePopover(){
   if(_hlNotePopoverEl) return _hlNotePopoverEl;
@@ -2987,7 +3003,7 @@ document.addEventListener('click', (e) => {
   if(!tok) return;
   const popover = _ensureHlNotePopover();
   popover.innerHTML = `
-    <div class="hl-note-popover-body">${tok.note ? htmlesc(tok.note) : '<em>No note yet</em>'}</div>
+    <div class="hl-note-popover-body">${tok.note ? _renderNotePreviewHtml(tok.note) : '<em>No note yet</em>'}</div>
     <div class="hl-note-popover-actions">
       <button type="button" data-hl-act="note">${tok.note ? '\u270F\uFE0F Edit' : '\u2795 Add note'}</button>
       <button type="button" data-hl-act="remove">\uD83D\uDDD1 Remove</button>

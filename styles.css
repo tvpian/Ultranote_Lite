@@ -4713,9 +4713,24 @@ sup.hl-note-badge {
 .hl-note-popover.show { display: block; }
 .hl-note-popover-body {
   margin-bottom: 8px;
-  white-space: pre-wrap;
   word-break: break-word;
 }
+/* Note body is rendered through the same markdown pipeline as the main
+   preview (see _renderNotePreviewHtml), so bold/italic/code/links typed
+   into a note actually render instead of showing raw markdown syntax.
+   Trim default block-element margins since this is a small popover, not
+   a full document. */
+.hl-note-popover-body > :first-child { margin-top: 0; }
+.hl-note-popover-body > :last-child { margin-bottom: 0; }
+.hl-note-popover-body p { margin: 0 0 6px; }
+.hl-note-popover-body code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.hl-note-popover-body a { color: var(--acc, #4ea1ff); }
+
 .hl-note-popover-actions {
   display: flex;
   gap: 6px;
