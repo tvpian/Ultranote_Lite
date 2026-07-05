@@ -621,6 +621,11 @@ let _saveTimer; function save(){
 
 // Rebuilds the #dueBanner element from current db.tasks. Safe to call from
 // anywhere — no-ops if the element isn't in the DOM (e.g., not on Today).
+// Each row is actionable: a checkbox marks the task DONE in place, and an
+// "Open →" button jumps straight to wherever the task actually lives
+// (its project, the daily note it's attached to, or a plain note) — so an
+// overdue/due-today task can be attended to directly from the banner
+// instead of only being informational.
 function refreshDueBanner(){
   const banner = document.getElementById('dueBanner');
   if(!banner) return;
@@ -634,19 +639,63 @@ function refreshDueBanner(){
     if(t.noteId){ const n = (db.notes||[]).find(n=>n.id===t.noteId); return n && n.dateIndex ? n.dateIndex : 'note'; }
     return 'no note';
   };
-  const makeRows = (list, color) => list.map(t =>
-    `<div style='margin-top:3px;display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;'>
-      <span style='color:${color};font-weight:600;font-size:11px;'>●</span>
+  // Where "Open →" should navigate for a given task — mirrors taskSource()'s
+  // own classification (project > daily note > other note > nowhere to go).
+  const openTarget = t => {
+    if(t.projectId) return { kind:'project', id:t.projectId };
+    if(t.noteId){
+      const n = (db.notes||[]).find(n=>n.id===t.noteId);
+      if(n && n.dateIndex) return { kind:'day', date:n.dateIndex };
+      if(n) return { kind:'note', id:n.id };
+    }
+    return null;
+  };
+  const makeRows = (list, color) => list.map(t => {
+    const target = openTarget(t);
+    const openBtn = target ? `<button class='btn' data-due-open='${t.id}' style='font-size:10px;padding:1px 6px;flex-shrink:0;'>Open →</button>` : '';
+    return `<div style='margin-top:3px;display:flex;align-items:flex-start;gap:4px;flex-wrap:wrap;'>
+      <input type='checkbox' data-due-done='${t.id}' style='cursor:pointer;flex-shrink:0;margin-top:2px;' title='Mark done'/>
+      <span style='color:${color};font-weight:600;font-size:11px;flex-shrink:0;'>●</span>
       <span style='flex:1;min-width:0;word-break:break-word;'>${htmlesc(t.title)}</span>
       <span class='banner-source' style='font-size:10px;color:var(--muted);white-space:nowrap;'>${taskSource(t)}</span>
       <span style='font-size:10px;color:var(--muted);white-space:nowrap;'>${formatDateString(t.due)}</span>
-    </div>`
-  ).join('');
+      ${openBtn}
+    </div>`;
+  }).join('');
   let html = `<div style='padding:6px 10px;margin-bottom:4px;background:rgba(255,68,68,0.1);border:1px solid rgba(255,68,68,0.35);border-radius:6px;font-size:12px;'>`;
   if(overdueList.length)  html += `<div>⚠️ <strong style='color:#ff6666;'>${overdueList.length} overdue</strong></div>${makeRows(overdueList,'#ff6666')}`;
   if(dueTodayList.length) html += `<div style='margin-top:${overdueList.length?'6px':'0'};'>🔔 <strong style='color:#fbbf24;'>${dueTodayList.length} due today</strong></div>${makeRows(dueTodayList,'#fbbf24')}`;
   html += `</div>`;
   banner.innerHTML = html;
+  // Wire actions. Fresh listeners each rebuild — fine since innerHTML was
+  // just replaced, so any previous listeners went away with their nodes.
+  banner.querySelectorAll('[data-due-done]').forEach(cb => cb.onchange = () => {
+    setTaskStatus(cb.dataset.dueDone, 'DONE');
+    // setTaskStatus() -> save() already re-invokes refreshDueBanner() itself
+    // (see save()'s try/catch above), removing this row automatically.
+    // Also refresh Today's own lists in case this same task is currently
+    // visible there too (main list, unfinished-from-previous-days, backlog,
+    // and the project-tasks toggle all live inside renderToday()'s closure
+    // — these globals are (re)exposed by renderToday() each time it runs,
+    // and no-op harmlessly if Today isn't the active view).
+    if (typeof window.drawTasks === 'function') window.drawTasks();
+    if (typeof window.drawBacklog === 'function') window.drawBacklog();
+    if (typeof window.drawProjectTasks === 'function') window.drawProjectTasks();
+    if (typeof renderNav === 'function') renderNav();
+  });
+  banner.querySelectorAll('[data-due-open]').forEach(btn => btn.onclick = () => {
+    const t = (db.tasks||[]).find(x => x.id === btn.dataset.dueOpen);
+    if(!t) return;
+    const target = openTarget(t);
+    if(!target) return;
+    if(target.kind === 'project'){
+      _navPush(); route = 'projects'; currentProjectId = target.id; render();
+    } else if(target.kind === 'day'){
+      _navPush(); route = 'today'; selectedDailyDate = target.date; render();
+    } else if(target.kind === 'note'){
+      openNote(target.id); // openNote() self-pushes its own nav state — don't double-push
+    }
+  });
 }
 
 // Show inline "Saved ✓" next to the save button — pass the span id explicitly.
@@ -4298,9 +4347,12 @@ function renderToday(){
     // Sync the nav badge count after any task change
     renderNav();
   }
-  // Expose the drawProjectTasks function globally so other helpers (like
-  // updateProjectTasksButton) can invoke it when necessary. This is safe
-  // because renderToday redefines drawProjectTasks on each invocation.
+  // Expose drawTasks/drawBacklog/drawProjectTasks globally so other helpers
+  // (updateProjectTasksButton, refreshDueBanner's per-row "mark done" action)
+  // can refresh Today's own lists after a task changes elsewhere. Safe
+  // because renderToday redefines all three on each invocation.
+  window.drawTasks = drawTasks;
+  window.drawBacklog = drawBacklog;
   window.drawProjectTasks = drawProjectTasks;
   drawTasks(); drawBacklog();
 
