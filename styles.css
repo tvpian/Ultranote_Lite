@@ -4651,6 +4651,17 @@ mark.hl-y { background: #ffe066; }
 mark.hl-g { background: #8ce99a; }
 mark.hl-p { background: #ffa8d2; }
 mark.hl-b { background: #a5d8ff; }
+/* Plain note, no highlight color — text stays visually unstyled apart from
+   a subtle dotted underline (so it's still discoverable as clickable) and
+   the 💬 badge next to it. Mirrors how PDF/eReader sticky notes work: a
+   note doesn't require the passage itself to also be color-highlighted. */
+mark.hl-n {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  border-bottom: 1px dotted var(--muted, #888);
+}
 sup.hl-note-badge {
   font-size: 10px;
   cursor: pointer;

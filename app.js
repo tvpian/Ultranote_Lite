@@ -2663,11 +2663,17 @@ function _injectWikiLinks(html, tokens){
 // and since the whole `==...==^[...]` token is swapped for a single-line
 // placeholder before marked.parse ever runs, newlines inside the note don't
 // interfere with markdown's own paragraph/line parsing.
-const HL_COLORS = { y: 'yellow', g: 'green', p: 'pink', b: 'blue' };
+// 'n' = a plain margin note with NO highlight color — the underlying text
+// stays visually unstyled (just a dotted underline, see mark.hl-n in
+// styles.css) and only the 💬 badge marks it, matching how PDF/eReader
+// sticky notes work (a note doesn't require also color-highlighting the
+// passage). y/g/p/b remain actual colored highlights, optionally with a
+// note attached too.
+const HL_COLORS = { y: 'yellow', g: 'green', p: 'pink', b: 'blue', n: 'none' };
 function _hlPlaceholderFor(i){ return `xHiLiTexN${i}NxHiLiTex`; }
 function _extractHighlights(md){
   const tokens = [];
-  const out = md.replace(/==(?:([ygpb]):)?([^=\n]+?)==(?:\^\[([^\]]*)\])?/g, (m, color, text, note) => {
+  const out = md.replace(/==(?:([ygpbn]):)?([^=\n]+?)==(?:\^\[([^\]]*)\])?/g, (m, color, text, note) => {
     const i = tokens.length;
     tokens.push({ color: HL_COLORS[color] ? color : 'y', text, note: (note || '').trim() });
     return _hlPlaceholderFor(i);
@@ -2840,7 +2846,7 @@ function _wireSplitScrollSync(ta, previewEl, paneWrap){
 // Order is stable because highlight extraction (_extractHighlights) always
 // scans left-to-right over the source, same as this regex does here.
 function _locateHighlightToken(source, idx){
-  const re = /==(?:([ygpb]):)?([^=\n]+?)==(?:\^\[([^\]]*)\])?/g;
+  const re = /==(?:([ygpbn]):)?([^=\n]+?)==(?:\^\[([^\]]*)\])?/g;
   let m, i = 0;
   while((m = re.exec(source))){
     if(i === idx){
@@ -2851,9 +2857,15 @@ function _locateHighlightToken(source, idx){
   return null;
 }
 // Floating mini-toolbar shown when text is selected inside a rendered
-// preview pane: 4 color swatches (plain highlight) + a note button
-// (yellow highlight + prompt for a margin note), matching the same actions
-// already available from the editor toolbar's highlight buttons.
+// preview pane: 4 color swatches (plain highlight, no note) + a 💬 button
+// (a plain NOTE with no highlight color at all — same underlying ==...==
+// mechanism and the same click-to-edit annotation popover as a colored
+// highlight, just rendered without a colored background — so "highlight"
+// and "note" are two clearly distinct, consistent actions rather than the
+// 💬 button silently also applying a yellow highlight behind your back).
+// Want both a color AND a note on the same passage? Apply a color first,
+// then click it to use the popover's "+ Add note" action — it preserves
+// whichever color you picked.
 let _hlSelectPopupEl = null;
 function _ensureHlSelectPopup(){
   if(_hlSelectPopupEl) return _hlSelectPopupEl;
@@ -2864,7 +2876,7 @@ function _ensureHlSelectPopup(){
     <button type="button" data-hl-color="g" title="Highlight — green">\uD83D\uDFE2</button>
     <button type="button" data-hl-color="p" title="Highlight — pink">\uD83E\uDD0D</button>
     <button type="button" data-hl-color="b" title="Highlight — blue">\uD83D\uDD35</button>
-    <button type="button" data-hl-note title="Highlight & add a note">\uD83D\uDCAC</button>
+    <button type="button" data-hl-note title="Add a note (no highlight)">\uD83D\uDCAC</button>
   `;
   document.body.appendChild(el);
   _hlSelectPopupEl = el;
@@ -2889,9 +2901,9 @@ function _wireHighlightSelectionPopup(previewEl, ta){
     const selText = ta.value.slice(start, end);
     (async () => {
       if(action === 'note'){
-        const note = await showPrompt('Margin note for this highlight (optional):', '', 'Add', 'Skip', { multiline: true });
-        const suffix = (note && note.trim()) ? `^[${note.trim()}]` : '';
-        _replaceSourceRange(ta, start, end, `==${selText}==${suffix}`);
+        const note = await showPrompt('Note text:', '', 'Add', 'Cancel', { multiline: true });
+        if(note === null || !note.trim()) return; // cancelled/empty — nothing to attach
+        _replaceSourceRange(ta, start, end, `==n:${selText}==^[${note.trim()}]`);
       } else {
         const wrapped = action === 'y' ? `==${selText}==` : `==${action}:${selText}==`;
         _replaceSourceRange(ta, start, end, wrapped);
