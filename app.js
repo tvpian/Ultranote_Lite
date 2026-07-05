@@ -4001,22 +4001,7 @@ function renderToday(){
     return days <= 2 ? 'due-soon' : '';
   }
   $("#captureBtn")?.addEventListener('click', handleQuickCapture);
-  $("#showProjectTasks").onclick = ()=>{
-    const list = $("#projectTaskList");
-    const prevList = $("#prevTaskList");
-    const isVisible = list.style.display !== 'none';
-    if(isVisible){
-      // Turning OFF — hide project tasks and bring back "Unfinished from previous days" in its place.
-      list.style.display = 'none';
-      if(prevList) prevList.style.display = '';
-      drawTasks();
-    } else {
-      // Turning ON — show project tasks in the same slot, hiding the unfinished-from-previous-days panel.
-      if(prevList) prevList.style.display = 'none';
-      list.style.display = 'block';
-      drawProjectTasks();
-    }
-  };
+  $("#showProjectTasks").onclick = ()=>{ const list = $("#projectTaskList"); const isVisible = list.style.display !== 'none'; list.style.display = isVisible? 'none':'block'; drawProjectTasks(); };
   $("#toggleBacklog").onclick = ()=>{ const bl = $("#backlogList"); bl.style.display = bl.style.display==='none'? 'block':'none'; drawBacklog(); };
   function drawTasks(){
     const list = $("#taskList"); if(!list) return;
