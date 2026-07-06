@@ -4956,7 +4956,7 @@ function renderPeople() {
   function rowHTML(p) {
     const star = p.star ? '⭐ ' : '';
     const met  = p.met  ? '<span title="Met IRL" style="margin-left:4px;">🤝</span>' : '';
-    const unverified = p.unverified ? '<span title="Contains unverified leads — worth a manual double-check" style="margin-left:4px;">🚩</span>' : '';
+    const unverified = p.unverified ? '<span title="Contains unverified leads — worth a manual double-check" style="margin-left:4px;color:#d9822b;font-size:9px;vertical-align:super;cursor:help;">●</span>' : '';
     const tagChips = p.tags.slice(0,4).map(t => `<span class="muted" style="font-size:11px;border:1px solid var(--btn-border);border-radius:10px;padding:1px 6px;margin-right:3px;">${htmlesc(t)}</span>`).join('');
     const topicChips = p.topics.slice(0,3).map(t => {
       const short = t.replace(/^🗺️\s*Topic\s*Map\s*[—-]\s*/i, '');
