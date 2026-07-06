@@ -4749,8 +4749,13 @@ function _extractWikilinksOrLines(text) {
 }
 
 // Slice the body of a `## Heading` section until the next `## ` or end.
+// NOTE: JS regex has no \Z ("end of string") anchor — with the 'i' flag it's
+// silently treated as a literal Z/z instead, so the lazy [\s\S]*? match used
+// to stop at the first lowercase 'z' ANYWHERE in the section body (e.g. inside
+// a word like "optimized"), truncating everything after it. (?![\s\S]) is the
+// correct flag-independent "true end of string" lookahead.
 function _extractSection(content, heading) {
-  const re = new RegExp('^##\\s+' + heading.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '\\s*$([\\s\\S]*?)(?=^##\\s+|\\Z)', 'mi');
+  const re = new RegExp('^##\\s+' + heading.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '\\s*$([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))', 'mi');
   const m = content.match(re);
   return m ? m[1] : '';
 }
@@ -4770,15 +4775,15 @@ function _extractCollaborators(labBody) {
 
 // First non-empty bullet under "## Currently working on" — surfaced as a
 // one-line preview in the People table so you can scan what everyone's up to
-// without opening each note. Markdown stripped down to plain text and
-// truncated since it's shown inline, not as the full note body.
-function _extractFirstBullet(sectionBody, maxLen = 140) {
+// without opening each note. Markdown stripped down to plain text. No length
+// cap — this is shown inside a collapsed <details> toggle, so nothing needs
+// truncating for space; the full line is only visible once expanded.
+function _extractFirstBullet(sectionBody) {
   const line = (sectionBody || '').split(/\r?\n/)
     .map(l => l.replace(/^\s*[-*]\s*/, '').trim())
     .find(Boolean);
   if (!line) return '';
-  const plain = line.replace(/\*\*/g, '').replace(/`/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
-  return plain.length > maxLen ? plain.slice(0, maxLen - 1) + '\u2026' : plain;
+  return line.replace(/\*\*/g, '').replace(/`/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
 }
 
 // Pull the first URL out of an "## Online" section's "- Label: [text](url)"
@@ -4963,25 +4968,31 @@ function renderPeople() {
       return `<span class="muted" style="font-size:11px;border:1px solid var(--btn-border);border-radius:10px;padding:1px 6px;margin-right:3px;">🗺️ ${htmlesc(short)}</span>`;
     }).join('') + (p.topics.length > 3 ? `<span class="muted" style="font-size:11px;">+${p.topics.length-3}</span>` : '');
     const collabCount = p.collaborators.length;
-    const currentHTML = p.current ? `<div class="muted" style="margin-top:3px;font-size:11px;max-width:320px;">${htmlesc(p.current)}</div>` : '';
+    const currentHTML = p.current ? `<div class="muted" style="margin-top:3px;font-size:11px;">${htmlesc(p.current)}</div>` : '';
     const linkIcons = [
       ['scholar','🎓','Google Scholar'], ['github','🐙','GitHub'], ['site','🌐','Personal site'],
       ['twitter','🐦','X / Twitter'], ['linkedin','💼','LinkedIn'],
     ].map(([key, icon, label]) => p.links[key]
       ? `<a href="${htmlesc(p.links[key])}" target="_blank" rel="noopener noreferrer" title="${label}" onclick="event.stopPropagation()" style="margin-right:6px;text-decoration:none;">${icon}</a>`
       : '').join('');
-    // Tags + current-work snippet are tucked behind a <details> toggle so
-    // rows stay compact by default — click the summary (stopPropagation'd so
-    // it doesn't also fire the row's openNote() handler) to expand in place.
-    const hasExtra = tagChips || currentHTML;
-    const extraHTML = hasExtra ? `
+    // Tags and the current-work snippet each get their own <details> toggle
+    // (independently expandable) so rows stay compact by default but you can
+    // open just the one you're interested in — click the summary
+    // (stopPropagation'd so it doesn't also fire the row's openNote()
+    // handler) to expand in place. No max-width/truncation once expanded.
+    const tagsDetails = tagChips ? `
           <details style="margin-top:2px;">
-            <summary onclick="event.stopPropagation()" class="muted" style="cursor:pointer;font-size:11px;list-style:none;">▸ tags${p.current ? ' & status' : ''}</summary>
-            <div style="margin-top:3px;">${tagChips}</div>${currentHTML}
+            <summary onclick="event.stopPropagation()" class="muted" style="cursor:pointer;font-size:11px;list-style:none;">▸ tags</summary>
+            <div style="margin-top:3px;">${tagChips}</div>
+          </details>` : '';
+    const statusDetails = currentHTML ? `
+          <details style="margin-top:2px;">
+            <summary onclick="event.stopPropagation()" class="muted" style="cursor:pointer;font-size:11px;list-style:none;">▸ status</summary>
+            ${currentHTML}
           </details>` : '';
     return `
       <tr data-ppl-id="${p.id}" style="cursor:pointer;border-bottom:1px solid var(--btn-border);">
-        <td style="padding:8px 6px;"><strong>${star}${htmlesc(p.title)}</strong>${met}${unverified}${extraHTML}</td>
+        <td style="padding:8px 6px;"><strong>${star}${htmlesc(p.title)}</strong>${met}${unverified}${tagsDetails}${statusDetails}</td>
         <td style="padding:8px 6px;">${p.role ? _mdInlineToHtml(p.role) : '—'}</td>
         <td style="padding:8px 6px;">${p.affiliation ? _mdInlineToHtml(p.affiliation) : '—'}</td>
         <td style="padding:8px 6px;">${topicChips || '<span class="muted">—</span>'}</td>
