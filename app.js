@@ -4970,9 +4970,18 @@ function renderPeople() {
     ].map(([key, icon, label]) => p.links[key]
       ? `<a href="${htmlesc(p.links[key])}" target="_blank" rel="noopener noreferrer" title="${label}" onclick="event.stopPropagation()" style="margin-right:6px;text-decoration:none;">${icon}</a>`
       : '').join('');
+    // Tags + current-work snippet are tucked behind a <details> toggle so
+    // rows stay compact by default — click the summary (stopPropagation'd so
+    // it doesn't also fire the row's openNote() handler) to expand in place.
+    const hasExtra = tagChips || currentHTML;
+    const extraHTML = hasExtra ? `
+          <details style="margin-top:2px;">
+            <summary onclick="event.stopPropagation()" class="muted" style="cursor:pointer;font-size:11px;list-style:none;">▸ tags${p.current ? ' & status' : ''}</summary>
+            <div style="margin-top:3px;">${tagChips}</div>${currentHTML}
+          </details>` : '';
     return `
       <tr data-ppl-id="${p.id}" style="cursor:pointer;border-bottom:1px solid var(--btn-border);">
-        <td style="padding:8px 6px;"><strong>${star}${htmlesc(p.title)}</strong>${met}${unverified}<div style="margin-top:2px;">${tagChips}</div>${currentHTML}</td>
+        <td style="padding:8px 6px;"><strong>${star}${htmlesc(p.title)}</strong>${met}${unverified}${extraHTML}</td>
         <td style="padding:8px 6px;">${p.role ? _mdInlineToHtml(p.role) : '—'}</td>
         <td style="padding:8px 6px;">${p.affiliation ? _mdInlineToHtml(p.affiliation) : '—'}</td>
         <td style="padding:8px 6px;">${topicChips || '<span class="muted">—</span>'}</td>
