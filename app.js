@@ -4699,9 +4699,23 @@ function _peopleNotebookId() {
   return nb ? nb.id : null;
 }
 
+// Some Role/Affiliation values (esp. pasted from an external research skill)
+// contain inline markdown links, e.g. "[Stanford](https://...)" — rendering
+// them with plain htmlesc() shows the raw "[text](url)" syntax in the People
+// table. This turns those into real clickable links; plain text passes
+// through untouched.
+function _mdInlineToHtml(text) {
+  return htmlesc(text || '').replace(/\[([^\]]*)\]\((https?:[^)]+)\)/g,
+    (m, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${label}</a>`);
+}
+
 // Parse a single bold-key line: "**Role:** Professor" → "Professor"
+// NOTE: trailing match must use [ \t]* (not \s*) — \s* matches newlines too,
+// which let the regex greedily swallow the *next* field's line whenever this
+// field's value was empty (e.g. "**Tags:** \n**Met:** no" would parse Tags
+// as "**Met:** no"). Same bug class already fixed once in _setField below.
 function _parseField(content, key) {
-  const re = new RegExp('^\\s*\\*\\*' + key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + ':\\*\\*\\s*(.*)$', 'mi');
+  const re = new RegExp('^\\s*\\*\\*' + key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + ':\\*\\*[ \\t]*(.*)$', 'mi');
   const m = content.match(re);
   return m ? m[1].trim() : '';
 }
@@ -4754,6 +4768,37 @@ function _extractCollaborators(labBody) {
   return m[1].split(/[,;]/).map(s => s.replace(/\*\*/g, '').trim()).filter(Boolean);
 }
 
+// First non-empty bullet under "## Currently working on" — surfaced as a
+// one-line preview in the People table so you can scan what everyone's up to
+// without opening each note. Markdown stripped down to plain text and
+// truncated since it's shown inline, not as the full note body.
+function _extractFirstBullet(sectionBody, maxLen = 140) {
+  const line = (sectionBody || '').split(/\r?\n/)
+    .map(l => l.replace(/^\s*[-*]\s*/, '').trim())
+    .find(Boolean);
+  if (!line) return '';
+  const plain = line.replace(/\*\*/g, '').replace(/`/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+  return plain.length > maxLen ? plain.slice(0, maxLen - 1) + '\u2026' : plain;
+}
+
+// Pull the first URL out of an "## Online" section's "- Label: [text](url)"
+// (or bare-URL) lines, keyed by label, so the People table can show clickable
+// icons without having to open the note.
+function _extractOnlineLinks(onlineBody) {
+  const labels = { scholar: 'Scholar', github: 'GitHub', site: 'Site', twitter: 'X / Twitter', linkedin: 'LinkedIn' };
+  const out = {};
+  Object.keys(labels).forEach(key => {
+    const escLabel = labels[key].replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\//g, '\\/');
+    const re = new RegExp('^\\s*[-*]\\s*' + escLabel + ':\\s*(.*)$', 'mi');
+    const m = (onlineBody || '').match(re);
+    if (!m) return;
+    const line = m[1];
+    const linkMatch = line.match(/\(([^)]+)\)/) || line.match(/(https?:\/\/\S+)/);
+    if (linkMatch) out[key] = linkMatch[1].replace(/[)\].,]+$/, '');
+  });
+  return out;
+}
+
 function _parsePerson(note) {
   const c = note.content || '';
   const tagsRaw = _parseField(c, 'Tags');
@@ -4767,6 +4812,13 @@ function _parsePerson(note) {
   // Collaborators: wiki-links or the "Frequent collaborators:" line inside Lab / team.
   const labBody = _extractSection(c, 'Lab \\/ team') || _extractSection(c, 'Lab / team');
   const collaborators = _extractCollaborators(labBody);
+  const current = _extractFirstBullet(_extractSection(c, 'Currently working on'));
+  const links = _extractOnlineLinks(_extractSection(c, 'Online'));
+  // Flag profiles that still have leads awaiting manual confirmation (the
+  // OSINT-style dossier format tags unverified data points this way) so they
+  // stand out in the table as "needs a second look" rather than silently
+  // being trusted the same as verified entries.
+  const unverified = /\[UNVERIFIED LEADS\]/i.test(c);
   // Role bucket — derived from tags first, then from the Role field.
   const tagsLower = tags.map(t => t.toLowerCase());
   let bucket = 'Other';
@@ -4792,6 +4844,9 @@ function _parsePerson(note) {
     star,
     topics,
     collaborators,
+    current,
+    links,
+    unverified,
     bucket,
     updatedAt: note.updatedAt,
   };
@@ -4859,6 +4914,7 @@ function renderPeople() {
         <strong>👥 People <span class="muted" style="font-weight:normal;">(${filtered.length}/${people.length})</span></strong>
         <div class="row" style="gap:6px;flex-wrap:wrap;">
           ${indexNote ? `<button class="btn" id="pplOpenIndex" title="Open the People — Index note">📑 Index</button>` : ''}
+          <button class="btn" id="pplTogglePaste" title="Paste a full dossier (e.g. from an OSINT research skill) and create the person note in one step">📋 Paste full profile</button>
         </div>
       </div>
       <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px;">
@@ -4869,6 +4925,14 @@ function renderPeople() {
         <button class="btn acc" id="pplAdd" title="Add — press Enter in any field to save">➕ Add</button>
       </div>
       <div class="muted" style="margin-top:4px;font-size:11px;">Just enter a name to get started — press Enter or click Add. Open the note afterward to fill in the rest of the dossier.</div>
+      <div id="pplPasteWrap" style="display:none;margin-top:10px;">
+        <textarea id="pplPasteInput" placeholder="Paste a full markdown dossier here — starts with '# Name'…" style="width:100%;min-height:140px;background:var(--input-bg);border:1px solid var(--input-border);color:var(--fg);border-radius:8px;padding:8px;box-sizing:border-box;font-family:inherit;font-size:13px;"></textarea>
+        <div class="row" style="margin-top:6px;gap:6px;">
+          <button class="btn acc" id="pplPasteCreate">✅ Create from paste</button>
+          <button class="btn" id="pplPasteCancel">Cancel</button>
+        </div>
+        <div class="muted" style="margin-top:4px;font-size:11px;">The note's title is taken from the first "# Heading" line — the rest is saved as-is, so it lines up with whatever dossier format (e.g. an OSINT research skill) you're pasting from.</div>
+      </div>
       <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px;">
         <input id="pplSearch" type="text" placeholder="Search name, org, role, tag…" value="${htmlesc(f.q)}" style="flex:1;min-width:180px;" />
         <select id="pplRole" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
@@ -4892,19 +4956,28 @@ function renderPeople() {
   function rowHTML(p) {
     const star = p.star ? '⭐ ' : '';
     const met  = p.met  ? '<span title="Met IRL" style="margin-left:4px;">🤝</span>' : '';
+    const unverified = p.unverified ? '<span title="Contains unverified leads — worth a manual double-check" style="margin-left:4px;">🚩</span>' : '';
     const tagChips = p.tags.slice(0,4).map(t => `<span class="muted" style="font-size:11px;border:1px solid var(--btn-border);border-radius:10px;padding:1px 6px;margin-right:3px;">${htmlesc(t)}</span>`).join('');
     const topicChips = p.topics.slice(0,3).map(t => {
       const short = t.replace(/^🗺️\s*Topic\s*Map\s*[—-]\s*/i, '');
       return `<span class="muted" style="font-size:11px;border:1px solid var(--btn-border);border-radius:10px;padding:1px 6px;margin-right:3px;">🗺️ ${htmlesc(short)}</span>`;
     }).join('') + (p.topics.length > 3 ? `<span class="muted" style="font-size:11px;">+${p.topics.length-3}</span>` : '');
     const collabCount = p.collaborators.length;
+    const currentHTML = p.current ? `<div class="muted" style="margin-top:3px;font-size:11px;max-width:320px;">${htmlesc(p.current)}</div>` : '';
+    const linkIcons = [
+      ['scholar','🎓','Google Scholar'], ['github','🐙','GitHub'], ['site','🌐','Personal site'],
+      ['twitter','🐦','X / Twitter'], ['linkedin','💼','LinkedIn'],
+    ].map(([key, icon, label]) => p.links[key]
+      ? `<a href="${htmlesc(p.links[key])}" target="_blank" rel="noopener noreferrer" title="${label}" onclick="event.stopPropagation()" style="margin-right:6px;text-decoration:none;">${icon}</a>`
+      : '').join('');
     return `
       <tr data-ppl-id="${p.id}" style="cursor:pointer;border-bottom:1px solid var(--btn-border);">
-        <td style="padding:8px 6px;"><strong>${star}${htmlesc(p.title)}</strong>${met}<div style="margin-top:2px;">${tagChips}</div></td>
-        <td style="padding:8px 6px;">${htmlesc(p.role || '—')}</td>
-        <td style="padding:8px 6px;">${htmlesc(p.affiliation || '—')}</td>
+        <td style="padding:8px 6px;"><strong>${star}${htmlesc(p.title)}</strong>${met}${unverified}<div style="margin-top:2px;">${tagChips}</div>${currentHTML}</td>
+        <td style="padding:8px 6px;">${p.role ? _mdInlineToHtml(p.role) : '—'}</td>
+        <td style="padding:8px 6px;">${p.affiliation ? _mdInlineToHtml(p.affiliation) : '—'}</td>
         <td style="padding:8px 6px;">${topicChips || '<span class="muted">—</span>'}</td>
         <td style="padding:8px 6px;">${collabCount ? `<span class="muted">${collabCount} linked</span>` : '<span class="muted">—</span>'}</td>
+        <td style="padding:8px 6px;white-space:nowrap;">${linkIcons || '<span class="muted">—</span>'}</td>
       </tr>`;
   }
 
@@ -4923,6 +4996,7 @@ function renderPeople() {
             <th style="padding:8px 6px;">Affiliation</th>
             <th style="padding:8px 6px;">Topics</th>
             <th style="padding:8px 6px;">Collaborators</th>
+            <th style="padding:8px 6px;">Links</th>
           </tr>
         </thead>
         <tbody>${rows.map(rowHTML).join('')}</tbody>
@@ -5020,6 +5094,52 @@ function renderPeople() {
   ['pplNewName', 'pplNewRole', 'pplNewAffil', 'pplNewTags'].forEach(id => {
     $get(id).onkeydown = e => { if (e.key === 'Enter') $get('pplAdd').click(); };
   });
+
+  // Paste-a-full-dossier shortcut — for workflows like an external OSINT
+  // research skill that hands back a complete markdown profile already
+  // matching (or close enough to) the Person template's sections. Rather
+  // than quick-adding a name, opening the resulting stub note, selecting
+  // all, and pasting over the template skeleton, this creates the note
+  // directly from the pasted markdown in one step.
+  const pasteWrap = $get('pplPasteWrap');
+  $get('pplTogglePaste').onclick = () => {
+    const showing = pasteWrap.style.display !== 'none';
+    pasteWrap.style.display = showing ? 'none' : 'block';
+    if (!showing) $get('pplPasteInput').focus();
+  };
+  $get('pplPasteCancel').onclick = () => {
+    pasteWrap.style.display = 'none';
+    $get('pplPasteInput').value = '';
+  };
+  $get('pplPasteCreate').onclick = () => {
+    const raw = $get('pplPasteInput').value;
+    if (!raw.trim()) { $get('pplPasteInput').focus(); return; }
+    const titleMatch = raw.match(/^#\s+(.+)$/m);
+    const name = (titleMatch ? titleMatch[1] : '').trim();
+    if (!name) { showQuickToast('⚠️ Could not find a "# Name" heading in the pasted text'); return; }
+    const dup = allPersonNotes.find(n => n.title.trim().toLowerCase() === name.toLowerCase());
+    if (dup) { showQuickToast('⚠️ Person already exists'); return; }
+
+    const note = {
+      id: uid(),
+      title: name,
+      content: raw,
+      tags: ['person'],
+      notebookId: nbId,
+      type: 'page',
+      pinned: false,
+      projectId: null,
+      dateIndex: null,
+      attachments: [],
+      links: [],
+      createdAt: nowISO(),
+      updatedAt: nowISO(),
+    };
+    db.notes.push(note);
+    save();
+    showQuickToast(`✅ Added ${name}`);
+    openNote(note.id);
+  };
 
   if (indexNote) {
     const ix = $get('pplOpenIndex');
