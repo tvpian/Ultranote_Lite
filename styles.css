@@ -5106,7 +5106,120 @@ body.focus-mode .editor-pane-wrap > .pane-preview {
   -webkit-box-orient: vertical;
 }
 @media (max-width: 720px) {
+  /* Without flex-wrap, forcing the panel to flex-basis:100% below just
+     shrank the editor/preview pane into an unreadable sliver instead of
+     pushing it onto its own line (the two stayed on the same flex row).
+     Wrapping the whole pane + giving every child an explicit full-width
+     basis makes the panel stack cleanly above the editor/preview instead. */
+  .editor-pane-wrap { flex-wrap: wrap; }
+  .editor-pane-wrap > #contentBox,
+  .editor-pane-wrap > #markdownPreview,
+  .editor-pane-wrap > .pane-editor,
+  .editor-pane-wrap > .pane-preview {
+    flex-basis: 100%;
+  }
   .note-outline-panel { flex-basis: 100%; max-width: 100%; max-height: 220px; }
+}
+
+/* ── Note editor toolbar redesign ─────────────────────────────────────────
+   The note/notebook-page editors accumulated a lot of controls over time
+   (tags, pin, project, status, sketch/voice/image/attach, templates, view
+   mode, outline toggle, formatting toolbar, footer actions) all sitting in
+   plain unstyled `.row`s. Nothing here removes or renames any control —
+   it only clusters related ones into bordered "chip" groups with
+   consistent spacing so the eye can parse the toolbar as a few labeled
+   sections instead of one long wrapping wall of buttons. */
+.note-title-input {
+  font-size: 19px !important;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.note-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.note-toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--btn-border);
+  border-radius: 10px;
+  padding: 5px 7px;
+}
+.note-toolbar-group-grow { flex: 1 1 220px; }
+.note-toolbar-group-grow input[type="text"] { margin: 0; }
+.note-toolbar select {
+  padding: 7px 8px;
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--fg);
+  border-radius: 6px;
+}
+
+/* Pin toggle — same checkbox/behavior as before, just styled to look like
+   the chip-style buttons around it instead of a bare checkbox+label. */
+.note-pin-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  padding: 6px 4px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.note-pin-toggle:hover { background: rgba(139,109,255,0.1); color: var(--fg); }
+.note-pin-toggle input { margin: 0; accent-color: var(--acc); }
+
+/* View-controls row: mode cycle + outline toggle grouped together; the
+   keyboard-shortcut hint is demoted to its own quiet caption line below so
+   it stops competing horizontally with the buttons for space. */
+.note-toolbar-view { row-gap: 2px; }
+.note-toolbar-hint {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Formatting (markdown) toolbar — wrap it in the same chip container
+   language as the rest, and add thin dividers (see markdownToolbarHtml())
+   between logical groups of buttons instead of one undifferentiated row. */
+.note-toolbar-format { margin-top: 8px; }
+.md-toolbar {
+  flex: 1 1 auto;
+  border-radius: 10px !important;
+  background: rgba(255,255,255,0.02);
+  padding: 6px 6px !important;
+  border-bottom: none !important;
+  border: 1px solid var(--btn-border);
+}
+.md-tb-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--btn-border);
+  margin: 2px 4px;
+}
+
+/* Footer action bar: Save stays primary/first, related secondary actions
+   clustered together, Delete pushed to its own end (margin-left:auto) so
+   it's never accidentally adjacent to a constructive action. */
+.note-toolbar-footer { margin-top: 10px; }
+.note-btn-danger {
+  border-color: #ff6b6b !important;
+  color: #ff6b6b !important;
+  margin-left: auto;
+}
+
+@media (max-width: 700px) {
+  .note-toolbar-group { flex: 1 1 100%; }
+  .note-btn-danger { margin-left: 0; }
 }
 
 

@@ -2294,10 +2294,14 @@ function wireInlineImagePicker(inputId, textareaId){
 }
 
 function markdownToolbarHtml(taId){
+  // Thin dividers after these indices visually cluster related actions
+  // (style / headings / code / lists / links / math / table+task / diagram)
+  // instead of one undifferentiated wall of icon buttons.
+  const GROUP_BREAKS = new Set([2, 5, 8, 10, 12, 14, 16]);
   return `<div class='md-toolbar' style='display:flex;flex-wrap:wrap;gap:2px;padding:4px 0;
       margin-bottom:5px;border-bottom:1px solid var(--btn-border);'>
     ${MD_TOOLBAR_ACTIONS.map((a,i)=>`<button type='button' class='btn md-tb-btn' data-ta='${taId}' data-idx='${i}'
-      title='${htmlesc(a.title)}' style='font-size:11px;padding:3px 7px;min-width:28px;'>${htmlesc(a.label)}</button>`).join('')}
+      title='${htmlesc(a.title)}' style='font-size:11px;padding:3px 7px;min-width:28px;'>${htmlesc(a.label)}</button>${GROUP_BREAKS.has(i) ? `<span class='md-tb-divider' aria-hidden='true'></span>` : ''}`).join('')}
   </div>`;
 }
 function bindMarkdownToolbar(textareaId){
@@ -7907,13 +7911,13 @@ function openPageInNotebook(pageId, nbId){
       <input id='pgTags' type='text' placeholder='Tags (e.g. #ml #ros2)'
              value='${(p.tags||[]).map(t=>'#'+t).join(' ')}'
              style='width:100%;margin-bottom:8px;font-size:13px;box-sizing:border-box;' />
-      <div class='row' style='margin-bottom:8px;gap:8px;align-items:center;flex-wrap:wrap;'>
+      <div class='note-toolbar note-toolbar-view'>
         <button id='pgToggleModeBtn' class='btn acc' style='font-size:12px;' title='Cycle Edit → Split → Preview'>Split</button>
         <button id='pgOutlineToggleBtn' class='btn' style='font-size:12px;' title='Toggle Outline / Highlights panel — jump to headings or review all highlights &amp; sticky notes in this page'>📑 Outline</button>
-        <span style='font-size:11px;color:var(--muted);'>Ctrl+Shift+V cycles view</span>
-        ${!p.parentPageId ? `<button id='pgAddSubpage' class='btn' style='font-size:11px;margin-left:auto;' title='Create a sub-page nested under this one'>+ Sub-page</button>` : ''}
+        ${!p.parentPageId ? `<button id='pgAddSubpage' class='btn' style='font-size:12px;margin-left:auto;' title='Create a sub-page nested under this one'>+ Sub-page</button>` : ''}
+        <span class='note-toolbar-hint'>Ctrl+Shift+V cycles view</span>
       </div>
-      ${markdownToolbarHtml('pgContent')}
+      <div class='note-toolbar note-toolbar-format'>${markdownToolbarHtml('pgContent')}</div>
       <div id='pgEditorPaneWrap' class='editor-pane-wrap' data-mode='edit'>
         <div id='pgHeadingNav' class='note-outline-panel hidden'></div>
         <textarea id='pgContent' class='pane-editor' style='width:100%;min-height:320px;height:calc(100vh - 360px);
@@ -7921,10 +7925,12 @@ function openPageInNotebook(pageId, nbId){
         <div id='pgPreview' class='markdown-preview pane-preview' style='min-height:320px;height:calc(100vh - 360px);'></div>
       </div>
       <div id='pgFollowupsSection' style='margin-top:12px;'></div>
-      <div class='row' style='margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center;'>
+      <div class='note-toolbar note-toolbar-footer' style='margin-top:10px;'>
         <button id='pgSave' class='btn acc'>Save</button>
-        <button id='pgExportMd' class='btn' style='font-size:12px;' title='Download just this page as a Markdown file'>⬇ Export page</button>
-        <button id='pgDelete' class='btn' style='border-color:#ff6b6b;color:#ff6b6b;'>Delete Page</button>
+        <div class='note-toolbar-group'>
+          <button id='pgExportMd' class='btn' style='font-size:12px;' title='Download just this page as a Markdown file'>⬇ Export page</button>
+        </div>
+        <button id='pgDelete' class='btn note-btn-danger'>Delete Page</button>
         <span class='muted' id='pgSaveStatus' style='font-size:12px;'></span>
       </div>
       <div class='muted' style='font-size:11px;margin-top:8px;'>
@@ -8434,45 +8440,61 @@ function openNote(id){
                   Editing here works, but the dashboard expects its current structure.
                 </div>`;
       })()}
-      <input id="title" type="text" value="${htmlesc(n.title)}" />
-      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
-        <input id="tags" type="text" placeholder="Tags (space separated)" value="${(n.tags||[]).map(t=>'#'+t).join(' ')}" autocomplete="off" />
-        <label style="margin-left:8px;"><input id="pinned" type="checkbox" ${n.pinned?'checked':''}> Pin</label>
-        <select id="noteProject" style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;" title="Assign to project">
-          <option value="">— No Project —</option>
-          ${db.projects.filter(p=>!p.deletedAt).map(p=>`<option value="${p.id}" ${n.projectId===p.id?'selected':''}>${htmlesc(p.name)}</option>`).join('')}
-        </select>
-        <select id="noteStatus" title="Reading status — handy for papers and long reads"
-                style="padding:8px;background:var(--btn-bg);border:1px solid var(--btn-border);color:var(--fg);border-radius:6px;">
-          ${[
-            {v:'',          l:'⚪ No status'},
-            {v:'inbox',     l:'📥 Inbox'},
-            {v:'reading',   l:'📖 Reading'},
-            {v:'read',      l:'✅ Read'},
-            {v:'annotated', l:'✍️ Annotated'},
-            {v:'followup',  l:'🔁 Follow up'},
-            {v:'archive',   l:'🗄️ Archived'},
-          ].map(o=>`<option value='${o.v}' ${(n.status||'')===o.v?'selected':''}>${o.l}</option>`).join('')}
-        </select>
-        <button id="addSketch" class="btn" style="font-size:12px;" title="Draw a sketch">🎨 Sketch</button>
-        <button id="addVoice" class="btn" style="font-size:12px;" title="Record voice note">🎙 Voice</button>
-        <!-- Inline image — embeds into the note body via markdown ![](...), unlike Attach below -->
-        <label class="btn" for="noteInlineImageFile" style="font-size:12px;" title="Insert an image inline in the text (or just paste/drag one into the editor)">🖼️ Image</label>
-        <input id="noteInlineImageFile" type="file" accept="image/*" class="hidden" multiple />
-        <!-- Attachment uploader -->
-        <label class="btn" for="noteAttachFile" style="font-size:12px;" title="Attach a file">📎 Attach</label>
-        <input id="noteAttachFile" type="file" class="hidden" multiple />
-        <select id="noteApplyTemplate" title="Apply a template to this note">
-          <option value="">📋 Apply Template…</option>
-          ${(db.templates||[]).map(t=>`<option value="${t.id}">${htmlesc(t.name)}</option>`).join('')}
-        </select>
+      <input id="title" type="text" class="note-title-input" value="${htmlesc(n.title)}" />
+
+      <!-- Properties: tags, pin, organization, and insert/attach actions —
+           grouped into labeled clusters instead of one long undifferentiated row. -->
+      <div class="note-toolbar note-toolbar-props">
+        <div class="note-toolbar-group note-toolbar-group-grow">
+          <input id="tags" type="text" placeholder="Tags (space separated)" value="${(n.tags||[]).map(t=>'#'+t).join(' ')}" autocomplete="off" />
+        </div>
+        <div class="note-toolbar-group">
+          <label class="note-pin-toggle" title="Pin this note to the top of lists">
+            <input id="pinned" type="checkbox" ${n.pinned?'checked':''}> 📌 Pin
+          </label>
+        </div>
+        <div class="note-toolbar-group">
+          <select id="noteProject" title="Assign to project">
+            <option value="">— No Project —</option>
+            ${db.projects.filter(p=>!p.deletedAt).map(p=>`<option value="${p.id}" ${n.projectId===p.id?'selected':''}>${htmlesc(p.name)}</option>`).join('')}
+          </select>
+          <select id="noteStatus" title="Reading status — handy for papers and long reads">
+            ${[
+              {v:'',          l:'⚪ No status'},
+              {v:'inbox',     l:'📥 Inbox'},
+              {v:'reading',   l:'📖 Reading'},
+              {v:'read',      l:'✅ Read'},
+              {v:'annotated', l:'✍️ Annotated'},
+              {v:'followup',  l:'🔁 Follow up'},
+              {v:'archive',   l:'🗄️ Archived'},
+            ].map(o=>`<option value='${o.v}' ${(n.status||'')===o.v?'selected':''}>${o.l}</option>`).join('')}
+          </select>
+        </div>
+        <div class="note-toolbar-group">
+          <button id="addSketch" class="btn" style="font-size:12px;" title="Draw a sketch">🎨 Sketch</button>
+          <button id="addVoice" class="btn" style="font-size:12px;" title="Record voice note">🎙 Voice</button>
+          <!-- Inline image — embeds into the note body via markdown ![](...), unlike Attach below -->
+          <label class="btn" for="noteInlineImageFile" style="font-size:12px;" title="Insert an image inline in the text (or just paste/drag one into the editor)">🖼️ Image</label>
+          <input id="noteInlineImageFile" type="file" accept="image/*" class="hidden" multiple />
+          <!-- Attachment uploader -->
+          <label class="btn" for="noteAttachFile" style="font-size:12px;" title="Attach a file">📎 Attach</label>
+          <input id="noteAttachFile" type="file" class="hidden" multiple />
+          <select id="noteApplyTemplate" title="Apply a template to this note">
+            <option value="">📋 Apply Template…</option>
+            ${(db.templates||[]).map(t=>`<option value="${t.id}">${htmlesc(t.name)}</option>`).join('')}
+          </select>
+        </div>
       </div>
       <div id="tagSuggestRow" class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px;align-items:center;font-size:11px;"></div>
-      <div class="row" style="margin-top:8px; gap:8px; align-items:center;">
+
+      <!-- View controls: mode cycle + outline panel toggle, with the
+           keyboard-shortcut hint demoted to its own quiet caption line. -->
+      <div class="note-toolbar note-toolbar-view">
         <button id="toggleModeBtn" class="btn acc" style="font-size:12px;" title="Cycle Edit → Split → Preview">Split</button>
         <button id="outlineToggleBtn" class="btn" style="font-size:12px;" title="Toggle Outline / Highlights panel — jump to headings or review all highlights &amp; sticky notes in this note">📑 Outline</button>
-        <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+V cycles view | Ctrl+S to save | paste/drag an image to insert it inline</span>
+        <span class="note-toolbar-hint">Ctrl+Shift+V cycles view · Ctrl+S to save · paste/drag an image to insert it inline</span>
       </div>
+
       <div style="margin-top:8px;">
         ${markdownToolbarHtml('contentBox')}
         <div id="editorPaneWrap" class="editor-pane-wrap" data-mode="edit">
@@ -8490,12 +8512,18 @@ function openNote(id){
         </div>
         <div id="linkedNotesList" class="list" style="margin-top:6px;"></div>
       </div>
-      <div class="row" style="margin-top:8px; gap:8px;flex-wrap:wrap;align-items:center;">
+
+      <!-- Footer actions: Save stays primary/first, related secondary
+           actions clustered together, Delete pushed to its own end so it's
+           never accidentally next to a constructive action. -->
+      <div class="note-toolbar note-toolbar-footer">
         <button id="save" class="btn acc">Save</button>
-        <button id="back" class="btn">Back</button>
-        <button id="duplicate" class="btn">Duplicate</button>
-        <button id="export" class="btn">Export</button>
-        <button id="delete" class="btn" style="border-color:#ff6b6b;color:#ff6b6b;">Delete</button>
+        <div class="note-toolbar-group">
+          <button id="duplicate" class="btn">Duplicate</button>
+          <button id="export" class="btn">Export</button>
+          <button id="back" class="btn">Back</button>
+        </div>
+        <button id="delete" class="btn note-btn-danger">Delete</button>
         <span id="noteSaveStatus" class="muted" style="font-size:11px;"></span>
       </div>`;
   // Bind the markdown toolbar to the content box
