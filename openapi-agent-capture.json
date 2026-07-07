@@ -1,0 +1,93 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "UltraNote Lite — Agent Capture",
+    "description": "Create notes, ideas, person dossiers, research-paper summaries, notebook pages, tasks, links, or projects directly in UltraNote Lite from an external tool (a ChatGPT Custom GPT Action, a Chrome extension skill, etc.), without copy-pasting the result back in manually. Create-only: every call adds exactly one brand-new record and can never edit or delete anything that already exists.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://REPLACE-WITH-YOUR-TAILSCALE-FUNNEL-HOSTNAME.ts.net",
+      "description": "Replace with your own Tailscale Funnel (or other public HTTPS) hostname for this app. Do not use a bare LAN/tailnet IP here if this schema will be used by a service that isn't on your tailnet (e.g. ChatGPT's servers) — it must be a URL those servers can actually reach."
+    }
+  ],
+  "paths": {
+    "/api/agent/capture": {
+      "post": {
+        "operationId": "captureToUltraNote",
+        "summary": "Create a new note/idea/person/paper/page/task/link/project in UltraNote Lite.",
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": true,
+            "description": "Must always be the literal string \"XMLHttpRequest\" — a same-origin proof required by the server on every state-changing API call.",
+            "schema": { "type": "string", "enum": ["XMLHttpRequest"], "default": "XMLHttpRequest" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["note", "idea", "person", "paper", "page", "task", "link", "project"],
+                    "description": "note/idea/paper: plain note (paper auto-tags 'paper'). person: filed into the 'People' notebook, title auto-extracted from a leading '# Name' line in content if title is omitted. page: filed into an arbitrary notebook (notebook or notebookId required). task/link/project: same shape the app itself uses."
+                  },
+                  "title": { "type": "string", "description": "Required for task/link/project. For note/idea/person/paper/page, optional if content starts with a '# Heading' line." },
+                  "content": { "type": "string", "description": "Markdown body — used for note/idea/person/paper/page kinds." },
+                  "tags": { "type": "array", "items": { "type": "string" } },
+                  "notebook": { "type": "string", "description": "Notebook name (case-insensitive), e.g. \"People\" or \"Research\". Alternative to notebookId." },
+                  "notebookId": { "type": "string" },
+                  "project": { "type": "string", "description": "Project name (case-insensitive). Alternative to projectId." },
+                  "projectId": { "type": "string" },
+                  "url": { "type": "string", "description": "Required for kind=link." },
+                  "description": { "type": "string", "description": "Used for task/link/project kinds." },
+                  "due": { "type": "string", "description": "ISO date, used for kind=task." },
+                  "priority": { "type": "string", "enum": ["low", "medium", "high"], "description": "Used for kind=task." }
+                }
+              },
+              "examples": {
+                "idea": { "value": { "kind": "idea", "title": "Try flow-matching for the perception loop", "tags": ["robotics"] } },
+                "person": { "value": { "kind": "person", "content": "# Jane Researcher\n\n**Role:** Professor\n**Affiliation:** MIT\n\n## Currently working on\n- ...\n" } },
+                "paper": { "value": { "kind": "paper", "title": "Attention Is All You Need — summary", "content": "Key idea: ...", "project": "Research" } },
+                "link": { "value": { "kind": "link", "title": "Great blog post", "url": "https://example.com/post", "tags": ["read-later"] } },
+                "task": { "value": { "kind": "task", "title": "Follow up with Jane about the dataset", "priority": "high" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "kind": { "type": "string" },
+                    "collection": { "type": "string" },
+                    "record": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid request (missing required field for the given kind)." },
+          "401": { "description": "Missing or invalid Bearer token." }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer" }
+    }
+  },
+  "security": [{ "bearerAuth": [] }]
+}

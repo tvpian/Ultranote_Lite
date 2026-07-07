@@ -36,6 +36,32 @@ const SESSION_SECRET = process.env.SESSION_SECRET || (() => {
   }
 })();
 
+// Bearer token for external agents/integrations (Chrome extension skills,
+// ChatGPT Custom GPT Actions, etc.) that can't do the interactive
+// password+cookie login flow. Deliberately SEPARATE from APP_PASSWORD so
+// revoking one doesn't affect the other, and deliberately opt-in: with no
+// env var set, the whole /api/agent surface is disabled rather than falling
+// back to a guessable default (unlike APP_PASSWORD's 'change-me' fallback,
+// a placeholder token here would be a real, silent backdoor).
+const AGENT_API_TOKEN = process.env.AGENT_API_TOKEN || null;
+function isValidAgentToken(req) {
+  if (!AGENT_API_TOKEN) return false;
+  const header = req.get('Authorization') || '';
+  const m = /^Bearer\s+(.+)$/i.exec(header.trim());
+  if (!m) return false;
+  const supplied = Buffer.from(m[1]);
+  const expected = Buffer.from(AGENT_API_TOKEN);
+  // Constant-time comparison so response timing can't leak the token.
+  if (supplied.length !== expected.length) return false;
+  return require('crypto').timingSafeEqual(supplied, expected);
+}
+// Paths reachable with a valid agent Bearer token instead of a session
+// cookie. Deliberately narrow: read-only lookups (search/query/context) plus
+// a single additive-only capture endpoint — NOT the full /api/db read/write
+// used by the browser app itself, so a leaked token can create content but
+// can never edit/delete existing records or overwrite the whole database.
+const AGENT_TOKEN_PATHS = new Set(['/api/agent/capture', '/api/search', '/api/query', '/api/context']);
+
 // Whitelisted IPs (always allow loopback)
 const allowedIps = new Set(['127.0.0.1', '::1', '26.57.15.177']);
 
@@ -136,6 +162,16 @@ app.use((req, res, next) => {
   // Allow API endpoints for authenticated sessions (even from non-localhost IPs)
   if (req.path.startsWith('/api/') && req.session.authorized) {
     return next();
+  }
+  // External agent integrations (Chrome extension skills, ChatGPT Actions, …)
+  // authenticate via a Bearer token instead of a session cookie, and only
+  // for the narrow whitelist of agent-facing endpoints — see AGENT_TOKEN_PATHS.
+  if (AGENT_TOKEN_PATHS.has(req.path)) {
+    if (isValidAgentToken(req)) return next();
+    // JSON 401, not a /login redirect — the caller here is a script/agent,
+    // not a browser navigation, so a redirect to an HTML login page would
+    // just look like a confusing malformed response.
+    return res.status(401).json({ error: 'Missing or invalid Authorization: Bearer <AGENT_API_TOKEN>' });
   }
   // Otherwise, force unauthenticated users to login
   return res.redirect('/login');
@@ -834,6 +870,131 @@ app.post('/api/activity', (req, res) => {
   if (data.activity.length > 2000) data.activity = data.activity.slice(-2000);
   writeData(data);
   res.json({ ok: true, entry });
+});
+
+/**
+ * POST /api/agent/capture  { kind, title?, content?, tags?, ... }
+ * Bearer-token-only (see AGENT_API_TOKEN) endpoint for external tools —
+ * Chrome extension skills, ChatGPT Custom GPT Actions, etc. — to add new
+ * content directly, without a human copy-pasting the result back in.
+ *
+ * Deliberately CREATE-ONLY: every call makes exactly one brand-new record
+ * (server-generated id) and never accepts a caller-supplied id, so a leaked
+ * token can add data but can never edit or delete anything that already
+ * exists. Kept separate from POST /api/db (session-cookie-only) for the
+ * same reason.
+ *
+ * kind: 'note' | 'idea' | 'person' | 'paper' | 'page' | 'task' | 'link' | 'project'
+ *  - note/idea/paper: plain note (optionally tagged/projectId'd); paper auto-tags 'paper'.
+ *  - person: note filed into the "People" notebook (title auto-extracted from
+ *            a leading "# Name" line in `content` if not given explicitly) —
+ *            mirrors the People page's "paste full profile" import.
+ *  - page:   note filed into an arbitrary notebook (`notebookId` or `notebook` name required).
+ *  - task/link/project: same shape the app's own createTask/createLink/createProject use.
+ * Accepts `notebookId` or `notebook` (name, case-insensitive) and `projectId`
+ * or `project` (name) so a caller that only knows human-readable names
+ * doesn't need to look up internal ids first.
+ */
+const AGENT_CAPTURE_KINDS = ['note', 'idea', 'person', 'paper', 'page', 'task', 'link', 'project'];
+function _agentUid() { return Math.random().toString(36).slice(2, 10); }
+function _resolveNotebookId(data, idOrName) {
+  if (!idOrName) return null;
+  const nb = (data.notebooks || []).find(n => !n.deletedAt &&
+    (n.id === idOrName || String(n.name || n.title || '').toLowerCase() === String(idOrName).toLowerCase()));
+  return nb ? nb.id : null;
+}
+function _resolveProjectId(data, idOrName) {
+  if (!idOrName) return null;
+  const p = (data.projects || []).find(p => !p.archivedAt &&
+    (p.id === idOrName || String(p.name || '').toLowerCase() === String(idOrName).toLowerCase()));
+  return p ? p.id : null;
+}
+app.post('/api/agent/capture', (req, res) => {
+  const data = readData();
+  if (!data) return res.status(500).json({ error: 'DB unavailable' });
+  const body = req.body || {};
+  const kind = String(body.kind || 'note').toLowerCase();
+  if (!AGENT_CAPTURE_KINDS.includes(kind)) {
+    return res.status(400).json({ error: `kind must be one of: ${AGENT_CAPTURE_KINDS.join(', ')}` });
+  }
+  const now = new Date().toISOString();
+  const title = String(body.title || '').trim();
+  const tags = Array.isArray(body.tags) ? body.tags.map(String) : [];
+  const notebookId = _resolveNotebookId(data, body.notebookId || body.notebook);
+  const projectId  = _resolveProjectId(data, body.projectId || body.project);
+
+  let record, collection, activityType, activityEntityType;
+
+  if (kind === 'task') {
+    if (!title) return res.status(400).json({ error: 'title is required for kind=task' });
+    record = {
+      id: _agentUid(), title, status: 'TODO', due: body.due || null, noteId: null, projectId,
+      priority: body.priority || 'medium', description: String(body.description || ''),
+      subtasks: [], tags, createdAt: now, updatedAt: now, completedAt: null, deletedAt: null,
+    };
+    collection = 'tasks'; activityType = 'task:create'; activityEntityType = 'task';
+  } else if (kind === 'link') {
+    if (!title || !body.url) return res.status(400).json({ error: 'title and url are required for kind=link' });
+    record = {
+      id: _agentUid(), title, url: String(body.url), description: String(body.description || ''),
+      tags, pinned: false, status: 'NEW', createdAt: now, updatedAt: now,
+    };
+    collection = 'links'; activityType = 'link:create'; activityEntityType = 'link';
+  } else if (kind === 'project') {
+    if (!title) return res.status(400).json({ error: 'title (project name) is required for kind=project' });
+    record = {
+      id: _agentUid(), name: title, description: String(body.description || ''), tags,
+      createdAt: now, updatedAt: now, archivedAt: null,
+    };
+    collection = 'projects'; activityType = 'project:create'; activityEntityType = 'project';
+  } else {
+    // note-like kinds: note | idea | person | paper | page
+    const content = String(body.content || '');
+    if (!title && !content) return res.status(400).json({ error: 'title or content is required' });
+    let noteType = 'note';
+    let finalNotebookId = notebookId;
+    let finalTags = tags;
+    let finalTitle = title;
+
+    if (kind === 'idea') {
+      noteType = 'idea';
+    } else if (kind === 'person') {
+      const peopleNb = (data.notebooks || []).find(n => !n.deletedAt && n.name === 'People');
+      finalNotebookId = peopleNb ? peopleNb.id : notebookId;
+      if (!finalTitle) {
+        const m = content.match(/^#\s+(.+)$/m);
+        finalTitle = m ? m[1].trim() : 'Untitled person';
+      }
+    } else if (kind === 'paper') {
+      finalTags = Array.from(new Set([...tags, 'paper']));
+    } else if (kind === 'page') {
+      if (!finalNotebookId) return res.status(400).json({ error: 'notebookId or notebook (name) is required for kind=page' });
+      noteType = 'page';
+    }
+
+    record = {
+      id: _agentUid(), title: finalTitle || 'Untitled', content, tags: finalTags,
+      projectId: (noteType === 'page') ? null : projectId,
+      notebookId: finalNotebookId || null,
+      dateIndex: null, type: noteType, pinned: false,
+      createdAt: now, updatedAt: now, attachments: [], links: [],
+    };
+    collection = 'notes'; activityType = `${noteType}:create`; activityEntityType = 'note';
+  }
+
+  if (!Array.isArray(data[collection])) data[collection] = [];
+  data[collection].push(record);
+
+  if (!Array.isArray(data.activity)) data.activity = [];
+  data.activity.push({
+    id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    ts: now, type: activityType, entityType: activityEntityType, entityId: record.id,
+    detail: { title: title || record.name || null, source: 'agent-api' },
+  });
+  if (data.activity.length > 2000) data.activity = data.activity.slice(-2000);
+
+  if (!writeData(data)) return res.status(500).json({ error: 'Persist failed' });
+  res.json({ ok: true, kind, collection, record });
 });
 // ── End agent endpoints ─────────────────────────────────────────────────────
 
