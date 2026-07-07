@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Send to UltraNote</title>
+<style>
+  body { width: 340px; font-family: system-ui, sans-serif; padding: 10px; }
+  label { display: block; font-size: 12px; margin-top: 8px; margin-bottom: 2px; color: #444; }
+  select, input, textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 4px; }
+  textarea { height: 100px; resize: vertical; }
+  button { margin-top: 10px; padding: 6px 10px; cursor: pointer; }
+  #status { margin-top: 8px; font-size: 12px; white-space: pre-wrap; }
+  #status.ok { color: #2e7d32; }
+  #status.err { color: #c62828; }
+  .row { display: flex; gap: 6px; align-items: center; }
+  .row > select { flex: 1; }
+  a { font-size: 11px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <select id="kind">
+      <option value="note">Note</option>
+      <option value="idea">Idea</option>
+      <option value="person">Person (People page)</option>
+      <option value="paper">Paper summary</option>
+      <option value="page">Notebook page</option>
+      <option value="task">Task</option>
+      <option value="link">Link</option>
+      <option value="project">Project</option>
+    </select>
+    <button id="useSelection" title="Fill content from the current page's text selection">Use selection</button>
+  </div>
+
+  <label for="title">Title (optional for note/idea/person/paper — required for task/link/project)</label>
+  <input id="title" type="text" placeholder="Leave blank to auto-extract from a '# Heading' line">
+
+  <label for="content">Content</label>
+  <textarea id="content" placeholder="Paste the full dossier / idea / summary here…"></textarea>
+
+  <label for="tags">Tags (comma separated, optional)</label>
+  <input id="tags" type="text" placeholder="robotics, to-read">
+
+  <label for="notebook">Notebook name (kind=page, or to override People)</label>
+  <input id="notebook" type="text" placeholder="e.g. Research">
+
+  <label for="project">Project name (optional)</label>
+  <input id="project" type="text" placeholder="e.g. Robot Learning">
+
+  <label id="urlLabel" for="url" style="display:none;">URL (required for kind=link)</label>
+  <input id="url" type="text" style="display:none;" placeholder="https://...">
+
+  <button id="send">Send to UltraNote</button>
+  <div id="status"></div>
+  <div style="margin-top:8px;"><a href="#" id="openOptions">Configure host / token</a></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

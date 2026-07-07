@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "UltraNote Capture",
+  "version": "1.0.0",
+  "description": "Send selected text, or a pasted research dossier/idea/summary, straight into your self-hosted UltraNote Lite instance via /api/agent/capture.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Send to UltraNote"
+  },
+  "options_page": "options.html",
+  "permissions": ["contextMenus", "storage", "activeTab", "scripting"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
