@@ -8388,11 +8388,13 @@ function openNote(id){
       <div id="tagSuggestRow" class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px;align-items:center;font-size:11px;"></div>
       <div class="row" style="margin-top:8px; gap:8px; align-items:center;">
         <button id="toggleModeBtn" class="btn acc" style="font-size:12px;" title="Cycle Edit → Split → Preview">Split</button>
+        <button id="outlineToggleBtn" class="btn" style="font-size:12px;" title="Toggle outline — jump to # / ## / ### sections in this note">📑 Outline</button>
         <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+V cycles view | Ctrl+S to save | paste/drag an image to insert it inline</span>
       </div>
       <div style="margin-top:8px;">
         ${markdownToolbarHtml('contentBox')}
         <div id="editorPaneWrap" class="editor-pane-wrap" data-mode="edit">
+          <div id="noteOutlinePanel" class="note-outline-panel hidden"></div>
           <textarea id="contentBox" style="min-height:300px;">${htmlesc(n.content||'')}</textarea>
           <div id="markdownPreview" class="markdown-preview" style="min-height:300px;"></div>
         </div>
@@ -8819,6 +8821,70 @@ function openNote(id){
   if (contentBoxEl) contentBoxEl.addEventListener('input', schedulePreview);
 
   if (toggleModeBtn) toggleModeBtn.onclick = cycleMode;
+
+  // --- Outline panel (Chrome-PDF-reader-style collapsible table of contents) ---
+  // Lists every #/##/###… heading in the note; clicking one jumps the editor
+  // (and, if rendered, the preview) straight to that section.
+  {
+    const outlineBtn   = document.getElementById('outlineToggleBtn');
+    const outlinePanel = document.getElementById('noteOutlinePanel');
+    if (outlineBtn && outlinePanel && contentBoxEl) {
+      const parseHeadings = () => {
+        const lines = contentBoxEl.value.split('\n');
+        const items = [];
+        let inFence = false;
+        lines.forEach((line, idx) => {
+          if (/^\s*(```|~~~)/.test(line)) { inFence = !inFence; return; }
+          if (inFence) return;
+          const m = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
+          if (m) items.push({ level: m[1].length, text: m[2].replace(/[*`_]+/g, '').trim(), line: idx });
+        });
+        return { lines, items };
+      };
+      const jumpTo = (lines, item, idx) => {
+        // Move the caret to the heading line and scroll the textarea there
+        // (proportional scroll — reliable across browsers regardless of
+        // native focus-scroll behavior).
+        let charIdx = 0;
+        for (let i = 0; i < item.line; i++) charIdx += lines[i].length + 1;
+        contentBoxEl.focus();
+        contentBoxEl.setSelectionRange(charIdx, charIdx + lines[item.line].length);
+        const approxLineH = contentBoxEl.scrollHeight / (lines.length || 1);
+        contentBoxEl.scrollTop = Math.max(0, approxLineH * item.line - 40);
+        // If the preview is rendered (split/preview mode), jump it to the
+        // matching heading too — headings appear in the same order as `items`.
+        if (previewEl) {
+          const rendered = previewEl.querySelectorAll('h1,h2,h3,h4,h5,h6');
+          if (rendered[idx]) rendered[idx].scrollIntoView({ block: 'start', behavior: 'smooth' });
+        }
+      };
+      const buildOutline = () => {
+        const { lines, items } = parseHeadings();
+        if (!items.length) {
+          outlinePanel.innerHTML = `<div class="outline-empty">No headings yet — add #, ##, ### lines to build an outline.</div>`;
+          return;
+        }
+        outlinePanel.innerHTML = items.map((it, i) =>
+          `<button type="button" class="note-outline-item" data-level="${it.level}" title="${htmlesc(it.text)}">${htmlesc(it.text)}</button>`
+        ).join('');
+        outlinePanel.querySelectorAll('.note-outline-item').forEach((btn, i) => {
+          btn.onclick = () => jumpTo(lines, items[i], i);
+        });
+      };
+      outlineBtn.onclick = () => {
+        const willOpen = outlinePanel.classList.contains('hidden');
+        outlinePanel.classList.toggle('hidden', !willOpen);
+        outlineBtn.classList.toggle('acc', willOpen);
+        if (willOpen) buildOutline();
+      };
+      let _outlineDebounce = 0;
+      contentBoxEl.addEventListener('input', () => {
+        if (outlinePanel.classList.contains('hidden')) return;
+        clearTimeout(_outlineDebounce);
+        _outlineDebounce = setTimeout(buildOutline, 250);
+      });
+    }
+  }
 
   // Ctrl+S handler — bound directly to the editable elements so it fires
   // before any browser-level "Save Page" interception, regardless of focus.
