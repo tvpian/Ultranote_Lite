@@ -2691,6 +2691,128 @@ function _injectHighlights(html, tokens){
 }
 
 // ---------------------------------------------------------------------------
+// Shared collapsible side panel (Chrome-PDF-reader style) used by BOTH the
+// standalone note editor (openNote) and the notebook page editor
+// (openPageInNotebook). Two tabs in one window:
+//   Outline    — every #/##/###… heading
+//   Highlights — every ==highlight==/sticky-note annotation, in document
+//                order, each with its note text (if any) shown inline so
+//                a page with lots of highlights/sticky notes can be
+//                reviewed in one go without hunting through the text.
+// Kept as one shared implementation (rather than duplicated per-editor
+// code, which is how the plain heading-only version of this started) so
+// future tweaks to either tab only need to happen once.
+function _extractOutlineHeadings(md){
+  const items = [];
+  const lines = (md || '').split('\n');
+  let offset = 0, inFence = false;
+  lines.forEach((line, idx) => {
+    if (/^\s*(```|~~~)/.test(line)) { inFence = !inFence; offset += line.length + 1; return; }
+    if (!inFence) {
+      const m = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
+      if (m) items.push({ level: m[1].length, text: m[2].replace(/==(?:[ygpbn]:)?([^=\n]+?)==(?:\^\[(?:[^\[\]]|\[[^\]]*\])*\])?/g, '$1').replace(/[*`_]+/g, '').trim(), line: idx, start: offset, len: line.length });
+    }
+    offset += line.length + 1;
+  });
+  return items;
+}
+const OUTLINE_HL_ICON = { y: '\uD83D\uDFE1', g: '\uD83D\uDFE2', p: '\uD83E\uDD0D', b: '\uD83D\uDD35', n: '\uD83D\uDCAC' };
+function _extractOutlineHighlights(md){
+  const items = [];
+  const re = /==(?:([ygpbn]):)?([^=\n]+?)==(?:\^\[((?:[^\[\]]|\[[^\]]*\])*)\])?/g;
+  let m;
+  while((m = re.exec(md || ''))){
+    const color = HL_COLORS[m[1]] ? m[1] : 'y';
+    items.push({ color, text: m[2], note: (m[3] || '').trim(), start: m.index, end: m.index + m[0].length });
+  }
+  return items;
+}
+// Wires one toggleable panel. `getContentEl`/`getPreviewEl` are functions
+// (not elements) because the notebook-page editor's preview element
+// reference isn't assigned until after this is called — resolving lazily
+// on each render/click avoids relying on closure ordering.
+function _wireOutlinePanel(panelEl, toggleBtn, getContentEl, getPreviewEl){
+  if (!panelEl || !toggleBtn) return { refresh(){} };
+  let activeTab = 'outline';
+  function render(){
+    const contentEl = getContentEl();
+    if (!contentEl) return;
+    const md = contentEl.value;
+    const tabsHtml = `<div class="note-outline-tabs">
+        <button type="button" class="note-outline-tab${activeTab==='outline'?' active':''}" data-tab="outline">Outline</button>
+        <button type="button" class="note-outline-tab${activeTab==='highlights'?' active':''}" data-tab="highlights">Highlights</button>
+      </div>`;
+    let bodyHtml;
+    if (activeTab === 'outline') {
+      const items = _extractOutlineHeadings(md);
+      bodyHtml = items.length
+        ? items.map((it, i) => `<button type="button" class="note-outline-item" data-kind="heading" data-idx="${i}" data-level="${it.level}" title="${htmlesc(it.text)}">${htmlesc(it.text)}</button>`).join('')
+        : `<div class="outline-empty">No headings yet — add #, ##, ### lines to build an outline.</div>`;
+    } else {
+      const items = _extractOutlineHighlights(md);
+      bodyHtml = items.length
+        ? items.map((it, i) => {
+            const icon = OUTLINE_HL_ICON[it.color] || OUTLINE_HL_ICON.y;
+            const noteHtml = it.note ? `<span class="note-outline-hl-note">${htmlesc(it.note.slice(0, 90))}</span>` : '';
+            return `<button type="button" class="note-outline-item note-outline-hl" data-kind="hl" data-idx="${i}" title="${htmlesc(it.text)}${it.note ? ' — ' + htmlesc(it.note) : ''}">
+              <span class="note-outline-hl-row"><span class="note-outline-hl-icon">${icon}</span><span class="note-outline-hl-text">${htmlesc(it.text)}</span></span>${noteHtml}
+            </button>`;
+          }).join('')
+        : `<div class="outline-empty">No highlights or sticky notes yet — select text in Preview to add one.</div>`;
+    }
+    panelEl.innerHTML = tabsHtml + `<div class="note-outline-list">${bodyHtml}</div>`;
+    panelEl.querySelectorAll('.note-outline-tab').forEach(btn => {
+      btn.onclick = () => { activeTab = btn.dataset.tab; render(); };
+    });
+    panelEl.querySelectorAll('.note-outline-item').forEach(btn => {
+      btn.onclick = () => {
+        const i = +btn.dataset.idx;
+        const previewEl = getPreviewEl && getPreviewEl();
+        const curMd = contentEl.value;
+        if (btn.dataset.kind === 'heading') {
+          const it = _extractOutlineHeadings(curMd)[i];
+          if (!it) return;
+          contentEl.focus();
+          contentEl.setSelectionRange(it.start, it.start + it.len);
+          const total = curMd.split('\n').length || 1;
+          contentEl.scrollTop = (it.line / total) * contentEl.scrollHeight;
+          if (previewEl) {
+            const hEls = previewEl.querySelectorAll('h1,h2,h3,h4,h5,h6');
+            if (hEls[i]) hEls[i].scrollIntoView({ block: 'start', behavior: 'smooth' });
+          }
+        } else {
+          const it = _extractOutlineHighlights(curMd)[i];
+          if (!it) return;
+          contentEl.focus();
+          contentEl.setSelectionRange(it.start, it.end);
+          const total = curMd.split('\n').length || 1;
+          const lineOfStart = curMd.slice(0, it.start).split('\n').length - 1;
+          contentEl.scrollTop = (lineOfStart / total) * contentEl.scrollHeight;
+          if (previewEl) {
+            const mark = previewEl.querySelector(`mark[data-hl-idx="${i}"]`);
+            if (mark) mark.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          }
+        }
+      };
+    });
+  }
+  toggleBtn.onclick = () => {
+    const willOpen = panelEl.classList.contains('hidden');
+    panelEl.classList.toggle('hidden', !willOpen);
+    toggleBtn.classList.toggle('acc', willOpen);
+    if (willOpen) render();
+  };
+  let debounceTimer = 0;
+  return {
+    refresh(){
+      if (panelEl.classList.contains('hidden')) return;
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(render, 250);
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Highlight & margin-note creation directly from the rendered PREVIEW pane
 // (select-to-highlight, PDF-viewer style) — rather than only via the
 // editor toolbar buttons above, which require switching to Edit mode and
@@ -7787,13 +7909,13 @@ function openPageInNotebook(pageId, nbId){
              style='width:100%;margin-bottom:8px;font-size:13px;box-sizing:border-box;' />
       <div class='row' style='margin-bottom:8px;gap:8px;align-items:center;flex-wrap:wrap;'>
         <button id='pgToggleModeBtn' class='btn acc' style='font-size:12px;' title='Cycle Edit → Split → Preview'>Split</button>
+        <button id='pgOutlineToggleBtn' class='btn' style='font-size:12px;' title='Toggle Outline / Highlights panel — jump to headings or review all highlights &amp; sticky notes in this page'>📑 Outline</button>
         <span style='font-size:11px;color:var(--muted);'>Ctrl+Shift+V cycles view</span>
         ${!p.parentPageId ? `<button id='pgAddSubpage' class='btn' style='font-size:11px;margin-left:auto;' title='Create a sub-page nested under this one'>+ Sub-page</button>` : ''}
       </div>
-      <div id='pgHeadingNav' style='display:none;margin-bottom:8px;padding:6px 8px;
-           border:1px solid var(--btn-border);border-radius:6px;max-height:130px;overflow-y:auto;'></div>
       ${markdownToolbarHtml('pgContent')}
       <div id='pgEditorPaneWrap' class='editor-pane-wrap' data-mode='edit'>
+        <div id='pgHeadingNav' class='note-outline-panel hidden'></div>
         <textarea id='pgContent' class='pane-editor' style='width:100%;min-height:320px;height:calc(100vh - 360px);
                   resize:vertical;box-sizing:border-box;'>${htmlesc(p.content||'')}</textarea>
         <div id='pgPreview' class='markdown-preview pane-preview' style='min-height:320px;height:calc(100vh - 360px);'></div>
@@ -7815,50 +7937,6 @@ function openPageInNotebook(pageId, nbId){
   const tagsEl=document.getElementById('pgTags');
   const statusEl=()=>document.getElementById('pgSaveStatus');
 
-  // --- "On this page" heading mini-nav — pulled from the page's own
-  // H1/H2/H3 lines so long lecture-style pages are easy to jump around in.
-  // Correlates by order (Nth heading line ↔ Nth <h1..h3> in the preview),
-  // which holds as long as fenced code blocks don't contain literal "#"
-  // lines — a reasonable tradeoff to avoid depending on the optional
-  // CDN heading-id extension for anchor ids.
-  const pgHeadingNavEl = document.getElementById('pgHeadingNav');
-  function _pgExtractHeadings(md){
-    const heads = [];
-    const lines = (md || '').split('\n');
-    let offset = 0;
-    lines.forEach((line, idx) => {
-      const m = /^(#{1,3})\s+(.+?)\s*$/.exec(line);
-      if(m) heads.push({ level: m[1].length, text: m[2], line: idx, offset });
-      offset += line.length + 1;
-    });
-    return heads;
-  }
-  function renderPgHeadingNav(){
-    if(!pgHeadingNavEl) return;
-    const heads = _pgExtractHeadings(contentEl.value);
-    if(!heads.length){ pgHeadingNavEl.style.display='none'; pgHeadingNavEl.innerHTML=''; return; }
-    pgHeadingNavEl.style.display='block';
-    pgHeadingNavEl.innerHTML = `<div class='muted' style='font-size:10px;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px;'>On this page</div>` +
-      heads.map((h,i)=>`<div class='pg-heading-item' data-idx='${i}'
-        style='cursor:pointer;font-size:12px;padding:2px 0 2px ${(h.level-1)*12}px;color:var(--acc);
-               white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' title='${htmlesc(h.text)}'>${htmlesc(h.text)}</div>`).join('');
-    pgHeadingNavEl.querySelectorAll('.pg-heading-item').forEach(el=>{
-      el.onclick = () => {
-        const h = heads[+el.dataset.idx];
-        if(!h) return;
-        if(pgCurrentMode === 'edit'){
-          contentEl.focus();
-          contentEl.setSelectionRange(h.offset, h.offset + h.text.length + h.level + 1);
-          const total = contentEl.value.split('\n').length || 1;
-          contentEl.scrollTop = (h.line / total) * contentEl.scrollHeight;
-        } else {
-          const hEls = pgPreviewEl ? pgPreviewEl.querySelectorAll('h1,h2,h3') : [];
-          const target = hEls[+el.dataset.idx];
-          if(target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
-        }
-      };
-    });
-  }
 
   // --- Checklist promoter, scoped to notebook pages -------------------
   // Notebook-page-native equivalent of power-features.js's standalone-note
@@ -7973,15 +8051,6 @@ function openPageInNotebook(pageId, nbId){
   [titleEl, contentEl, tagsEl].forEach(el=>{
     if(el) el.addEventListener('input', markDirty);
   });
-  // rAF-debounced (see renderPgFollowupsPanel above for why): re-extracting
-  // headings from the full page content on every single keystroke was
-  // unnecessary work most keystrokes don't need.
-  let _pgHeadingNavRaf = 0;
-  contentEl.addEventListener('input', () => {
-    if(_pgHeadingNavRaf) cancelAnimationFrame(_pgHeadingNavRaf);
-    _pgHeadingNavRaf = requestAnimationFrame(() => { _pgHeadingNavRaf = 0; renderPgHeadingNav(); });
-  });
-  renderPgHeadingNav();
 
   // Bind markdown toolbar AFTER HTML is stamped into the DOM
   bindMarkdownToolbar('pgContent');
@@ -8043,6 +8112,19 @@ function openPageInNotebook(pageId, nbId){
   contentEl.addEventListener('input', schedulePgPreview);
   if (pgToggleModeBtn) pgToggleModeBtn.onclick = cyclePgMode;
   if (pgPreviewEl) pgPreviewEl.setAttribute('tabindex', '0');
+
+  // --- Outline & Highlights panel — see _wireOutlinePanel for the shared
+  // implementation used by both this editor and the standalone note editor.
+  {
+    const pgOutlinePanel = document.getElementById('pgHeadingNav');
+    const pgOutlineBtn = document.getElementById('pgOutlineToggleBtn');
+    const pgOutlinePanelCtl = _wireOutlinePanel(
+      pgOutlinePanel, pgOutlineBtn,
+      () => contentEl,
+      () => pgPreviewEl
+    );
+    contentEl.addEventListener('input', () => pgOutlinePanelCtl.refresh());
+  }
 
   // Ctrl+S — use window._pgKeyHandler so it is properly cleaned up when
   // switching pages or navigating away (prevents stale handler accumulation)
@@ -8388,7 +8470,7 @@ function openNote(id){
       <div id="tagSuggestRow" class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px;align-items:center;font-size:11px;"></div>
       <div class="row" style="margin-top:8px; gap:8px; align-items:center;">
         <button id="toggleModeBtn" class="btn acc" style="font-size:12px;" title="Cycle Edit → Split → Preview">Split</button>
-        <button id="outlineToggleBtn" class="btn" style="font-size:12px;" title="Toggle outline — jump to # / ## / ### sections in this note">📑 Outline</button>
+        <button id="outlineToggleBtn" class="btn" style="font-size:12px;" title="Toggle Outline / Highlights panel — jump to headings or review all highlights &amp; sticky notes in this note">📑 Outline</button>
         <span style="font-size:12px; color:var(--muted);">Ctrl+Shift+V cycles view | Ctrl+S to save | paste/drag an image to insert it inline</span>
       </div>
       <div style="margin-top:8px;">
@@ -8822,68 +8904,18 @@ function openNote(id){
 
   if (toggleModeBtn) toggleModeBtn.onclick = cycleMode;
 
-  // --- Outline panel (Chrome-PDF-reader-style collapsible table of contents) ---
-  // Lists every #/##/###… heading in the note; clicking one jumps the editor
-  // (and, if rendered, the preview) straight to that section.
+  // --- Outline & Highlights panel (Chrome-PDF-reader-style collapsible
+  // side panel) — see _wireOutlinePanel for the shared implementation used
+  // by both this editor and the notebook page editor.
   {
     const outlineBtn   = document.getElementById('outlineToggleBtn');
     const outlinePanel = document.getElementById('noteOutlinePanel');
-    if (outlineBtn && outlinePanel && contentBoxEl) {
-      const parseHeadings = () => {
-        const lines = contentBoxEl.value.split('\n');
-        const items = [];
-        let inFence = false;
-        lines.forEach((line, idx) => {
-          if (/^\s*(```|~~~)/.test(line)) { inFence = !inFence; return; }
-          if (inFence) return;
-          const m = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
-          if (m) items.push({ level: m[1].length, text: m[2].replace(/[*`_]+/g, '').trim(), line: idx });
-        });
-        return { lines, items };
-      };
-      const jumpTo = (lines, item, idx) => {
-        // Move the caret to the heading line and scroll the textarea there
-        // (proportional scroll — reliable across browsers regardless of
-        // native focus-scroll behavior).
-        let charIdx = 0;
-        for (let i = 0; i < item.line; i++) charIdx += lines[i].length + 1;
-        contentBoxEl.focus();
-        contentBoxEl.setSelectionRange(charIdx, charIdx + lines[item.line].length);
-        const approxLineH = contentBoxEl.scrollHeight / (lines.length || 1);
-        contentBoxEl.scrollTop = Math.max(0, approxLineH * item.line - 40);
-        // If the preview is rendered (split/preview mode), jump it to the
-        // matching heading too — headings appear in the same order as `items`.
-        if (previewEl) {
-          const rendered = previewEl.querySelectorAll('h1,h2,h3,h4,h5,h6');
-          if (rendered[idx]) rendered[idx].scrollIntoView({ block: 'start', behavior: 'smooth' });
-        }
-      };
-      const buildOutline = () => {
-        const { lines, items } = parseHeadings();
-        if (!items.length) {
-          outlinePanel.innerHTML = `<div class="outline-empty">No headings yet — add #, ##, ### lines to build an outline.</div>`;
-          return;
-        }
-        outlinePanel.innerHTML = items.map((it, i) =>
-          `<button type="button" class="note-outline-item" data-level="${it.level}" title="${htmlesc(it.text)}">${htmlesc(it.text)}</button>`
-        ).join('');
-        outlinePanel.querySelectorAll('.note-outline-item').forEach((btn, i) => {
-          btn.onclick = () => jumpTo(lines, items[i], i);
-        });
-      };
-      outlineBtn.onclick = () => {
-        const willOpen = outlinePanel.classList.contains('hidden');
-        outlinePanel.classList.toggle('hidden', !willOpen);
-        outlineBtn.classList.toggle('acc', willOpen);
-        if (willOpen) buildOutline();
-      };
-      let _outlineDebounce = 0;
-      contentBoxEl.addEventListener('input', () => {
-        if (outlinePanel.classList.contains('hidden')) return;
-        clearTimeout(_outlineDebounce);
-        _outlineDebounce = setTimeout(buildOutline, 250);
-      });
-    }
+    const outlinePanelCtl = _wireOutlinePanel(
+      outlinePanel, outlineBtn,
+      () => contentBoxEl,
+      () => previewEl
+    );
+    if (contentBoxEl) contentBoxEl.addEventListener('input', () => outlinePanelCtl.refresh());
   }
 
   // Ctrl+S handler — bound directly to the editable elements so it fires

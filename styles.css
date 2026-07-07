@@ -5010,10 +5010,10 @@ body.focus-mode .editor-pane-wrap > .pane-preview {
   width: 100% !important;
 }
 
-/* ── Note outline panel (Chrome-PDF-reader-style collapsible TOC) ────────── */
+/* ── Note outline panel (Chrome-PDF-reader-style collapsible TOC + Highlights) ─ */
 .note-outline-panel {
-  flex: 0 0 220px;
-  max-width: 220px;
+  flex: 0 0 250px;
+  max-width: 250px;
   max-height: 400px;
   overflow-y: auto;
   border: 1px solid var(--btn-border, #2a2245);
@@ -5026,6 +5026,30 @@ body.focus-mode .editor-pane-wrap > .pane-preview {
   color: var(--muted);
   font-size: 11px;
   padding: 6px 8px;
+}
+.note-outline-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--btn-border, #2a2245);
+}
+.note-outline-tab {
+  flex: 1 1 0;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--muted);
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+.note-outline-tab:hover { background: rgba(139,109,255,0.1); }
+.note-outline-tab.active {
+  color: var(--fg);
+  background: rgba(139,109,255,0.18);
+  border-color: rgba(139,109,255,0.35);
 }
 .note-outline-item {
   display: block;
@@ -5051,9 +5075,40 @@ body.focus-mode .editor-pane-wrap > .pane-preview {
 .note-outline-item[data-level="4"] { padding-left: 42px; font-size: 11px;   opacity: 0.85; }
 .note-outline-item[data-level="5"],
 .note-outline-item[data-level="6"] { padding-left: 54px; font-size: 11px;   opacity: 0.8; }
+/* Highlights tab items — allow wrapping (unlike single-line heading rows)
+   so both the highlighted passage and its sticky-note text are readable
+   without truncation, matching a PDF reader's "Comments" panel. */
+.note-outline-item.note-outline-hl {
+  white-space: normal;
+  padding: 6px 8px;
+}
+.note-outline-hl-row { display: flex; align-items: flex-start; gap: 6px; }
+.note-outline-hl-icon { flex-shrink: 0; font-size: 11px; line-height: 1.4; }
+.note-outline-hl-text {
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.note-outline-hl-note {
+  display: block;
+  margin-top: 3px;
+  margin-left: 17px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+  font-style: italic;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
 @media (max-width: 720px) {
   .note-outline-panel { flex-basis: 100%; max-width: 100%; max-height: 220px; }
 }
+
 
 /* highlight.js paints colors via the .hljs class. Let its theme own the
    background/colors inside fenced code blocks; outer <pre> still keeps our
