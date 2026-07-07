@@ -2816,6 +2816,78 @@ function _wireOutlinePanel(panelEl, toggleBtn, getContentEl, getPreviewEl){
   };
 }
 
+// Floating "back to top" button for the editor/preview pane. Clicking an
+// Outline/Highlights entry (_wireOutlinePanel above) scrolls the textarea
+// and/or preview DOWN to that heading/highlight — this gives a one-click way
+// back UP instead of manually dragging the scrollbar, which is otherwise the
+// only way back. Shared by both openNote() and openPageInNotebook().
+// `paneWrapEl` is the `.editor-pane-wrap` container, used only as the mount
+// point for the button element — the button itself is `position:fixed` (see
+// styles.css) because WHERE scrolling actually happens differs by view mode
+// AND by editor: in edit/split modes the textarea/preview scroll internally
+// (bounded height); in preview-only mode that cap is removed so a bigger
+// ancestor scrolls instead — the whole page for the standalone note editor,
+// but the `#nbPageEditor` panel (its own capped-height, overflow-y:auto
+// container — see openPageInNotebook) for the notebook page editor. Pass
+// that ancestor as `getPageScrollEl` when it's not plain window/document.
+function _wireBackToTopButton(paneWrapEl, getContentEl, getPreviewEl, getPageScrollEl){
+  if (!paneWrapEl) return;
+  let btn = paneWrapEl.querySelector('.pane-scroll-top-btn');
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pane-scroll-top-btn';
+    btn.title = 'Scroll back to top';
+    btn.innerHTML = '↑ Top';
+    paneWrapEl.appendChild(btn);
+  }
+  const SHOW_AT = 120;
+  const pageEl = () => (getPageScrollEl && getPageScrollEl()) || null; // null => window/document scrolls
+  const pageScrollTop = () => {
+    const el = pageEl();
+    if (el) return el.scrollTop;
+    return window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+  };
+  const scrollPageToTop = () => {
+    const el = pageEl();
+    if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
+    else window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const update = () => {
+    const contentEl = getContentEl && getContentEl();
+    const previewEl = getPreviewEl && getPreviewEl();
+    const cScrolled = !!contentEl && contentEl.offsetParent !== null && contentEl.scrollTop > SHOW_AT;
+    const pScrolled = !!previewEl && previewEl.offsetParent !== null && previewEl.scrollTop > SHOW_AT;
+    const pageScrolled = pageScrollTop() > SHOW_AT;
+    btn.classList.toggle('visible', cScrolled || pScrolled || pageScrolled);
+  };
+  btn.onclick = () => {
+    const contentEl = getContentEl && getContentEl();
+    const previewEl = getPreviewEl && getPreviewEl();
+    if (contentEl) contentEl.scrollTo({ top: 0, behavior: 'smooth' });
+    if (previewEl) previewEl.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollPageToTop();
+    setTimeout(update, 400);
+  };
+  const contentEl = getContentEl && getContentEl();
+  const previewEl = getPreviewEl && getPreviewEl();
+  if (contentEl) contentEl.addEventListener('scroll', update);
+  if (previewEl) previewEl.addEventListener('scroll', update);
+  // Only one note/notebook-page editor is ever open at a time — replace any
+  // previously-wired page-scroll listener instead of accumulating one per
+  // note opened during the session (a listener on `window` or a persistent
+  // container like `#nbPageEditor` outlives the old editor's own DOM, which
+  // gets discarded on the next openNote/openPageInNotebook call).
+  const scrollTarget = pageEl() || window;
+  if (window._backToTopScrollTarget && window._backToTopScrollHandler) {
+    window._backToTopScrollTarget.removeEventListener('scroll', window._backToTopScrollHandler);
+  }
+  window._backToTopScrollTarget = scrollTarget;
+  window._backToTopScrollHandler = update;
+  scrollTarget.addEventListener('scroll', update, { passive: true });
+  update();
+}
+
 // ---------------------------------------------------------------------------
 // Highlight & margin-note creation directly from the rendered PREVIEW pane
 // (select-to-highlight, PDF-viewer style) — rather than only via the
@@ -8131,6 +8203,7 @@ function openPageInNotebook(pageId, nbId){
     );
     contentEl.addEventListener('input', () => pgOutlinePanelCtl.refresh());
   }
+  _wireBackToTopButton(pgPaneWrap, () => contentEl, () => pgPreviewEl, () => document.getElementById('nbPageEditor'));
 
   // Ctrl+S — use window._pgKeyHandler so it is properly cleaned up when
   // switching pages or navigating away (prevents stale handler accumulation)
@@ -8945,6 +9018,7 @@ function openNote(id){
     );
     if (contentBoxEl) contentBoxEl.addEventListener('input', () => outlinePanelCtl.refresh());
   }
+  _wireBackToTopButton(paneWrap, () => contentBoxEl, () => previewEl);
 
   // Ctrl+S handler — bound directly to the editable elements so it fires
   // before any browser-level "Save Page" interception, regardless of focus.

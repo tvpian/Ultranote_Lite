@@ -4993,6 +4993,52 @@ body.focus-mode #pgContent {
 .editor-pane-wrap[data-mode="split"]   > #markdownPreview,
 .editor-pane-wrap[data-mode="split"]   > .pane-editor,
 .editor-pane-wrap[data-mode="split"]   > .pane-preview { display: block; }
+
+/* Floating "back to top" button — appears once the user has scrolled down a
+   bit (e.g. after jumping to a heading/highlight from the Outline panel),
+   giving a one-click way back up instead of dragging the scrollbar. Subtle
+   by design: invisible + non-interactive until needed.
+   `position: fixed` (viewport-relative, NOT tied to .editor-pane-wrap's own
+   box) because the pane's scroll behavior differs by view mode — in
+   edit/split modes the textarea/preview scroll internally (bounded height),
+   but in preview-only mode the height cap is removed and the whole page
+   scrolls instead (see .editor-pane-wrap comment above). Fixed positioning
+   keeps the button in the same on-screen spot regardless of which one
+   is actually scrolling. */
+.pane-scroll-top-btn {
+  position: fixed;
+  right: 26px;
+  bottom: 28px;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--btn-border);
+  background: var(--btn-bg);
+  color: var(--muted);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.45);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.pane-scroll-top-btn.visible {
+  opacity: 0.85;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.pane-scroll-top-btn:hover {
+  opacity: 1;
+  color: var(--fg);
+  border-color: var(--acc);
+}
+@media (max-width: 720px) {
+  .pane-scroll-top-btn { right: 14px; bottom: 18px; font-size: 11px; padding: 6px 10px; }
+}
 @media (max-width: 720px) {
   /* On narrow screens split would be cramped → collapse to preview only */
   .editor-pane-wrap[data-mode="split"] > #contentBox,
