@@ -4001,8 +4001,17 @@ function renderToday(){
         <input id="dailyTitle" type="text" value="${htmlesc(daily.title)}"/>
       </div>
       <div style="margin-top:8px;">
-        ${markdownToolbarHtml('dailyContent')}
-        <textarea id="dailyContent">${htmlesc(daily.content)}</textarea>
+        <div id="dailyToolbarRow" style="display:none;">
+          ${markdownToolbarHtml('dailyContent')}
+        </div>
+        <div class="row" style="margin-bottom:6px;gap:8px;align-items:center;">
+          <button id="dailyModeToggle" class="btn" style="font-size:12px;" title="Switch between Edit and Preview">✏️ Edit</button>
+          <span class="muted" style="font-size:11px;">Click the note to edit — it returns to Preview (with checkable tasks) once you click away</span>
+        </div>
+        <div id="dailyPaneWrap" class="editor-pane-wrap" data-mode="preview">
+          <textarea id="dailyContent" class="pane-editor" style="min-height:300px;">${htmlesc(daily.content)}</textarea>
+          <div id="dailyPreview" class="markdown-preview pane-preview" style="min-height:300px;"></div>
+        </div>
       </div>
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
         <button id="saveDaily" class="btn acc">Save</button>
@@ -4110,6 +4119,7 @@ function renderToday(){
       const ok = await showConfirm(`Apply "${template.name}" template? This will replace current content.`, 'Apply', 'Cancel');
       if(ok){
         $("#dailyContent").value = template.content.replace(/\[Date\]/g, new Date().toLocaleDateString()).replace(/\[Title\]/g, '');
+        if(typeof window._refreshDailyPreview === 'function') window._refreshDailyPreview();
       }
     }
     e.target.value = '';
@@ -4117,6 +4127,96 @@ function renderToday(){
   // --- Markdown toolbar for daily note content ---
   bindMarkdownToolbar('dailyContent');
   wireInlineImagePasteDrop('dailyContent');
+
+  // --- Preview/Edit mode for the daily note body ---
+  // Defaults to rendered Preview (clean look, task checkboxes are directly
+  // checkable) every time this view is drawn. Clicking into the content (or
+  // the Edit button) switches to the raw textarea; clicking away — or
+  // clicking a toolbar button, which briefly steals focus and gives it right
+  // back — auto-saves and returns to Preview. This is intentionally *not*
+  // persisted across renders: every fresh render of Today starts in Preview,
+  // matching "always preview except while actively editing".
+  {
+    const dailyPaneWrap = document.getElementById('dailyPaneWrap');
+    const dailyPreviewEl = document.getElementById('dailyPreview');
+    const dailyToolbarRowEl = document.getElementById('dailyToolbarRow');
+    const dailyModeToggleBtn = document.getElementById('dailyModeToggle');
+    let dailyMode = 'preview';
+
+    // Toggling a rendered checkbox flips its `[ ]`/`[x]` marker in the raw
+    // markdown. marked renders task-list checkboxes in source order with
+    // nothing else producing <input type=checkbox> in this preview, so the
+    // Nth checkbox in the DOM reliably maps to the Nth task-list line.
+    const TASK_LINE_RE = /^(\s*[-*+]\s+)\[([ xX])\](.*)$/;
+    function _toggleDailyTaskLine(idx, checked){
+      const lines = dailyContent.value.split('\n');
+      let count = -1;
+      for(let i=0;i<lines.length;i++){
+        const m = lines[i].match(TASK_LINE_RE);
+        if(m){
+          count++;
+          if(count === idx){
+            lines[i] = m[1] + '[' + (checked?'x':' ') + ']' + m[3];
+            break;
+          }
+        }
+      }
+      dailyContent.value = lines.join('\n');
+      doSaveDaily();
+      renderDailyPreview();
+    }
+    function renderDailyPreview(){
+      if(!dailyPreviewEl) return;
+      dailyPreviewEl.innerHTML = markdownToHtml(dailyContent.value);
+      if(typeof _processMermaid === 'function') _processMermaid(dailyPreviewEl);
+      dailyPreviewEl.querySelectorAll('input[type=checkbox]').forEach((cb, idx) => {
+        cb.disabled = false;
+        cb.style.cursor = 'pointer';
+        cb.onchange = () => _toggleDailyTaskLine(idx, cb.checked);
+      });
+    }
+    function applyDailyMode(mode){
+      dailyMode = mode;
+      if(dailyPaneWrap) dailyPaneWrap.setAttribute('data-mode', mode);
+      if(dailyToolbarRowEl) dailyToolbarRowEl.style.display = mode === 'edit' ? 'block' : 'none';
+      if(dailyModeToggleBtn) dailyModeToggleBtn.textContent = mode === 'edit' ? '👁 Preview' : '✏️ Edit';
+      if(mode === 'preview') renderDailyPreview();
+      else if(dailyContent) dailyContent.focus();
+    }
+    if(dailyPaneWrap) applyDailyMode('preview');
+
+    if(dailyContent){
+      dailyContent.addEventListener('focus', () => { if(dailyMode !== 'edit') applyDailyMode('edit'); });
+      dailyContent.addEventListener('blur', () => {
+        // Deferred: a toolbar button click blurs the textarea on mousedown
+        // then re-focuses it inside its own click handler — checking
+        // document.activeElement on the next tick (instead of immediately)
+        // lets that re-focus win so the toolbar keeps working instead of
+        // the textarea getting yanked away mid-click.
+        setTimeout(() => {
+          if(document.activeElement !== dailyContent){
+            doSaveDaily();
+            applyDailyMode('preview');
+          }
+        }, 0);
+      });
+    }
+    if(dailyPreviewEl){
+      dailyPreviewEl.addEventListener('click', (e) => {
+        if(e.target.closest('input[type=checkbox]')) return; // handled by its own change listener
+        applyDailyMode('edit');
+      });
+    }
+    if(dailyModeToggleBtn){
+      dailyModeToggleBtn.onclick = () => {
+        if(dailyMode === 'edit'){ doSaveDaily(); applyDailyMode('preview'); }
+        else applyDailyMode('edit');
+      };
+    }
+    // Keep the preview in sync when content changes without focus events
+    // (template applied while viewing Preview).
+    window._refreshDailyPreview = renderDailyPreview;
+  }
 
   // --- Journal card wiring ---
   const journalEl = document.getElementById('journalContent');

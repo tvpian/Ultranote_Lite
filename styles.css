@@ -6001,3 +6001,19 @@ html { scrollbar-gutter: stable; }
   }
 }
 
+/* GFM task-list items (- [ ] / - [x]) render with a leading checkbox — drop
+   the bullet so it isn't a bullet *and* a checkbox, and align the checkbox
+   with the text baseline. Used by the Today page's clickable-checkbox
+   preview (see renderToday's dailyPreview wiring in app.js) and anywhere
+   else task lists show up in a .markdown-preview. */
+.markdown-preview li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.4em;
+}
+.markdown-preview li input[type="checkbox"] {
+  margin-right: 6px;
+  cursor: pointer;
+  transform: translateY(1px);
+}
+
+
